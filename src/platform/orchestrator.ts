@@ -211,6 +211,8 @@ async function judgeAndDeliver(portalId: string, runId: string, ctx: PortalConte
 
   if (verdict.kind === "healthy" && read.kind === "ok") {
     const { summary, pendingNew } = await deliver(portalId, read, ctx);
+    // Deleted meanwhile: write nothing, the same address may already be a new portal with this id.
+    if (ctx.signal.aborted) return;
     finishRun(runId, "ok", summary);
     store.setState(portalId, "serving", summary, nowWithOffset());
     return scheduleNext(portalId, pendingNew > 0 ? config.pendingReadMinutes : config.readIntervalMinutes);
@@ -250,6 +252,7 @@ async function judgeAndDeliver(portalId: string, runId: string, ctx: PortalConte
   }
   store.saveRecipe(portalId, fixed.recipe, "repair", fixed.summary, nowWithOffset());
   const { summary, pendingNew } = await deliver(portalId, fixed.read, rctx);
+  if (ctx.signal.aborted) return;
   finishRun(repairId, "ok", join(fixed.summary, summary));
   store.setState(portalId, "serving", join(labelled("Repaired", fixed.summary), summary), nowWithOffset());
   scheduleNext(portalId, pendingNew > 0 ? config.pendingReadMinutes : config.readIntervalMinutes);
@@ -360,6 +363,8 @@ export async function deliver(portalId: string, read: OkRead, ctx: PortalContext
 
   // No longer listed => closed, but only when this read saw the whole list (see listing.ts):
   // a read capped by maxPages, or aborted halfway, did not see the older tenders.
+  // Aborted (DELETE): stop before closing tenders or moving the baseline.
+  if (ctx.signal.aborted) return { summary: "Stopped.", pendingNew: 0 };
   const wholeList = sawWholeList(store.currentRecipe(portalId)?.list.pagination, read.diagnostics.listPages, ctx.signal.aborted);
   for (const t of store.listTenders(portalId)) {
     if (!seen.has(t.id) && t.status === "open" && mayClose({ wholeList, submissionDeadline: t.submissionDeadline, now: Date.now(), toEpoch })) {

@@ -208,3 +208,15 @@ test("an abort in the middle of delivery closes nothing", async () => {
   await deliver(p, read([]), aborted);
   assert.deepEqual(store.listTenders(p).map((t) => t.status), ["open", "open"]);
 });
+
+test("an aborted delivery leaves the baseline alone", async () => {
+  const p = newPortal();
+  await deliver(p, read([tender(1, 0), tender(2, 0)]), ctx());
+  const before = store.getBaseline(p);
+  const c = new AbortController();
+  c.abort();
+  const aborted = { http: politeHttp(c.signal), browser: politeBrowser(c.signal), signal: c.signal, log: () => {} } as unknown as PortalContext;
+  const out = await deliver(p, read([tender(1, 0)]), aborted);
+  assert.deepEqual(store.getBaseline(p), before);
+  assert.equal(out.pendingNew, 0);
+});
