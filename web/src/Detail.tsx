@@ -16,15 +16,31 @@ export function Detail({ id, onClose, onChanged }: { id: string; onClose: () => 
   const panel = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const prev = document.activeElement as HTMLElement | null;
-    panel.current?.focus();
-    const key = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    const prev = document.activeElement as (HTMLElement | SVGElement) | null;
+    const drawer = panel.current;
+    drawer?.querySelector("button")?.focus();
+    const key = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        onClose();
+      } else if (e.key === "Tab") {
+        const stops = [...(drawer?.querySelectorAll<HTMLElement>('a[href], button:not(:disabled), summary') ?? [])]
+          .filter((el) => el.getClientRects().length > 0);
+        const first = stops[0];
+        const last = stops.at(-1);
+        if (e.shiftKey ? document.activeElement === first : document.activeElement === last) {
+          e.preventDefault();
+          (e.shiftKey ? last : first)?.focus();
+        }
+      }
+    };
     window.addEventListener("keydown", key);
+    const overflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
       window.removeEventListener("keydown", key);
-      document.body.style.overflow = "";
-      prev?.focus?.();
+      document.body.style.overflow = overflow;
+      if (prev?.isConnected) prev.focus({ preventScroll: true });
     };
   }, [onClose]);
 
@@ -39,7 +55,7 @@ export function Detail({ id, onClose, onChanged }: { id: string; onClose: () => 
         aria-label={data ? host(data.portal.url) : "Portal"}
         className="drawer absolute inset-y-0 right-0 flex w-full max-w-[680px] flex-col overflow-y-auto bg-paper shadow-[0_0_0_1px_var(--color-hairline),-24px_0_48px_-24px_rgb(0_0_0/0.25)] focus:outline-none"
       >
-        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-hairline bg-paper/90 px-6 py-3 backdrop-blur">
+        <div className="sticky top-0 z-10 flex items-center justify-between gap-2 border-b border-hairline bg-paper/90 px-4 py-3 backdrop-blur sm:px-6">
           <span className="text-[13px] text-slate">{failing ? "Not updating: the API is not answering" : "Updates every 3 seconds"}</span>
           <button onClick={onClose} className="px-2 py-1 text-sm text-slate hover:bg-mist hover:text-ink">
             Close
@@ -62,7 +78,7 @@ function Body({ d, now, onChanged, onRemoved }: { d: PortalDetail; now: number; 
   const busy = d.busy ?? null;
 
   return (
-    <div className="px-6 pt-6 pb-16">
+    <div className="px-4 pt-6 pb-16 sm:px-6">
       <header>
         <div className="flex items-center gap-2 text-[13px] font-medium text-ink">
           <StatusIcon kind={stateToIconKind(p.state)} size={12} />
@@ -92,9 +108,11 @@ function Body({ d, now, onChanged, onRemoved }: { d: PortalDetail; now: number; 
         </Fact>
       </dl>
 
-      <section className="mt-8" aria-label="Last 24 hours">
-        <div className="mb-1 flex justify-between text-[12px] text-faint"><span>24 h ago</span><span>now</span></div>
+      <section className="mt-8 rounded-[6px] border border-hairline bg-sea p-3" aria-labelledby="activity-title">
+        <h3 id="activity-title" className="mb-2 text-sm font-semibold">Activity in the last 24 hours</h3>
         <Strip runs={d.runs.map((r) => ({ kind: r.kind, result: r.result, startedAt: r.started_at, finishedAt: r.finished_at }))} now={now} />
+        <div className="mt-1 flex justify-between text-xs text-faint"><span>24 h ago</span><span>12 h ago</span><span>Now</span></div>
+        <p className="mt-3 text-xs text-slate">Short marks are reads; tall marks are repairs. Red marks failed.</p>
       </section>
       <History d={d} now={now} />
       <Log events={d.events} />
@@ -179,7 +197,8 @@ function History({ d, now }: { d: PortalDetail; now: number }) {
 
   return (
     <section className="mt-10" aria-labelledby="history">
-      <h3 id="history" className="text-sm font-semibold">What happened</h3>
+      <h3 id="history" className="text-sm font-semibold">Run history</h3>
+      <p className="mt-1 text-xs text-faint">Newest first. Consecutive successful reads are grouped.</p>
       {items.length === 0 ? (
         <p className="mt-3 text-[14px] text-slate">Nothing yet. The first read starts as soon as the portal is added.</p>
       ) : (

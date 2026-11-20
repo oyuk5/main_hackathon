@@ -2,7 +2,7 @@
  * Operator dashboard styled after Docker Desktop: clean dark/light surfaces, 1px hairlines,
  * vertical column header dividers, Docker Blue primary controls, and 10px status circles.
  */
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { Board, openIssues } from "./Board";
 import { Chart } from "./Chart";
 import { Detail } from "./Detail";
@@ -10,6 +10,7 @@ import { Log } from "./Log";
 import { Picker } from "./Picker";
 import { Select } from "./Select";
 import { Strip } from "./Strip";
+import { ThemeSwitch } from "./Theme";
 import { StatusIcon, stateToIconKind } from "./StatusIcon";
 import {
   CHARACTER, STATE_ORDER, countryOf, host, int, plural, usd, useNow, usePoll, when,
@@ -53,6 +54,9 @@ export function App() {
   const { data: ledger } = usePoll<LedgerRow[]>("/internal/ledger", 10_000);
   const now = useNow(15_000);
   const { openId, tab } = useRoute();
+  const closeDetail = useCallback(() => {
+    window.location.hash = tab === "portals" ? "" : `#/${tab}`;
+  }, [tab]);
   const [hover, setHover] = useState<string | null>(null);
   const [view, setView] = useStored<View>("wt.portals.view", { state: "all", sort: "urgent" });
   const [query, setQuery] = useState("");
@@ -160,8 +164,9 @@ export function App() {
       )}
       {openId && (
         <Detail
+          key={openId}
           id={openId}
-          onClose={() => (window.location.hash = tab === "portals" ? "" : `#/${tab}`)}
+          onClose={closeDetail}
           onChanged={reload}
         />
       )}
@@ -203,8 +208,8 @@ function Header({ onAdded }: { onAdded: () => void }) {
 
   return (
     <header className="border-b border-hairline bg-paper">
-      <div className="mx-auto flex max-w-[1440px] min-[1800px]:max-w-[1680px] flex-col gap-3 px-4 py-2.5 sm:flex-row sm:items-center sm:gap-5 sm:px-6">
-        <a href="#" className="flex items-center gap-2.5">
+      <div className="mx-auto flex max-w-[1440px] min-[1800px]:max-w-[1680px] flex-wrap items-center gap-x-5 gap-y-3 px-4 py-2.5 sm:px-6">
+        <a href="#" className="order-1 flex items-center gap-2.5">
           <svg width="22" height="22" viewBox="0 0 22 22" fill="none" aria-hidden="true" className="shrink-0 text-docker">
             {/* A watchtower: lantern room, tapering tower, and a beam sweeping right. */}
             <path d="M14 5.2 20.5 2.8v6.4L14 6.8Z" fill="currentColor" opacity="0.28" />
@@ -214,7 +219,10 @@ function Header({ onAdded }: { onAdded: () => void }) {
           <span className="font-display text-[18px] font-bold tracking-tight text-ink">Watchtower</span>
           <span className="hidden text-[13px] text-slate md:inline">keeps tender portals delivering</span>
         </a>
-        <form onSubmit={add} className="flex w-full gap-2 sm:ml-auto sm:w-auto">
+        <div className="order-2 ml-auto sm:order-3 sm:ml-0">
+          <ThemeSwitch />
+        </div>
+        <form onSubmit={add} className="order-3 flex w-full gap-2 sm:order-2 sm:ml-auto sm:w-auto">
           <label htmlFor="portal-url" className="sr-only">Portal address</label>
           <input
             id="portal-url"
@@ -584,6 +592,7 @@ function Portals({
           type="button"
           onClick={() => setShowFilterBar((v) => !v)}
           aria-expanded={showFilterBar}
+          aria-label="Filter by state"
           title="Filter by state"
           className={`inline-flex h-9 w-9 items-center justify-center rounded-[4px] border transition-colors cursor-pointer ${
             showFilterBar || view.state !== "all"
@@ -601,6 +610,7 @@ function Portals({
           type="button"
           onClick={() => setShowSide(!showSide)}
           aria-pressed={showSide}
+          aria-label={showSide ? "Hide map and cost panel" : "Show map and cost panel"}
           title={showSide ? "Hide map & cost panel" : "Show map & cost panel"}
           className={`inline-flex h-9 w-9 items-center justify-center rounded-[4px] border transition-colors cursor-pointer ${
             showSide ? "border-docker/40 bg-docker/10 text-docker" : "border-transparent text-docker hover:bg-mist"
@@ -741,7 +751,8 @@ function Portals({
                   <tr
                     onMouseEnter={() => setHover(r.id)}
                     onMouseLeave={() => setHover(null)}
-                    onClick={() => {
+                    onClick={(e) => {
+                      e.currentTarget.querySelector("a")?.focus({ preventScroll: true });
                       window.location.hash = detailHref;
                     }}
                     className={`group border-b border-hairline last:border-b-0 cursor-pointer transition-colors ${
