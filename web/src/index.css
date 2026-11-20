@@ -68,21 +68,21 @@
       --color-faint: #aca295;
       --color-hairline: #344058;
 
-      --color-docker: #e2b393;
-      --color-docker-solid: #985c3d;
-      --color-docker-hover: #824c31;
-      --color-magenta: #e2b393;
+      --color-docker: #eea878;
+      --color-docker-solid: #ad5a32;
+      --color-docker-hover: #934b28;
+      --color-magenta: #eea878;
 
-      --color-serving: #9cc4a8;
-      --color-healing: #dbb978;
-      --color-healing-text: #dbb978;
-      --color-failed: #e49e8c;
-      --color-integrating: #bcb0de;
+      --color-serving: #7fcf9b;
+      --color-healing: #ecb850;
+      --color-healing-text: #ecb850;
+      --color-failed: #f4826a;
+      --color-integrating: #ae9df2;
 
-      --color-serving-wash: rgba(156, 196, 168, 0.12);
-      --color-healing-wash: rgba(219, 185, 120, 0.12);
-      --color-failed-wash: rgba(228, 158, 140, 0.13);
-      --color-integrating-wash: rgba(188, 176, 222, 0.13);
+      --color-serving-wash: rgba(127, 207, 155, 0.14);
+      --color-healing-wash: rgba(236, 184, 80, 0.14);
+      --color-failed-wash: rgba(244, 130, 106, 0.15);
+      --color-integrating-wash: rgba(174, 157, 242, 0.15);
     }
   }
   :root[data-theme="dark"] {
@@ -99,21 +99,21 @@
     --color-faint: #aca295;
     --color-hairline: #344058;
 
-    --color-docker: #e2b393;
-    --color-docker-solid: #985c3d;
-    --color-docker-hover: #824c31;
-    --color-magenta: #e2b393;
+    --color-docker: #eea878;
+    --color-docker-solid: #ad5a32;
+    --color-docker-hover: #934b28;
+    --color-magenta: #eea878;
 
-    --color-serving: #9cc4a8;
-    --color-healing: #dbb978;
-    --color-healing-text: #dbb978;
-    --color-failed: #e49e8c;
-    --color-integrating: #bcb0de;
+    --color-serving: #7fcf9b;
+    --color-healing: #ecb850;
+    --color-healing-text: #ecb850;
+    --color-failed: #f4826a;
+    --color-integrating: #ae9df2;
 
-    --color-serving-wash: rgba(156, 196, 168, 0.12);
-    --color-healing-wash: rgba(219, 185, 120, 0.12);
-    --color-failed-wash: rgba(228, 158, 140, 0.13);
-    --color-integrating-wash: rgba(188, 176, 222, 0.13);
+    --color-serving-wash: rgba(127, 207, 155, 0.14);
+    --color-healing-wash: rgba(236, 184, 80, 0.14);
+    --color-failed-wash: rgba(244, 130, 106, 0.15);
+    --color-integrating-wash: rgba(174, 157, 242, 0.15);
   }
   :root[data-theme="light"] {
     color-scheme: light;
