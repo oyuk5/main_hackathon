@@ -20,9 +20,9 @@ interface Ticket {
 }
 
 const LANES: { id: Lane; title: string; note: string; empty: string; tone: string }[] = [
-  { id: "person", title: "Needs a person", note: "Watchtower could not fix these on its own.", empty: "Nothing needs a person.", tone: "border-t-failed" },
-  { id: "fixing", title: "Fixing itself", note: "Repairs and first attaches running now. The last correct tenders stay served.", empty: "No repair running.", tone: "border-t-healing" },
-  { id: "fixed", title: "Fixed by itself", note: "Portals that changed in the last 24 hours and were repaired without help.", empty: "No repairs in the last 24 hours.", tone: "border-t-serving" },
+  { id: "person", title: "Needs a person", note: "Watchtower could not fix these on its own.", empty: "Nothing needs a person.", tone: "bg-failed" },
+  { id: "fixing", title: "Fixing itself", note: "Repairs and first attaches running now. The last correct tenders stay served.", empty: "No repair running.", tone: "bg-healing" },
+  { id: "fixed", title: "Fixed by itself", note: "Portals that changed in the last 24 hours and were repaired without help.", empty: "No repairs in the last 24 hours.", tone: "bg-serving" },
 ];
 
 /** What a person can do about a portal Watchtower cannot fix itself. Null when the reason gives no clue. */
@@ -38,7 +38,6 @@ export function nextStep(reason: string): string | null {
 }
 
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
-const clip = (s: string, max: number) => (s.length > max ? s.slice(0, max - 1).replace(/\s+\S*$/, "") + "…" : s);
 
 /**
  * A ticket's title and description from a reason sentence.
@@ -46,22 +45,22 @@ const clip = (s: string, max: number) => (s.length > max ? s.slice(0, max - 1).r
  * A short label ("Blocked: robots.txt disallows /api/, where…") keeps its first clause in the title.
  * A reason without a label uses its first sentence as the title and the rest as text.
  */
-export function ticketText(reason: string, max = 64): { title: string; body: string } {
+export function ticketText(reason: string): { title: string; body: string } {
   const r = reason.trim();
   const colon = r.indexOf(": ");
   const firstClause = (s: string) => s.split(/[,;]\s|\.\s|\.$/)[0]!.trim();
   if (colon > 0) {
     const label = r.slice(0, colon);
     const rest = r.slice(colon + 2);
-    if (label.split(/\s+/).length >= 3) return { title: clip(label, max), body: cap(rest) };
+    if (label.split(/\s+/).length >= 3) return { title: label, body: cap(rest) };
     const first = firstClause(rest);
     const more = rest.slice(first.length).replace(/^[.,;]\s*/, "");
     // A remainder that starts mid-sentence ("where this portal…") reads better whole.
-    return { title: clip(`${label}: ${first}`, max), body: cap(/^(where|which|so|and|because|but)\b/i.test(more) ? rest : more) };
+    return { title: `${label}: ${first}`, body: cap(/^(where|which|so|and|because|but)\b/i.test(more) ? rest : more) };
   }
   const first = firstClause(r);
   const rest = r.slice(first.length).replace(/^[.,;]\s*/, "");
-  return { title: clip(cap(first), max), body: cap(rest) };
+  return { title: cap(first), body: cap(rest) };
 }
 
 const newestFirst = (runs: RecentRun[] = []) => [...runs].sort((a, b) => Date.parse(b.startedAt) - Date.parse(a.startedAt));
@@ -134,10 +133,13 @@ export function Board({ rows, now, hover, setHover }: { rows: PortalRow[]; now: 
   return (
     <section aria-label="Issues" className="grid gap-5 lg:grid-cols-3">
       {LANES.map((lane) => (
-        <div key={lane.id} className={`flex min-w-0 flex-col border-t-[3px] ${lane.tone} bg-paper/60 px-2 pt-3 pb-2`}>
+        <div key={lane.id} className="flex min-w-0 flex-col rounded-[6px] border border-hairline bg-paper/60 px-3 pt-3 pb-2">
           <header className="pb-3">
             <div className="flex items-baseline justify-between gap-3">
-              <h2 className="text-[15px] font-semibold text-ink">{lane.title}</h2>
+              <h2 className="flex items-center gap-2 text-[15px] font-semibold text-ink">
+                <span aria-hidden="true" className={`size-2 shrink-0 rounded-full ${lane.tone}`} />
+                {lane.title}
+              </h2>
               <span className="num text-[15px] font-semibold text-slate">{t[lane.id].length}</span>
             </div>
             <p className="mt-0.5 text-[12.5px] leading-snug text-slate">{lane.note}</p>
@@ -176,7 +178,7 @@ function Card({ k, hover, setHover }: { k: Ticket; hover: string | null; setHove
           <span className="min-w-0 truncate font-semibold text-ink">{host(p.url)}</span>
           {k.working && <span className="ml-auto shrink-0 text-[12px] text-slate">working</span>}
         </span>
-        <span className="mt-1.5 block text-[15px] leading-snug font-semibold">{k.title}</span>
+        <span className="mt-1.5 block text-[15px] leading-snug font-semibold [overflow-wrap:anywhere]">{k.title}</span>
         <span className="mt-1 block text-[13.5px] leading-snug text-slate">{k.body}</span>
         {p.state === "failed" && nextStep(p.reason) && (
           <span className="mt-2 block rounded-[4px] bg-failed-wash px-2.5 py-1.5 text-[13px] leading-snug text-ink">
