@@ -512,7 +512,8 @@ export async function deliver(portalId: string, read: OkRead, ctx: PortalContext
     lastGoodSkeletonHash: read.diagnostics.listSkeletonHash ?? baseline.lastGoodSkeletonHash,
   });
 
-  const open = store.listTenders(portalId).filter((t) => t.status === "open").length;
+  const delivered = store.listTenders(portalId);
+  const open = delivered.filter((t) => t.status === "open").length;
   const at = formatWithOffset(new Date()).slice(11, 16);
   const pendingNew = plan.pendingNew + pendingRefs;
   const documentsPending = plan.pending + pendingRefs + documentFailures.length > 0;
@@ -522,5 +523,8 @@ export async function deliver(portalId: string, read: OkRead, ctx: PortalContext
     ? ` Documents for ${count(documentFailures.length, "tender")} could not be fetched; retrying next read.`
     : deferredUpdates > 0 ? ` Document updates for ${count(deferredUpdates, "tender")} are on their way.`
       : documentsPending ? "" : " All checks passed.";
-  return { summary: `Serving ${count(open, "open tender")} (${fresh} new, ${changed} changed)${waiting}. Last read ${at}.${documentNote}`, pendingNew, documentsPending, documentFailures, documentsFetched };
+  const deliveryNote = delivered.length > 0 && read.tenders.every((t) => statusOf(t) !== "open")
+    ? `This read found 0 open tenders; keeping ${count(delivered.length, "delivered tender")} available (${open} still marked open).`
+    : `Serving ${count(open, "open tender")} (${fresh} new, ${changed} changed)${waiting}.`;
+  return { summary: `${deliveryNote} Last read ${at}.${documentNote}`, pendingNew, documentsPending, documentFailures, documentsFetched };
 }

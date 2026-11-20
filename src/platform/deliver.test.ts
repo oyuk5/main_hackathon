@@ -209,12 +209,28 @@ test("a tender missing after a full read is closed; after a capped read it stays
   cappedRead.diagnostics.listPages = 2; // hit maxPages: older tenders were not seen
   await deliver(capped, cappedRead, ctx());
   assert.equal(byId(capped).T2!.status, "open");
+  const emptyCappedRead = read([]);
+  emptyCappedRead.diagnostics.listPages = 2;
+  const emptyCapped = await deliver(capped, emptyCappedRead, ctx());
+  assert.equal(store.countTenders(capped), 2);
+  assert.match(emptyCapped.summary, /^This read found 0 open tenders; keeping 2 delivered tenders available \(2 still marked open\)\./);
 
   const full = newPortal();
   store.saveRecipe(full, recipe, "attach", "test", "2026-11-20T18:00:00+01:00");
   await deliver(full, read([tender(1, 0), tender(2, 0)]), ctx());
   await deliver(full, read([tender(1, 0)]), ctx()); // 1 page of 2 allowed: the whole list
   assert.equal(byId(full).T2!.status, "closed");
+});
+
+test("an empty read distinguishes open tenders from all tenders still delivered", async () => {
+  const p = newPortal();
+  await deliver(p, read([tender(1, 0), tender(2, 0)]), ctx());
+
+  const { summary } = await deliver(p, read([]), ctx());
+
+  assert.equal(store.countTenders(p), 2);
+  assert.deepEqual(store.listTenders(p).map((t) => t.status), ["closed", "closed"]);
+  assert.match(summary, /^This read found 0 open tenders; keeping 2 delivered tenders available \(0 still marked open\)\./);
 });
 
 test("an abort in the middle of delivery closes nothing", async () => {
