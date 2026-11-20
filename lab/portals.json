@@ -1,0 +1,145 @@
+{
+  "_about": "Real test portals (person D). Checked by hand with curl on Fri 2026-11-20 17:00-17:30. 'checked' lists what was actually seen; 'todo' lists what still needs a browser check. hidden=true: B and C must not tune on these.",
+  "portals": [
+    {
+      "id": "tenderned-nl",
+      "name": "TenderNed",
+      "country": "NL",
+      "software": "TenderNed (national, own)",
+      "url": "https://www.tenderned.nl/aankondigingen/overzicht",
+      "kind": "js-app",
+      "docs": "public",
+      "expect": "healthy",
+      "hidden": false,
+      "checked": "JSON API /papi/tenderned-rs-tns/v2/publicaties returns tenders without login; /publicaties/{id}/documenten lists files with direct download links.",
+      "todo": "Filter to open tenders only (list mixes rectifications and awards)."
+    },
+    {
+      "id": "placsp-es",
+      "name": "Plataforma de Contratacion del Sector Publico",
+      "country": "ES",
+      "software": "PLACSP (national, own, JSF)",
+      "url": "https://contrataciondelestado.es/wps/portal/plataforma/buscadores/busqueda",
+      "kind": "multi-step",
+      "docs": "public",
+      "expect": "healthy",
+      "hidden": false,
+      "checked": "Search UI is a stateful JSF form (multi-step). Public ATOM feed /sindicacion/sindicacion_643/licitacionesPerfilesContratanteCompleto3.atom has 278 entries with direct GetDocumentByIdServlet document links.",
+      "todo": "Confirm 5 open tenders and download one document in a browser."
+    },
+    {
+      "id": "platformazakupowa-pl",
+      "name": "Platforma Zakupowa",
+      "country": "PL",
+      "software": "Open Nexus",
+      "url": "https://platformazakupowa.pl/all",
+      "kind": "html",
+      "docs": "public",
+      "expect": "healthy",
+      "hidden": false,
+      "checked": "Server-rendered list with 30 tenders. Detail page /transakcja/{id} works without login but first bounces through a silent SSO redirect (needs a cookie jar). Attachments table appears to load via JavaScript. Browser check by D, Fri 17:45: documents download without login.",
+      "todo": ""
+    },
+    {
+      "id": "dtvp-de",
+      "name": "Deutsches Vergabeportal (DTVP)",
+      "country": "DE",
+      "software": "cosinex Vergabemarktplatz",
+      "url": "https://www.dtvp.de/Center/company/announcements/categoryOverview.do?method=showCategoryOverview",
+      "kind": "html",
+      "docs": "login",
+      "expect": "failed",
+      "hidden": false,
+      "checked": "Server-rendered table by CPV category; 24 rows for CPV 45 with 2026/2027 deadlines. Detail links go through projectForwarding.do to a Satellite page. Browser check by D, Fri 17:45: documents need a login.",
+      "todo": "System must report failed with a reason that says login is required."
+    },
+    {
+      "id": "mercell-no",
+      "name": "Mercell Source-to-Contract",
+      "country": "NO",
+      "software": "Mercell",
+      "url": "https://s2c.mercell.com/today",
+      "kind": "js-app",
+      "docs": "login",
+      "expect": "failed",
+      "hidden": false,
+      "checked": "Public page loads (JS app). Browser check by D, Fri 17:45: documents need a login, as expected.",
+      "todo": "Country is a guess: Mercell is a multi-country platform, not a national portal."
+    },
+    {
+      "id": "evergabe-nrw-de",
+      "name": "Vergabemarktplatz NRW",
+      "country": "DE",
+      "software": "cosinex Vergabemarktplatz",
+      "url": "https://www.evergabe.nrw.de/VMPCenter/company/announcements/categoryOverview.do?method=showCategoryOverview",
+      "kind": "html",
+      "docs": "public",
+      "expect": "healthy",
+      "hidden": true,
+      "checked": "Same software as DTVP under another address; 20 tenders for CPV 45. Tests whether a recipe transfers across one software package. Browser check by D, Fri 17:45: documents download without login (unlike DTVP on the same software).",
+      "todo": ""
+    },
+    {
+      "id": "evergabe-bund-de",
+      "name": "e-Vergabe (Bund)",
+      "country": "DE",
+      "software": "e-Vergabe des Bundes (own)",
+      "url": "https://www.evergabe-online.de/search.html",
+      "kind": "html",
+      "docs": "public",
+      "expect": "healthy",
+      "hidden": true,
+      "checked": "Server-rendered search (Apache Wicket); first request redirects to a cookie check, so it needs a cookie jar. Browser check by D, Fri 18:00: PDFs download without login.",
+      "todo": "Confirm at least 5 open tenders."
+    },
+    {
+      "id": "etenders-ie",
+      "name": "eTenders",
+      "country": "IE",
+      "software": "European Dynamics EPPS",
+      "url": "https://www.etenders.gov.ie/epps/quickSearchAction.do?searchType=cftFTS&latest=true",
+      "kind": "html",
+      "docs": "public",
+      "expect": "healthy",
+      "hidden": true,
+      "checked": "Server-rendered search results. Browser check by D, Fri 18:00: documents download without login.",
+      "todo": "Confirm at least 5 open tenders."
+    }
+  ],
+  "dropped": [
+    {
+      "id": "place-fr",
+      "url": "https://www.marches-publics.gouv.fr/",
+      "why": "Temporarily suspended (D, Fri 17:45)."
+    },
+    {
+      "id": "marches-securises-fr",
+      "url": "https://www.marches-securises.fr/",
+      "why": "List does not load (D, Fri 17:45)."
+    },
+    {
+      "id": "ezamowienia-pl",
+      "url": "https://ezamowienia.gov.pl/mp-client/search/list",
+      "why": "Documents need a login; we already have 2 blocked portals (brief: 1-2)."
+    },
+    {
+      "id": "maximilien-fr",
+      "url": "https://marches.maximilien.fr/?page=Entreprise.EntrepriseAdvancedSearch&AllCons",
+      "why": "Documents need a login (D, Fri 17:55); already 2 blocked portals."
+    },
+    {
+      "id": "brandenburg-de",
+      "url": "https://vergabemarktplatz.brandenburg.de/VMPCenter/company/announcements/categoryOverview.do?method=showCategoryOverview",
+      "why": "Documents need a login (D, Fri 17:55); already 2 blocked portals."
+    }
+  ],
+  "backup": [
+    {
+      "id": "contractaciopublica-cat",
+      "country": "ES",
+      "software": "Generalitat de Catalunya (JS app)",
+      "url": "https://contractaciopublica.cat/ca/cercador",
+      "note": "Loads; shows a planned-maintenance notice for Mon 23 Nov 16:00-18:00. Documents not checked."
+    }
+  ]
+}
