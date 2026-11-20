@@ -136,6 +136,12 @@ export async function buildServer() {
 
   app.get("/internal/ledger", async () => store.ledger());
 
+  // What happened, newest first: each run with its problem, what was done and the outcome.
+  app.get<{ Querystring: { all?: string; limit?: string } }>("/internal/log", async (req) => {
+    const limit = Math.min(Math.max(Number(req.query.limit) || 300, 1), 1000);
+    return store.journal(limit, req.query.all === "1");
+  });
+
   // ---------------------------------------------------------------- dashboard at GET /
 
   const webRoot = path.resolve("dist/web");

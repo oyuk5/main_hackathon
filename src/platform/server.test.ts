@@ -150,3 +150,24 @@ describe("DELETE and refresh", () => {
     assert.ok(runs.includes(a) && runs.includes(b));
   });
 });
+
+describe("GET /internal/log", () => {
+  it("lists runs newest first with their events and leaves passing reads out unless all=1", async () => {
+    store.insertPortal({ id: "lg", url: "https://lg.example/", state: "serving", reason: "Serving.", createdAt: "2026-11-20T09:00:00+01:00" });
+    store.insertRun({ id: "lg-1", portalId: "lg", kind: "read", startedAt: "2026-11-20T09:00:00+01:00" });
+    store.finishRun("lg-1", "ok", "2026-11-20T09:00:05+01:00", "Serving 3 open tenders.");
+    store.insertRun({ id: "lg-2", portalId: "lg", kind: "read", startedAt: "2026-11-20T10:00:00+01:00" });
+    store.addEvent("lg", "lg-2", "2026-11-20T10:00:01+01:00", "warn", "No tender has a title.");
+    store.finishRun("lg-2", "failed", "2026-11-20T10:00:05+01:00", "No tender has a title (0 of 3).");
+    store.insertRun({ id: "lg-3", portalId: "lg", kind: "repair", startedAt: "2026-11-20T10:01:00+01:00" });
+    store.finishRun("lg-3", "ok", "2026-11-20T10:02:00+01:00", "Title now read from td.subject.");
+
+    const mine = (rows: { portal_id: string; id: string }[]) => rows.filter((r) => r.portal_id === "lg").map((r) => r.id);
+    const notable = (await get("/internal/log")).json();
+    assert.deepEqual(mine(notable), ["lg-3", "lg-2"]);
+    assert.equal(notable.find((r: { id: string }) => r.id === "lg-2").events[0].message, "No tender has a title.");
+    assert.equal(notable.find((r: { id: string }) => r.id === "lg-2").url, "https://lg.example/");
+    assert.deepEqual(mine((await get("/internal/log?all=1")).json()), ["lg-3", "lg-2", "lg-1"]);
+    assert.equal((await get("/internal/log?limit=junk")).statusCode, 200);
+  });
+});

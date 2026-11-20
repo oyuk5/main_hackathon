@@ -143,6 +143,26 @@ export const store = {
   failInterruptedRuns(at: string) {
     db.prepare("UPDATE runs SET result = 'failed', finished_at = ?, summary = 'Interrupted by a restart.' WHERE result IS NULL").run(at);
   },
+  /**
+   * Runs across all portals, newest first, for the dashboard's log. `everything` false leaves out
+   * reads that passed, which are most runs and say nothing new.
+   */
+  journal(limit: number, everything: boolean) {
+    const runs = db
+      .prepare(
+        `SELECT r.id, r.portal_id, p.url, r.kind, r.started_at, r.finished_at, r.result, r.summary,
+                (SELECT COALESCE(SUM(c.cost_usd), 0) FROM llm_calls c WHERE c.run_id = r.id) AS cost_usd
+         FROM runs r JOIN portals p ON p.id = r.portal_id
+         ${everything ? "" : "WHERE NOT (r.kind = 'read' AND r.result = 'ok')"}
+         ORDER BY r.seq DESC LIMIT ?`,
+      )
+      .all(limit) as unknown as {
+      id: string; portal_id: string; url: string; kind: "read" | "repair"; started_at: string; finished_at: string | null;
+      result: "ok" | "failed" | null; summary: string; cost_usd: number;
+    }[];
+    const events = db.prepare("SELECT at, level, message FROM events WHERE run_id = ? ORDER BY id LIMIT 50");
+    return runs.map((r) => ({ ...r, events: events.all(r.id) as unknown as { at: string; level: string; message: string }[] }));
+  },
   addEvent(portalId: string, runId: string | null, at: string, level: string, message: string) {
     db.prepare("INSERT INTO events (portal_id, run_id, at, level, message) VALUES (?, ?, ?, ?, ?)").run(portalId, runId, at, level, message);
   },
