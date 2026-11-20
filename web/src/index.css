@@ -15,35 +15,36 @@
   /* Headings, the wordmark and figures: a slightly condensed grotesque, like lettering on a chart. */
   --font-display: "Archivo Variable", "Inter", ui-sans-serif, system-ui, sans-serif;
 
-  /* Light theme on warm cream rather than pure white: easier on the eyes over a long shift. */
-  --color-paper: #fcfbf7;
-  --color-sea: #f4f2ea;
-  --color-mist: #eeebe1;
-  --color-land: #e8e3d6;
-  --color-land-watched: #dcd5c4;
-  --color-shallow: #efece2;
-  --color-shallow-deep: #e5e0d3;
-  --color-grat: #ddd7c9;
-  --color-ink: #24211c;
-  --color-slate: #57524a;
-  --color-faint: #6b655a;
-  --color-hairline: #dfd9cc;
+  /* Light theme: powdery peach cream with little blue light, easy on the eyes over a long shift.
+     State colours are warmed to match: rust-brick for problems, sage for serving. */
+  --color-paper: #fdf8f2;
+  --color-sea: #f7eee3;
+  --color-mist: #f2e7da;
+  --color-land: #eee1cf;
+  --color-land-watched: #e3d1ba;
+  --color-shallow: #f3e9dd;
+  --color-shallow-deep: #eadcca;
+  --color-grat: #e4d6c3;
+  --color-ink: #2b231c;
+  --color-slate: #5c5045;
+  --color-faint: #6f6257;
+  --color-hairline: #e7d9c7;
 
-  --color-docker: #17607f;
-  --color-docker-solid: #17607f;
-  --color-docker-hover: #0f4a63;
-  --color-magenta: #17607f;
+  --color-docker: #1d5b72;
+  --color-docker-solid: #1d5b72;
+  --color-docker-hover: #154558;
+  --color-magenta: #1d5b72;
 
-  --color-serving: #00997a;
-  --color-healing: #b07b00;
-  --color-healing-text: #9a6700;
-  --color-failed: #cf222e;
-  --color-integrating: #6b4fc8;
+  --color-serving: #276f49;
+  --color-healing: #b8800f;
+  --color-healing-text: #7f5607;
+  --color-failed: #b13a2a;
+  --color-integrating: #6d52b5;
 
-  --color-serving-wash: #e5f1e9;
-  --color-healing-wash: #f7eed8;
-  --color-failed-wash: #f8e7e2;
-  --color-integrating-wash: #eeeaf4;
+  --color-serving-wash: #e7f0e2;
+  --color-healing-wash: #f6ead2;
+  --color-failed-wash: #f7e2d9;
+  --color-integrating-wash: #ece6f1;
 }
 
 @layer base {
