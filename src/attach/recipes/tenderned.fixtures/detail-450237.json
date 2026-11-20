@@ -1,0 +1,94 @@
+{
+  "publicatieId": 450237,
+  "kenmerk": 626211,
+  "aanbestedingNaam": "Verkenning route S106",
+  "opdrachtgeverNaam": "Gemeente Rijswijk",
+  "numberOfDaysBeforeAanmeldenInschrijven": 28,
+  "opdrachtBeschrijving": "De gemeente Rijswijk, gemeente Den Haag en MRDH zijn op zoek naar een adviesbureau voor het uitvoeren van de ver-kenning naar de S106 Prinses Beatrixlaan en Moerweg. In het kader van de verkenning moeten drie varianten – waaronder een nog te ontwikkelen maaiveldvariant – nader worden onderzocht op basis van de gestelde beoordelingscriteria ten aan-zien van onder andere doorstroming, verkeersafwikkeling bij aansluitingen (A4, Veluweplein), ruimtelijke inpasbaarheid en economische uitvoerbaarheid. Het doel van de verkenning is een onderzoek naar kansrijke/haalbare oplossingsrichtingen voor verbetering van de bereikbaarheid, doorstroming, verkeersveiligheid en oversteekbaarheid van en de leefbaarheid rond de S106 na 2030. In het startdocument is het doel en de reikwijdte van de verkenning beschreven. Zie aanbestedingsstukken.",
+  "publicatieDatum": "2026-11-20T06:53:59.716312",
+  "sluitingsDatum": "2026-12-18T12:00:00",
+  "typePublicatie": "Aankondiging van een opdracht - algemene richtlijn, standaardregeling",
+  "publicatieCode": "EF16",
+  "juridischKaderCode": {
+    "code": "ARW2012",
+    "omschrijving": "ARW 2016 - Aanbestedingsreglement Werken 2016"
+  },
+  "nationaalOfEuropeesCode": {
+    "code": "EU",
+    "omschrijving": "Europees"
+  },
+  "typeOpdrachtCode": {
+    "code": "D",
+    "omschrijving": "Diensten"
+  },
+  "procedureCode": {
+    "code": "OPE",
+    "omschrijving": "Openbaar"
+  },
+  "cpvCodes": [
+    {
+      "isHoofdOpdracht": true,
+      "code": "71311300",
+      "omschrijving": "Adviezen inzake infrastructuur"
+    },
+    {
+      "isHoofdOpdracht": false,
+      "code": "71311210",
+      "omschrijving": "Adviezen inzake wegenbouw"
+    },
+    {
+      "isHoofdOpdracht": false,
+      "code": "71410000",
+      "omschrijving": "Stedenbouw"
+    }
+  ],
+  "afgerondeAanbesteding": false,
+  "isGeimporteerd": false,
+  "isVroegtijdigBeeindigd": null,
+  "urlDigitaalSysteem": "https://www.tenderned.nl/aankondigingen/overzicht/450237",
+  "onlyGunningProcedure": false,
+  "sluitingsDatumMarktconsultatie": "2026-12-18",
+  "isGegund": false,
+  "digitaalInschrijvenCode": {
+    "code": "TEN",
+    "omschrijving": "TenderNed"
+  },
+  "pbNummerTed": "807761-2026",
+  "trefwoord1": "\"Verkenning infrastructuur\"",
+  "trefwoord2": "\"Verkeerskundige verkenning\"",
+  "trefwoord3": "\"Mobiliteit\"",
+  "trefwoord4": "\"Gebiedsontwikkeling\"",
+  "trefwoord5": "\"Verkeerscirculatie\"",
+  "referentieNummer": "SRA2601",
+  "plaatsVanUitvoeringDienstenAndere": {
+    "code": "LND",
+    "omschrijving": "Overal in het desbetreffende land"
+  },
+  "aankondigingCode": {
+    "code": "AAO",
+    "omschrijving": "Aankondiging opdracht"
+  },
+  "opdrachtAardCode": {
+    "code": "OOP",
+    "omschrijving": "Overheidsopdracht"
+  },
+  "formType": "competition",
+  "links": {
+    "pdf": {
+      "href": "/papi/tenderned-rs-tns/v2/publicaties/450237/pdf",
+      "title": "pdf"
+    },
+    "keepInformed": {
+      "href": "https://www.tenderned.nl/aanbestedende-dienst/aankondigingen/450237?keepInformed=true",
+      "title": "keepInformed"
+    },
+    "addToTenders": {
+      "href": "https://www.tenderned.nl/ondernemersplatform/aankondigingen/450237?addToTenders=true",
+      "title": "addToTenders"
+    },
+    "shareOnLinkedIn": {
+      "href": "https://www.linkedin.com/sharing/share-offsite/?url=https://www.tenderned.nl/aankondigingen/overzicht/450237",
+      "title": "shareOnLinkedIn"
+    }
+  }
+}

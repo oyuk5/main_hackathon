@@ -1,0 +1,83 @@
+{
+  "schemaVersion": 1,
+  "family": "TenderNed",
+  "tier": "jsonApi",
+  "timeZone": "Europe/Amsterdam",
+  "countryCode": "NL",
+  "list": {
+    "request": {
+      "url": "https://www.tenderned.nl/papi/tenderned-rs-tns/v2/publicaties?page={page}&size=100&publicatieType=AAO&sluitingsDatumVanaf=2026-11-20",
+      "method": "GET"
+    },
+    "pagination": {
+      "type": "pageParam",
+      "start": 0,
+      "maxPages": 40
+    },
+    "item": "$.content[*]",
+    "emptyText": []
+  },
+  "listFields": {
+    "id": {
+      "jsonPath": "$.publicatieId"
+    },
+    "url": {
+      "jsonPath": "$.link.href",
+      "parse": "url"
+    },
+    "title": {
+      "jsonPath": "$.aanbestedingNaam"
+    },
+    "buyerName": {
+      "jsonPath": "$.opdrachtgeverNaam"
+    },
+    "publicationDate": {
+      "jsonPath": "$.publicatieDatum",
+      "parse": "date"
+    },
+    "submissionDeadline": {
+      "jsonPath": "$.sluitingsDatum",
+      "parse": "datetime"
+    },
+    "description": {
+      "jsonPath": "$.opdrachtBeschrijving"
+    },
+    "procedureType": {
+      "jsonPath": "$.procedure.omschrijving",
+      "parse": "procedureType"
+    },
+    "contractNature": {
+      "jsonPath": "$.typeOpdracht.omschrijving",
+      "parse": "contractNature"
+    }
+  },
+  "detail": {
+    "urlFrom": "https://www.tenderned.nl/papi/tenderned-rs-tns/v2/publicaties/{id}",
+    "fields": {
+      "cpvCodes": {
+        "jsonPath": "$.cpvCodes[*].code",
+        "all": true,
+        "parse": "cpv"
+      },
+      "referenceNumber": {
+        "jsonPath": "$.referentieNummer"
+      }
+    }
+  },
+  "documents": {
+    "hops": [
+      {
+        "const": "https://www.tenderned.nl/papi/tenderned-rs-tns/v2/publicaties/{id}/documenten"
+      }
+    ],
+    "files": {
+      "jsonPath": "$.documenten[*].links.download.href",
+      "all": true
+    },
+    "via": "http"
+  },
+  "withdrawnText": [
+    "Vroegtijdige beëindiging",
+    "\"isVroegtijdigeBeeindiging\":true"
+  ]
+}

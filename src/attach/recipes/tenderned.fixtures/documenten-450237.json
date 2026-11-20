@@ -1,0 +1,73 @@
+{
+  "documenten": [
+    {
+      "documentId": "4e392d863348db3f298ca00cc03cac9f",
+      "documentNaam": "TN626211 - EF16 Aankondiging van een opdracht - algemene richtlijn, standaardregeling 20261119154229",
+      "typeDocument": {
+        "code": "pdf",
+        "omschrijving": "Portable Document Format"
+      },
+      "datumPublicatie": "2026-11-20",
+      "publicatieCategorie": {
+        "code": "ANK",
+        "omschrijving": "Aankondiging"
+      },
+      "virusIndicatie": false,
+      "grootte": 203075,
+      "links": {
+        "download": {
+          "href": "/papi/tenderned-rs-tns/v2/publicaties/450237/documenten/15317565/content",
+          "title": "download"
+        }
+      }
+    },
+    {
+      "documentId": "61f6c147ee5b0cce8e0b2cbed6f4b248",
+      "documentNaam": "SRA2601 aanbestedingsstukken verkening route S106",
+      "typeDocument": {
+        "code": "zip",
+        "omschrijving": "Zip"
+      },
+      "datumPublicatie": "2026-11-20",
+      "publicatieCategorie": {
+        "code": "DOC",
+        "omschrijving": "Aanbestedingsdocumenten"
+      },
+      "virusIndicatie": false,
+      "grootte": 15070454,
+      "links": {
+        "download": {
+          "href": "/papi/tenderned-rs-tns/v2/publicaties/450237/documenten/15317474/content",
+          "title": "download"
+        }
+      }
+    },
+    {
+      "documentId": "c6ec5efe2e8b227bfc9f1fdfb2c734df",
+      "documentNaam": "uea_626211_20261119141021",
+      "typeDocument": {
+        "code": "pdf",
+        "omschrijving": "Portable Document Format"
+      },
+      "datumPublicatie": "2026-11-20",
+      "publicatieCategorie": {
+        "code": "DOC",
+        "omschrijving": "Aanbestedingsdocumenten"
+      },
+      "virusIndicatie": false,
+      "grootte": 503887,
+      "links": {
+        "download": {
+          "href": "/papi/tenderned-rs-tns/v2/publicaties/450237/documenten/15315530/content",
+          "title": "download"
+        }
+      }
+    }
+  ],
+  "links": {
+    "downloadZip": {
+      "href": "/papi/tenderned-rs-tns/v2/publicaties/450237/documenten/zip",
+      "title": "download-zip"
+    }
+  }
+}
