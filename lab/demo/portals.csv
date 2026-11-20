@@ -1,0 +1,41 @@
+Name,Country,Software,Address,Notes
+Stadtwerke Lindenau,DE,lab,http://localhost:4100/stadtwerke/,"Lab demo portal (npm run lab); HTML table, PDF links."
+Ville de Rivemont,FR,lab,http://localhost:4100/ville/,Lab demo portal (npm run lab); JavaScript app over a JSON API.
+Gmina Lipowo,PL,lab,http://localhost:4100/gmina/,"Lab demo portal (npm run lab); cards, two-step download with ZIP."
+Gemeente Polderwijk,NL,lab,http://localhost:4100/polder/,Lab demo portal (npm run lab); RSS feed with HTML detail pages.
+Comune di Valdoria,IT,lab,http://localhost:4100/comune/,"Lab demo portal (npm run lab); JavaScript app, list searched with POST and cursors, two-hop documents."
+Marktgemeinde Almbach,AT,lab,http://localhost:4100/gemeinde/,"Lab demo portal (npm run lab); list only after JavaScript runs, load-more button (browser tier)."
+Fjordby Kommune,DK,lab,http://localhost:4100/kommune/,"Lab demo portal (npm run lab); table, PDF plus ZIP with folders."
+Obec Lipnice,CZ,lab,http://localhost:4100/obec/,"Lab demo portal (npm run lab); documents behind a login, should end failed."
+TED (Tenders Electronic Daily),EU,own,https://ted.europa.eu/en/search/result?search-scope=ACTIVE,EU-wide journal; active notices only. JavaScript app.
+TenderNed,NL,own,https://www.tenderned.nl/aankondigingen/overzicht,JavaScript app. Public JSON API; documents without login.
+BOAMP,FR,own,https://www.boamp.fr/pages/recherche/,French official bulletin of public tenders.
+PLACE (marches-publics.gouv.fr),FR,Atexo,https://www.marches-publics.gouv.fr/?page=Entreprise.EntrepriseAdvancedSearch&AllCons,"French state platform; was briefly suspended on 20 Nov, answered 200 on 21 Nov."
+Maximilien,FR,Atexo,https://marches.maximilien.fr/?page=Entreprise.EntrepriseAdvancedSearch&AllCons,Ile-de-France regional platform; documents need a login.
+achatpublic.com,FR,own,https://www.achatpublic.com/,Homepage; tender list is behind search.
+Doffin,NO,own,https://www.doffin.no/search,Norwegian national database. JavaScript app.
+Hilma,FI,own,https://www.hankintailmoitukset.fi/fi/search,Finnish national notices. JavaScript app.
+udbud.dk,DK,own,https://udbud.dk/,Danish national notices; homepage.
+BASE,PT,own,https://www.base.gov.pt/Base4/pt/pesquisa/?type=anuncios,"Portuguese public contracts portal, notices search."
+simap.ch,CH,own,https://www.simap.ch/en/project-search,Swiss national platform. JavaScript app.
+EKR,HU,own,https://ekr.gov.hu/portal/kozbeszerzesi-eljarasok,Hungarian e-procurement system. JavaScript app.
+SEAP / e-licitatie,RO,own,https://e-licitatie.ro/pub/notices/contract-notices/list/0/0,Romanian national system. JavaScript app.
+Riigihangete register,EE,own,https://riigihanked.riik.ee/rhr-web/#/search,Estonian procurement register. JavaScript app.
+EIS,LV,own,https://www.eis.gov.lv/EKEIS/Supplier,Latvian e-procurement system.
+CVP IS,LT,own,https://cvpp.eviesiejipirkimai.lt/,Lithuanian central procurement system; homepage.
+e-Narocanje,SI,own,https://www.enarocanje.si/,Slovenian procurement portal; homepage.
+EOJN RH,HR,own,https://eojn.hr/,Croatian electronic public procurement; homepage.
+Promitheus (ESIDIS),GR,own,https://portal.eprocurement.gov.gr/,Greek national system; homepage.
+Find a Tender,GB,own,https://www.find-tender.service.gov.uk/Search,UK above-threshold notices.
+Contracts Finder,GB,own,https://www.contractsfinder.service.gov.uk/Search,UK lower-value contracts.
+publicprocurement.be,BE,own,https://www.publicprocurement.be/,Belgian federal portal; homepage.
+Platforma Zakupowa,PL,Open Nexus,https://platformazakupowa.pl/all,Server-rendered list; documents without login.
+e-Zamowienia,PL,own,https://ezamowienia.gov.pl/mp-client/search/list,Polish national platform. JavaScript app. Documents need a login.
+Mercell Source-to-Contract,NO,Mercell,https://s2c.mercell.com/today,Multi-country platform. JavaScript app. Documents need a login.
+auftrag.at,AT,own,https://www.auftrag.at/,Austrian tender portal; homepage.
+Portail des marches publics,LU,own,https://pmp.b2g.etat.lu/entreprise,Luxembourg state portal; the bare domain redirects here.
+DTVP (Deutsches Vergabeportal),DE,cosinex,https://www.dtvp.de/Center/company/announcements/categoryOverview.do?method=showCategoryOverview,Server-rendered; documents need a login.
+service.bund.de Ausschreibungen,DE,own,https://www.service.bund.de/Content/DE/Ausschreibungen/Suche/Formular.html,German federal tender search.
+JOSEPHINE,SK,PROEBIZ,https://josephine.proebiz.com/sk/,Slovak e-procurement platform; homepage.
+acquistinretepa (Consip),IT,own,https://www.acquistinretepa.it/opencms/opencms/,Italian national marketplace; the bare domain redirects here.
+Contractacio publica,ES,own,https://contractaciopublica.cat/ca/cercador,Catalonia regional platform. JavaScript app. Maintenance notice for Mon 23 Nov 16:00-18:00.

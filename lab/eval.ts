@@ -175,6 +175,10 @@ async function measure(slug: string, id: string): Promise<Accuracy> {
 
 interface AttachResult {
   portal: string;
+  /** What the lab says Watchtower should end in: "failed" for portals that block us on purpose. */
+  expect: "serving" | "failed";
+  /** Ended in the expected state. */
+  asExpected: boolean;
   state: string;
   reason: string;
   seconds: number;
@@ -207,13 +211,21 @@ interface ScenarioResult {
   setupCost: number;
 }
 
+async function expectOf(slug: string): Promise<"serving" | "failed"> {
+  const truth = (await (await fetch(`${LAB}/_truth/${slug}.json`)).json()) as Truth;
+  return truth.expect ?? "serving";
+}
+
 async function attach(slug: string, url: string): Promise<{ id: string; result: AttachResult }> {
+  const expect = await expectOf(slug);
   const before = await ledger();
   const t0 = Date.now();
   const id = await freshPortal(url);
   const s = await settle(id, t0);
   const result: AttachResult = {
     portal: slug,
+    expect,
+    asExpected: s.entry.state === expect,
     state: s.entry.state,
     reason: s.entry.reason,
     seconds: round((Date.now() - t0) / 1000, 1),
@@ -282,7 +294,9 @@ function round(n: number, d: number): number {
 const pct = (n: number) => `${Math.round(n * 100)}%`;
 const usd = (n: number) => `$${n.toFixed(3)}`;
 
-function summarize(attaches: AttachResult[], scenarios: ScenarioResult[]) {
+function summarize(all: AttachResult[], scenarios: ScenarioResult[]) {
+  const blocked = all.filter((a) => a.expect === "failed");
+  const attaches = all.filter((a) => a.expect !== "failed");
   const breaking = scenarios.filter((s) => !s.harmless);
   const harmless = scenarios.filter((s) => s.harmless);
   const healed = breaking.filter((s) => s.good);
@@ -298,7 +312,9 @@ function summarize(attaches: AttachResult[], scenarios: ScenarioResult[]) {
     harmlessScenarios: harmless.length,
     attachCostPerPortal: attaches.length ? round(attaches.reduce((a, r) => a + r.cost.cost, 0) / attaches.length, 4) : null,
     costPerRepair: repairCosts.length ? round(repairCosts.reduce((a, b) => a + b, 0) / repairCosts.length, 4) : null,
-    totalCost: round(attaches.reduce((a, r) => a + r.cost.cost, 0) + scenarios.reduce((a, s) => a + s.cost.cost + s.setupCost, 0), 4),
+    blockedReportedFailed: blocked.filter((a) => a.asExpected).length,
+    blockedPortals: blocked.length,
+    totalCost: round(all.reduce((a, r) => a + r.cost.cost, 0) + scenarios.reduce((a, s) => a + s.cost.cost + s.setupCost, 0), 4),
   };
 }
 
@@ -310,6 +326,7 @@ function markdown(when: string, attaches: AttachResult[], scenarios: ScenarioRes
     "|---|---|",
     `| Attach accuracy (correct fields / all fields) | ${sum.attachAccuracy == null ? "–" : pct(sum.attachAccuracy)} |`,
     `| Wrong values after attach | ${sum.wrongValuesAfterAttach} |`,
+    ...(sum.blockedPortals ? [`| Blocked portals reported as failed (as they should be) | ${sum.blockedReportedFailed} of ${sum.blockedPortals} |`] : []),
     `| Notice accuracy | ${sum.noticeAccuracy == null ? "–" : pct(sum.noticeAccuracy)} |`,
     `| Heal rate (breaking changes handled) | ${sum.healRate == null ? "–" : pct(sum.healRate)} |`,
     `| Median time to heal | ${sum.medianSecondsToHeal == null ? "–" : `${sum.medianSecondsToHeal} s`} |`,
@@ -324,6 +341,7 @@ function markdown(when: string, attaches: AttachResult[], scenarios: ScenarioRes
     "|---|---|---|---|---|---|---|---|---|",
     ...attaches.map((a) => {
       const top = Object.entries(a.accuracy.missingByField).sort((x, y) => y[1] - x[1]).slice(0, 3).map(([f, n]) => `${f} ${n}`).join(", ");
+      if (a.expect === "failed") return `| ${a.portal} | ${a.asExpected ? "✅" : "❌"} ${a.state} (should be failed) | – | – | – | – | ${a.reason.slice(0, 80)} | ${usd(a.cost.cost)} | ${a.seconds} s |`;
       return `| ${a.portal} | ${a.state} | ${a.accuracy.found}/${a.accuracy.truthTenders} | ${pct(a.accuracy.score)} | ${a.accuracy.required.wrong + a.accuracy.optional.wrong} | ${a.accuracy.documentsExact}/${a.accuracy.found} | ${top || "–"} | ${usd(a.cost.cost)} | ${a.seconds} s |`;
     }),
     "",
@@ -371,6 +389,10 @@ async function main(): Promise<void> {
     console.log(`\n${p.slug}: attaching…`);
     const { result } = await attach(p.slug, url);
     attaches.push(result);
+    if (result.expect === "failed") {
+      console.log(`  ${result.asExpected ? "✅" : "❌"} ${result.state} (should be failed): ${result.reason.slice(0, 100)}`);
+      continue; // a blocked portal has nothing to repair
+    }
     console.log(`  ${result.state}, ${result.accuracy.found}/${result.accuracy.truthTenders} tenders, score ${pct(result.accuracy.score)}, ${usd(result.cost.cost)}, ${result.seconds} s`);
     if (attachOnly) continue;
     const changes = Object.keys(p.variants).filter((v) => v !== "v1" && (!arg("change") || v === arg("change")));

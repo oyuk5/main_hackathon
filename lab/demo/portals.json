@@ -1,0 +1,284 @@
+{
+  "portals": [
+    {
+      "name": "Stadtwerke Lindenau",
+      "country": "DE",
+      "software": "lab",
+      "url": "http://localhost:4100/stadtwerke/",
+      "notes": "Lab demo portal (npm run lab); HTML table, PDF links."
+    },
+    {
+      "name": "Ville de Rivemont",
+      "country": "FR",
+      "software": "lab",
+      "url": "http://localhost:4100/ville/",
+      "notes": "Lab demo portal (npm run lab); JavaScript app over a JSON API."
+    },
+    {
+      "name": "Gmina Lipowo",
+      "country": "PL",
+      "software": "lab",
+      "url": "http://localhost:4100/gmina/",
+      "notes": "Lab demo portal (npm run lab); cards, two-step download with ZIP."
+    },
+    {
+      "name": "Gemeente Polderwijk",
+      "country": "NL",
+      "software": "lab",
+      "url": "http://localhost:4100/polder/",
+      "notes": "Lab demo portal (npm run lab); RSS feed with HTML detail pages."
+    },
+    {
+      "name": "Comune di Valdoria",
+      "country": "IT",
+      "software": "lab",
+      "url": "http://localhost:4100/comune/",
+      "notes": "Lab demo portal (npm run lab); JavaScript app, list searched with POST and cursors, two-hop documents."
+    },
+    {
+      "name": "Marktgemeinde Almbach",
+      "country": "AT",
+      "software": "lab",
+      "url": "http://localhost:4100/gemeinde/",
+      "notes": "Lab demo portal (npm run lab); list only after JavaScript runs, load-more button (browser tier)."
+    },
+    {
+      "name": "Fjordby Kommune",
+      "country": "DK",
+      "software": "lab",
+      "url": "http://localhost:4100/kommune/",
+      "notes": "Lab demo portal (npm run lab); table, PDF plus ZIP with folders."
+    },
+    {
+      "name": "Obec Lipnice",
+      "country": "CZ",
+      "software": "lab",
+      "url": "http://localhost:4100/obec/",
+      "notes": "Lab demo portal (npm run lab); documents behind a login, should end failed."
+    },
+    {
+      "name": "TED (Tenders Electronic Daily)",
+      "country": "EU",
+      "software": "own",
+      "url": "https://ted.europa.eu/en/search/result?search-scope=ACTIVE",
+      "notes": "EU-wide journal; active notices only. JavaScript app."
+    },
+    {
+      "name": "TenderNed",
+      "country": "NL",
+      "software": "own",
+      "url": "https://www.tenderned.nl/aankondigingen/overzicht",
+      "notes": "JavaScript app. Public JSON API; documents without login."
+    },
+    {
+      "name": "BOAMP",
+      "country": "FR",
+      "software": "own",
+      "url": "https://www.boamp.fr/pages/recherche/",
+      "notes": "French official bulletin of public tenders."
+    },
+    {
+      "name": "PLACE (marches-publics.gouv.fr)",
+      "country": "FR",
+      "software": "Atexo",
+      "url": "https://www.marches-publics.gouv.fr/?page=Entreprise.EntrepriseAdvancedSearch&AllCons",
+      "notes": "French state platform; was briefly suspended on 20 Nov, answered 200 on 21 Nov."
+    },
+    {
+      "name": "Maximilien",
+      "country": "FR",
+      "software": "Atexo",
+      "url": "https://marches.maximilien.fr/?page=Entreprise.EntrepriseAdvancedSearch&AllCons",
+      "notes": "Ile-de-France regional platform; documents need a login."
+    },
+    {
+      "name": "achatpublic.com",
+      "country": "FR",
+      "software": "own",
+      "url": "https://www.achatpublic.com/",
+      "notes": "Homepage; tender list is behind search."
+    },
+    {
+      "name": "Doffin",
+      "country": "NO",
+      "software": "own",
+      "url": "https://www.doffin.no/search",
+      "notes": "Norwegian national database. JavaScript app."
+    },
+    {
+      "name": "Hilma",
+      "country": "FI",
+      "software": "own",
+      "url": "https://www.hankintailmoitukset.fi/fi/search",
+      "notes": "Finnish national notices. JavaScript app."
+    },
+    {
+      "name": "udbud.dk",
+      "country": "DK",
+      "software": "own",
+      "url": "https://udbud.dk/",
+      "notes": "Danish national notices; homepage."
+    },
+    {
+      "name": "BASE",
+      "country": "PT",
+      "software": "own",
+      "url": "https://www.base.gov.pt/Base4/pt/pesquisa/?type=anuncios",
+      "notes": "Portuguese public contracts portal, notices search."
+    },
+    {
+      "name": "simap.ch",
+      "country": "CH",
+      "software": "own",
+      "url": "https://www.simap.ch/en/project-search",
+      "notes": "Swiss national platform. JavaScript app."
+    },
+    {
+      "name": "EKR",
+      "country": "HU",
+      "software": "own",
+      "url": "https://ekr.gov.hu/portal/kozbeszerzesi-eljarasok",
+      "notes": "Hungarian e-procurement system. JavaScript app."
+    },
+    {
+      "name": "SEAP / e-licitatie",
+      "country": "RO",
+      "software": "own",
+      "url": "https://e-licitatie.ro/pub/notices/contract-notices/list/0/0",
+      "notes": "Romanian national system. JavaScript app."
+    },
+    {
+      "name": "Riigihangete register",
+      "country": "EE",
+      "software": "own",
+      "url": "https://riigihanked.riik.ee/rhr-web/#/search",
+      "notes": "Estonian procurement register. JavaScript app."
+    },
+    {
+      "name": "EIS",
+      "country": "LV",
+      "software": "own",
+      "url": "https://www.eis.gov.lv/EKEIS/Supplier",
+      "notes": "Latvian e-procurement system."
+    },
+    {
+      "name": "CVP IS",
+      "country": "LT",
+      "software": "own",
+      "url": "https://cvpp.eviesiejipirkimai.lt/",
+      "notes": "Lithuanian central procurement system; homepage."
+    },
+    {
+      "name": "e-Narocanje",
+      "country": "SI",
+      "software": "own",
+      "url": "https://www.enarocanje.si/",
+      "notes": "Slovenian procurement portal; homepage."
+    },
+    {
+      "name": "EOJN RH",
+      "country": "HR",
+      "software": "own",
+      "url": "https://eojn.hr/",
+      "notes": "Croatian electronic public procurement; homepage."
+    },
+    {
+      "name": "Promitheus (ESIDIS)",
+      "country": "GR",
+      "software": "own",
+      "url": "https://portal.eprocurement.gov.gr/",
+      "notes": "Greek national system; homepage."
+    },
+    {
+      "name": "Find a Tender",
+      "country": "GB",
+      "software": "own",
+      "url": "https://www.find-tender.service.gov.uk/Search",
+      "notes": "UK above-threshold notices."
+    },
+    {
+      "name": "Contracts Finder",
+      "country": "GB",
+      "software": "own",
+      "url": "https://www.contractsfinder.service.gov.uk/Search",
+      "notes": "UK lower-value contracts."
+    },
+    {
+      "name": "publicprocurement.be",
+      "country": "BE",
+      "software": "own",
+      "url": "https://www.publicprocurement.be/",
+      "notes": "Belgian federal portal; homepage."
+    },
+    {
+      "name": "Platforma Zakupowa",
+      "country": "PL",
+      "software": "Open Nexus",
+      "url": "https://platformazakupowa.pl/all",
+      "notes": "Server-rendered list; documents without login."
+    },
+    {
+      "name": "e-Zamowienia",
+      "country": "PL",
+      "software": "own",
+      "url": "https://ezamowienia.gov.pl/mp-client/search/list",
+      "notes": "Polish national platform. JavaScript app. Documents need a login."
+    },
+    {
+      "name": "Mercell Source-to-Contract",
+      "country": "NO",
+      "software": "Mercell",
+      "url": "https://s2c.mercell.com/today",
+      "notes": "Multi-country platform. JavaScript app. Documents need a login."
+    },
+    {
+      "name": "auftrag.at",
+      "country": "AT",
+      "software": "own",
+      "url": "https://www.auftrag.at/",
+      "notes": "Austrian tender portal; homepage."
+    },
+    {
+      "name": "Portail des marches publics",
+      "country": "LU",
+      "software": "own",
+      "url": "https://pmp.b2g.etat.lu/entreprise",
+      "notes": "Luxembourg state portal; the bare domain redirects here."
+    },
+    {
+      "name": "DTVP (Deutsches Vergabeportal)",
+      "country": "DE",
+      "software": "cosinex",
+      "url": "https://www.dtvp.de/Center/company/announcements/categoryOverview.do?method=showCategoryOverview",
+      "notes": "Server-rendered; documents need a login."
+    },
+    {
+      "name": "service.bund.de Ausschreibungen",
+      "country": "DE",
+      "software": "own",
+      "url": "https://www.service.bund.de/Content/DE/Ausschreibungen/Suche/Formular.html",
+      "notes": "German federal tender search."
+    },
+    {
+      "name": "JOSEPHINE",
+      "country": "SK",
+      "software": "PROEBIZ",
+      "url": "https://josephine.proebiz.com/sk/",
+      "notes": "Slovak e-procurement platform; homepage."
+    },
+    {
+      "name": "acquistinretepa (Consip)",
+      "country": "IT",
+      "software": "own",
+      "url": "https://www.acquistinretepa.it/opencms/opencms/",
+      "notes": "Italian national marketplace; the bare domain redirects here."
+    },
+    {
+      "name": "Contractacio publica",
+      "country": "ES",
+      "software": "own",
+      "url": "https://contractaciopublica.cat/ca/cercador",
+      "notes": "Catalonia regional platform. JavaScript app. Maintenance notice for Mon 23 Nov 16:00-18:00."
+    }
+  ]
+}

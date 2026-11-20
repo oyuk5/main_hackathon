@@ -1,0 +1,9 @@
+http://localhost:4100/stadtwerke/
+http://localhost:4100/ville/
+http://localhost:4100/gmina/
+https://www.tenderned.nl/aankondigingen/overzicht
+https://www.boamp.fr/pages/recherche/
+https://www.doffin.no/search
+https://www.find-tender.service.gov.uk/Search
+https://platformazakupowa.pl/all
+https://www.hankintailmoitukset.fi/fi/search

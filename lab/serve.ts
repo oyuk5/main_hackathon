@@ -4,7 +4,7 @@
  *   LAB_PORT=4200 npm run lab        → another port
  *   LAB_TODAY=2026-11-20 npm run lab → fixed dates, for repeatable evals
  *
- * Portals:      /stadtwerke/  /ville/  /gmina/
+ * Portals:      /stadtwerke/  /ville/  /gmina/  /polder/  /comune/  /gemeinde/  /kommune/  /obec/
  * Ground truth: /_truth/<slug>.json (robots.txt disallows it, and nothing links to it)
  * Lab control:  GET /_lab/state (variants, request counts, fastest request rate seen per portal)
  *               POST /_lab/variant?portal=<slug>&v=<variant> (used by the mutator)
@@ -15,8 +15,13 @@ import { notFound, page, sendHtml, sendJson, truthOf, type LabPortal } from "./p
 import { gmina } from "./portals/gmina.js";
 import { stadtwerke } from "./portals/stadtwerke.js";
 import { ville } from "./portals/ville.js";
+import { polder } from "./portals/polder.js";
+import { comune } from "./portals/comune.js";
+import { gemeinde } from "./portals/gemeinde.js";
+import { kommune } from "./portals/kommune.js";
+import { obec } from "./portals/obec.js";
 
-export const portals: LabPortal[] = [stadtwerke, ville, gmina];
+export const portals: LabPortal[] = [stadtwerke, ville, gmina, polder, comune, gemeinde, kommune, obec];
 
 interface Traffic {
   requests: number;

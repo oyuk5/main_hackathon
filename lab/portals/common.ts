@@ -71,6 +71,10 @@ export interface Truth {
   notes: string[];
   /** Ids may be either the portal id or the reference number; match tenders by url. */
   tenders: TruthTender[];
+  /** The state Watchtower should end in after attach. "failed" for portals that block us on purpose. */
+  expect: "serving" | "failed";
+  /** For "failed": what the reason should say, in plain words. */
+  expectReason?: string;
 }
 
 export interface LabPortal {
@@ -81,6 +85,10 @@ export interface LabPortal {
   kind: string;
   notes: string[];
   tenders: LabTender[];
+  /** The state Watchtower should end in after attach (default "serving"). "failed" for portals that block us on purpose. */
+  expect?: "serving" | "failed";
+  /** For expect "failed": what Watchtower's reason should say, in plain words. */
+  expectReason?: string;
   /** Changed versions the mutator can switch to: name → what changes. "v1" is always the original. */
   variants: Record<string, string>;
   /** Absolute URL of a tender's own page. */
@@ -182,8 +190,9 @@ export function sha256(b: Buffer): string {
   return createHash("sha256").update(b).digest("hex");
 }
 
+/** ZIP members inside folders are named by their last part, like the platform does (safeName in documents.ts). */
 function doc(f: LabFile): TruthDocument {
-  return { fileName: f.name, sizeBytes: f.bytes.length, sha256: sha256(f.bytes) };
+  return { fileName: f.name.split("/").pop()!, sizeBytes: f.bytes.length, sha256: sha256(f.bytes) };
 }
 
 /** Bytes of the ZIP for a tender (built once and cached so its hash is stable). */
@@ -211,6 +220,8 @@ export function truthOf(p: LabPortal, base: string, variant = "v1"): Truth & { v
     timeZone: p.timeZone,
     kind: p.kind,
     notes: p.notes,
+    expect: p.expect ?? "serving",
+    ...(p.expectReason ? { expectReason: p.expectReason } : {}),
     tenders: tenders.map((t) => ({
       id: t.id,
       url: p.tenderUrl(base, t),
