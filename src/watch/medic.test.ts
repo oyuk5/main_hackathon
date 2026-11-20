@@ -1,0 +1,578 @@
+import { describe, it } from "node:test";
+import assert from "node:assert/strict";
+import type { Recipe } from "../shared/recipe.js";
+import type {
+  AttachOutcome,
+  Baseline,
+  ExtractedTender,
+  PortalContext,
+  ReadOutcome,
+  Verdict,
+} from "../shared/modules.js";
+import { buildRepairSummary, summarizeRecipeChanges } from "./recipe-diff.js";
+import { createMedic, type MedicDeps } from "./medic.js";
+import type {
+  GoldenVerificationResult,
+  SnapshotOutcome,
+  TriageReport,
+} from "./types.js";
+
+function makeRecipe(overrides: Partial<Recipe> = {}): Recipe {
+  return {
+    schemaVersion: 1,
+    family: null,
+    tier: "html",
+    timeZone: "Europe/Berlin",
+    countryCode: "DE",
+    list: {
+      request: { url: "https://portal.example/tenders", method: "GET" },
+      pagination: { type: "none" },
+      item: "table.tenders tbody tr",
+      emptyText: ["No tenders found"],
+    },
+    listFields: {
+      id: { css: "td.id" },
+      title: { css: "td.title" },
+      url: { css: "td.title a", attr: "href", parse: "url" },
+    },
+    detail: null,
+    documents: null,
+    withdrawnText: [],
+    ...overrides,
+  };
+}
+
+function makeTender(id = "T-1"): ExtractedTender {
+  return {
+    id,
+    title: "Road maintenance",
+    url: `https://portal.example/tenders/${id}`,
+    buyerName: "City Works",
+    publicationDate: "2026-11-01",
+    submissionDeadline: "2026-12-01T12:00:00+01:00",
+    documentRefs: [],
+  };
+}
+
+function makeOkRead(tenders: ExtractedTender[] = [makeTender()]): Extract<ReadOutcome, { kind: "ok" }> {
+  return {
+    kind: "ok",
+    tenders,
+    diagnostics: {
+      requests: 1,
+      listPages: 1,
+      itemsSeen: tenders.length,
+      fieldFill: { title: { filled: tenders.length, total: tenders.length } },
+      durationMs: 120,
+    },
+  };
+}
+
+function makeBaseline(goldenCount = 1): Baseline {
+  const golden = Array.from({ length: goldenCount }, (_, i) => ({
+    id: `T-${i + 1}`,
+    fields: { title: "Road maintenance" },
+  }));
+  return {
+    lastGoodCount: 5,
+    lastGoodFieldFill: { title: { filled: 5, total: 5 } },
+    lastGoodSkeletonHash: "abc123",
+    golden,
+  };
+}
+
+function makeBrokenVerdict(): Verdict {
+  return {
+    kind: "broken",
+    reason: "Item count dropped to zero",
+    checks: [{ name: "count-drop", ok: false, detail: "0 items vs baseline 5" }],
+  };
+}
+
+function makeOkSnapshot(): SnapshotOutcome {
+  return {
+    kind: "ok",
+    url: "https://portal.example/tenders",
+    finalUrl: "https://portal.example/tenders",
+    httpStatus: 200,
+    contentType: "text/html",
+    compressedContent: "<div class='card'><h3>Road maintenance</h3></div>",
+    structureSummary: "div.card (5 items)",
+  };
+}
+
+function makeTriageReport(overrides: Partial<TriageReport> = {}): TriageReport {
+  return {
+    category: "selector-broken",
+    reason: "List selector matched 0 items",
+    hint: "Rows moved to div.card elements",
+    failedChecks: [{ name: "count-drop", ok: false, detail: "0 items vs baseline 5" }],
+    snapshot: makeOkSnapshot(),
+    ...overrides,
+  };
+}
+
+function makeContext(opts: {
+  llmHandler?: (input: { purpose: string; model: string; system: string; user: string }) => Promise<unknown>;
+  controller?: AbortController;
+} = {}): { ctx: PortalContext; logs: Array<{ message: string; level?: string }>; llmCalls: Array<{ purpose: string; model: string; user: string }> } {
+  const logs: Array<{ message: string; level?: string }> = [];
+  const llmCalls: Array<{ purpose: string; model: string; user: string }> = [];
+  const controller = opts.controller ?? new AbortController();
+
+  const ctx: PortalContext = {
+    portalId: "portal-1",
+    url: "https://portal.example/tenders",
+    http: {
+      async fetch() {
+        throw new Error("http.fetch should not be called directly in medic unit tests");
+      },
+    },
+    browser: {
+      async withPage() {
+        throw new Error("browser.withPage should not be called directly in medic unit tests");
+      },
+    },
+    llm: {
+      async json(callOpts) {
+        llmCalls.push({ purpose: callOpts.purpose, model: callOpts.model, user: callOpts.user });
+        if (!opts.llmHandler) {
+          throw new Error("Unexpected LLM call");
+        }
+        const raw = await opts.llmHandler(callOpts);
+        return callOpts.schema.parse(raw);
+      },
+    },
+    log(message, level) {
+      logs.push({ message, level });
+    },
+    signal: controller.signal,
+  };
+  return { ctx, logs, llmCalls };
+}
+
+function makeDeps(overrides: Partial<MedicDeps> = {}): MedicDeps {
+  return {
+    extractor: {
+      async read() {
+        return makeOkRead();
+      },
+    },
+    cartographer: {
+      async attach(): Promise<AttachOutcome> {
+        return { kind: "failed", reason: "Fresh attach failed" };
+      },
+    },
+    evaluate: () => ({ kind: "healthy", reason: "All checks passed", checks: [] }),
+    verifyGolden: (_tenders, golden): GoldenVerificationResult => ({
+      checked: golden.length,
+      matched: golden.length,
+      mismatches: [],
+    }),
+    captureSnapshot: async () => makeOkSnapshot(),
+    triage: async () => makeTriageReport(),
+    ...overrides,
+  };
+}
+
+describe("recipe-diff", () => {
+  it("summarizes list selector and field rule changes", () => {
+    const before = makeRecipe();
+    const after = makeRecipe({
+      list: { ...before.list, item: "div.card" },
+      listFields: {
+        id: { css: ".card-id" },
+        title: { css: "h3.card-title" },
+        url: { css: "a.card-link", attr: "href", parse: "url" },
+      },
+    });
+    assert.equal(summarizeRecipeChanges(before, after), "updated list selector and 3 field rules");
+  });
+
+  it("summarizes URL, pagination, tier, detail fields, and documents changes", () => {
+    const before = makeRecipe();
+    const after = makeRecipe({
+      tier: "jsonApi",
+      list: {
+        ...before.list,
+        request: { url: "https://portal.example/api/v2/tenders", method: "GET" },
+        pagination: { type: "pageParam", start: 1, maxPages: 20 },
+      },
+      detail: {
+        urlFrom: "url",
+        fields: { buyerName: { css: ".buyer" } },
+      },
+      documents: {
+        hops: [],
+        files: { css: "a.doc", attr: "href" },
+        via: "http",
+      },
+    });
+    assert.equal(
+      summarizeRecipeChanges(before, after),
+      "updated tier (html to jsonApi), list URL, pagination, 1 detail field rule, and document rules",
+    );
+  });
+
+  it("returns no recipe changes when recipes are identical", () => {
+    const recipe = makeRecipe();
+    assert.equal(summarizeRecipeChanges(recipe, makeRecipe()), "no recipe changes");
+  });
+
+  it("builds a single plain-English sentence with golden clause", () => {
+    const before = makeRecipe();
+    const after = makeRecipe({
+      list: { ...before.list, item: "div.card" },
+      listFields: { ...before.listFields, title: { css: "h3" } },
+    });
+    const summary = buildRepairSummary({
+      llmNote: "List moved from table rows to cards.",
+      before,
+      after,
+      golden: { checked: 5, matched: 5, mismatches: [] },
+    });
+    assert.equal(
+      summary,
+      "List moved from table rows to cards; updated list selector and 1 field rule; 5 of 5 known tenders match.",
+    );
+  });
+
+  it("omits the golden clause when golden.checked is 0", () => {
+    const before = makeRecipe();
+    const after = makeRecipe({
+      list: {
+        ...before.list,
+        request: { url: "https://portal.example/v2/tenders", method: "GET" },
+      },
+    });
+    const summary = buildRepairSummary({
+      llmNote: "Portal moved to /v2/tenders",
+      before,
+      after,
+      golden: { checked: 0, matched: 0, mismatches: [] },
+    });
+    assert.equal(summary, "Portal moved to /v2/tenders; updated list URL.");
+  });
+});
+
+describe("createMedic", () => {
+  it("returns failed with 0 LLM calls when triage classifies portal as blocked", async () => {
+    const { ctx, llmCalls } = makeContext();
+    const medic = createMedic(
+      makeDeps({
+        triage: async () =>
+          makeTriageReport({
+            category: "blocked",
+            reason: "Cloudflare captcha is blocking access.",
+            snapshot: { kind: "blocked", reason: "Captcha detected", httpStatus: 403 },
+          }),
+      }),
+    );
+
+    const outcome = await medic.repair(
+      { recipe: makeRecipe(), verdict: makeBrokenVerdict(), baseline: makeBaseline() },
+      ctx,
+    );
+
+    assert.equal(outcome.kind, "failed");
+    assert.equal(outcome.reason, "Cloudflare captcha is blocking access.");
+    assert.equal(llmCalls.length, 0);
+  });
+
+  it("returns failed with 0 LLM calls when triage classifies portal as unreachable", async () => {
+    const { ctx, llmCalls } = makeContext();
+    const medic = createMedic(
+      makeDeps({
+        triage: async () =>
+          makeTriageReport({
+            category: "unreachable",
+            reason: "Portal returned HTTP 503.",
+            snapshot: { kind: "unreachable", reason: "HTTP 503", httpStatus: 503 },
+          }),
+      }),
+    );
+
+    const outcome = await medic.repair(
+      { recipe: makeRecipe(), verdict: makeBrokenVerdict(), baseline: makeBaseline() },
+      ctx,
+    );
+
+    assert.equal(outcome.kind, "failed");
+    assert.equal(outcome.reason, "Portal returned HTTP 503.");
+    assert.equal(llmCalls.length, 0);
+  });
+
+  it("returns ok with 1-sentence summary when first patch passes evaluate and golden check", async () => {
+    const before = makeRecipe();
+    const patched = makeRecipe({ list: { ...before.list, item: "div.card" } });
+    const { ctx, llmCalls, logs } = makeContext({
+      llmHandler: async () => ({
+        recipe: patched,
+        changeNote: "List moved from table rows to cards",
+      }),
+    });
+    const medic = createMedic(makeDeps());
+
+    const outcome = await medic.repair(
+      { recipe: before, verdict: makeBrokenVerdict(), baseline: makeBaseline(2) },
+      ctx,
+    );
+
+    assert.equal(outcome.kind, "ok");
+    assert.equal(llmCalls.length, 1);
+    assert.equal(llmCalls[0]?.purpose, "repair");
+    assert.equal(llmCalls[0]?.model, "smart");
+    assert.equal(outcome.recipe.list.item, "div.card");
+    assert.equal(
+      outcome.summary,
+      "List moved from table rows to cards; updated list selector; 2 of 2 known tenders match.",
+    );
+    assert.ok(logs.some((l) => l.message === outcome.summary));
+  });
+
+  it("feeds golden mismatch feedback from attempt 1 into attempt 2 and succeeds", async () => {
+    const before = makeRecipe();
+    const badPatch = makeRecipe({ list: { ...before.list, item: "div.wrong" } });
+    const goodPatch = makeRecipe({ list: { ...before.list, item: "div.card" } });
+    let attempt = 0;
+
+    const { ctx, llmCalls } = makeContext({
+      llmHandler: async () => {
+        attempt += 1;
+        return attempt === 1
+          ? { recipe: badPatch, changeNote: "Tried div.wrong" }
+          : { recipe: goodPatch, changeNote: "Switched to div.card" };
+      },
+    });
+
+    const medic = createMedic(
+      makeDeps({
+        verifyGolden: (_tenders, golden) =>
+          attempt === 1
+            ? { checked: golden.length, matched: 0, mismatches: ["T-1 title mismatch"] }
+            : { checked: golden.length, matched: golden.length, mismatches: [] },
+      }),
+    );
+
+    const outcome = await medic.repair(
+      { recipe: before, verdict: makeBrokenVerdict(), baseline: makeBaseline(1) },
+      ctx,
+    );
+
+    assert.equal(outcome.kind, "ok");
+    assert.equal(llmCalls.length, 2);
+    assert.match(llmCalls[1]?.user ?? "", /T-1 title mismatch/);
+    assert.equal(outcome.recipe.list.item, "div.card");
+  });
+
+  it("recovers gracefully when an LLM attempt throws an error", async () => {
+    const before = makeRecipe();
+    const goodPatch = makeRecipe({ list: { ...before.list, item: "div.card" } });
+    let attempt = 0;
+
+    const { ctx, llmCalls, logs } = makeContext({
+      llmHandler: async () => {
+        attempt += 1;
+        if (attempt === 1) throw new Error("Rate limit exceeded");
+        return { recipe: goodPatch, changeNote: "Switched to div.card" };
+      },
+    });
+
+    const medic = createMedic(makeDeps());
+    const outcome = await medic.repair(
+      { recipe: before, verdict: makeBrokenVerdict(), baseline: makeBaseline(1) },
+      ctx,
+    );
+
+    assert.equal(outcome.kind, "ok");
+    assert.equal(llmCalls.length, 2);
+    assert.ok(logs.some((l) => l.level === "warn" && l.message.includes("Rate limit exceeded")));
+  });
+
+  it("stops immediately when verification detects portal is blocked", async () => {
+    const before = makeRecipe();
+    let attachCalled = false;
+    const { ctx, llmCalls } = makeContext({
+      llmHandler: async () => ({
+        recipe: makeRecipe({ list: { ...before.list, item: "div.card" } }),
+        changeNote: "Updated selector",
+      }),
+    });
+
+    const medic = createMedic(
+      makeDeps({
+        evaluate: () => ({ kind: "blocked", reason: "Login wall appeared during verification." }),
+        cartographer: {
+          async attach() {
+            attachCalled = true;
+            return { kind: "failed", reason: "Should not be called" };
+          },
+        },
+      }),
+    );
+
+    const outcome = await medic.repair(
+      { recipe: before, verdict: makeBrokenVerdict(), baseline: makeBaseline() },
+      ctx,
+    );
+
+    assert.equal(outcome.kind, "failed");
+    assert.equal(outcome.reason, "Login wall appeared during verification.");
+    assert.equal(llmCalls.length, 1);
+    assert.equal(attachCalled, false);
+  });
+
+  it("falls back to cartographer.attach after 3 failed patches and succeeds", async () => {
+    const before = makeRecipe();
+    const attachedRecipe = makeRecipe({
+      tier: "jsonApi",
+      list: {
+        ...before.list,
+        request: { url: "https://portal.example/api/tenders", method: "GET" },
+        item: "$.items[*]",
+      },
+    });
+    let attachCalls = 0;
+
+    const { ctx, llmCalls } = makeContext({
+      llmHandler: async () => ({
+        recipe: makeRecipe({ list: { ...before.list, item: "div.bad" } }),
+        changeNote: "Attempted selector fix",
+      }),
+    });
+
+    const medic = createMedic(
+      makeDeps({
+        evaluate: (read) =>
+          read.kind === "ok" && read.tenders.length > 0
+            ? { kind: "healthy", reason: "OK", checks: [] }
+            : { kind: "broken", reason: "Still 0 items", checks: [] },
+        extractor: {
+          async read() {
+            return makeOkRead([]);
+          },
+        },
+        cartographer: {
+          async attach() {
+            attachCalls += 1;
+            return {
+              kind: "ok",
+              recipe: attachedRecipe,
+              golden: [],
+              read: makeOkRead([makeTender("T-1")]),
+              note: "Switched to portal JSON API",
+            };
+          },
+        },
+      }),
+    );
+
+    const outcome = await medic.repair(
+      { recipe: before, verdict: makeBrokenVerdict(), baseline: makeBaseline(1) },
+      ctx,
+    );
+
+    assert.equal(outcome.kind, "ok");
+    assert.equal(llmCalls.length, 3);
+    assert.equal(attachCalls, 1);
+    assert.equal(outcome.recipe.tier, "jsonApi");
+    assert.match(outcome.summary, /Switched to portal JSON API/);
+  });
+
+  it("returns failed with clear reason when all 3 patches and fallback attach fail", async () => {
+    const before = makeRecipe();
+    let attachCalls = 0;
+
+    const { ctx, llmCalls } = makeContext({
+      llmHandler: async () => ({
+        recipe: before,
+        changeNote: "No change",
+      }),
+    });
+
+    const medic = createMedic(
+      makeDeps({
+        evaluate: () => ({
+          kind: "broken",
+          reason: "No items extracted",
+          checks: [{ name: "count-drop", ok: false, detail: "0 items" }],
+        }),
+        cartographer: {
+          async attach() {
+            attachCalls += 1;
+            return { kind: "failed", reason: "Could not locate tender list on portal" };
+          },
+        },
+      }),
+    );
+
+    const outcome = await medic.repair(
+      { recipe: before, verdict: makeBrokenVerdict(), baseline: makeBaseline() },
+      ctx,
+    );
+
+    assert.equal(outcome.kind, "failed");
+    assert.equal(llmCalls.length, 3);
+    assert.equal(attachCalls, 1);
+    assert.equal(outcome.reason, "Could not locate tender list on portal.");
+  });
+
+  it("aborts cleanly without extra LLM calls when AbortSignal is already aborted", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    let snapshotCalled = false;
+    const { ctx, llmCalls } = makeContext({ controller });
+
+    const medic = createMedic(
+      makeDeps({
+        captureSnapshot: async () => {
+          snapshotCalled = true;
+          return makeOkSnapshot();
+        },
+      }),
+    );
+
+    const outcome = await medic.repair(
+      { recipe: makeRecipe(), verdict: makeBrokenVerdict(), baseline: makeBaseline() },
+      ctx,
+    );
+
+    assert.equal(outcome.kind, "failed");
+    assert.equal(outcome.reason, "Repair cancelled.");
+    assert.equal(snapshotCalled, false);
+    assert.equal(llmCalls.length, 0);
+  });
+
+  it("aborts cleanly mid-loop without extra LLM calls or fallback attach", async () => {
+    const controller = new AbortController();
+    let attachCalled = false;
+    const { ctx, llmCalls } = makeContext({
+      controller,
+      llmHandler: async () => {
+        controller.abort();
+        return { recipe: makeRecipe(), changeNote: "Attempt 1" };
+      },
+    });
+
+    const medic = createMedic(
+      makeDeps({
+        cartographer: {
+          async attach() {
+            attachCalled = true;
+            return { kind: "failed", reason: "Should not run" };
+          },
+        },
+      }),
+    );
+
+    const outcome = await medic.repair(
+      { recipe: makeRecipe(), verdict: makeBrokenVerdict(), baseline: makeBaseline() },
+      ctx,
+    );
+
+    assert.equal(outcome.kind, "failed");
+    assert.equal(outcome.reason, "Repair cancelled.");
+    assert.equal(llmCalls.length, 1);
+    assert.equal(attachCalled, false);
+  });
+});
