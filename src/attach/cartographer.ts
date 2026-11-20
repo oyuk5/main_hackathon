@@ -1118,6 +1118,8 @@ export async function attachWithModel(ctx: PortalContext, deps: ModelAttachDeps 
     if (sample.kind === "ok" && sample.tenders.length > 0) {
       const wantOptional = optionalHints < 2 && rounds < MAX_RECIPE_ROUNDS;
       const wantWithdrawn = drafts <= 2;
+      const concrete = tenderPage && rounds < MAX_RECIPE_ROUNDS && detailLabelHints(recipe, tenderPage.body);
+      if (concrete) withdrawnBlock.push(concrete);
       if (wantOptional || wantWithdrawn) {
         const items = await deps.items(recipe, ctx).catch(() => ({ items: [] as string[] }));
         listItems = items.items;
