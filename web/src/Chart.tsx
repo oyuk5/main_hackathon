@@ -6,7 +6,8 @@ import { geoGraticule, geoMercator, geoPath } from "d3-geo";
 import type { FeatureCollection, MultiPolygon } from "geojson";
 import { useMemo, useState } from "react";
 import europe from "./geo/europe.json";
-import { ANCHOR, CHARACTER, STATE_COLOR, countryOf, host, int, type PortalRow, type State } from "./lib";
+import { ANCHOR, CHARACTER, STATE_COLOR, countryOf, host, stateLower, type PortalRow, type State } from "./lib";
+import { getLang, t, type Key } from "./i18n";
 
 /** Literal class names, so Tailwind finds them. Flares use the bright yellow; text uses the darker one. */
 const GLOW: Record<State, string> = { serving: "text-serving", healing: "text-healing", failed: "text-failed", integrating: "text-integrating" };
@@ -18,12 +19,12 @@ const W = 1000;
 const VIEW = { w: -11.5, e: 31.5, s: 35.2, n: 62.6 };
 const geo = europe as unknown as FeatureCollection<MultiPolygon>;
 
-const SEAS: [string, [number, number]][] = [
-  ["North Sea", [3.0, 56.6]],
-  ["Atlantic Ocean", [-6.2, 59.7]],
-  ["Baltic Sea", [18.4, 55.9]],
-  ["Mediterranean Sea", [19.0, 35.9]],
-  ["Norwegian Sea", [1.5, 61.6]],
+const SEAS: [Key, [number, number]][] = [
+  ["sea.north", [3.0, 56.6]],
+  ["sea.atlantic", [-6.2, 59.7]],
+  ["sea.baltic", [18.4, 55.9]],
+  ["sea.med", [19.0, 35.9]],
+  ["sea.norwegian", [1.5, 61.6]],
 ];
 
 function useProjection() {
@@ -125,7 +126,7 @@ export function Chart({ rows, hover, setHover, compact = false }: { rows: Portal
 
   return (
     <div className="relative">
-      <svg viewBox={`0 0 ${W} ${H}`} className="block h-auto w-full select-none" role="group" aria-label={`Chart of ${rows.length} portals: ${summary(rows)}`}>
+      <svg viewBox={`0 0 ${W} ${H}`} className="block h-auto w-full select-none" role="group" aria-label={t("chart.aria", { n: rows.length, summary: summary(rows) })}>
         <defs>
           <clipPath id="sea">
             <rect x="10" y="10" width={W - 20} height={H - 20} />
@@ -138,7 +139,7 @@ export function Chart({ rows, hover, setHover, compact = false }: { rows: Portal
             const [x, y] = xy(...at);
             return (
               <text key={name} x={x} y={y} textAnchor="middle" className="fill-slate/70 font-chart text-[17px] italic" style={{ letterSpacing: "0.04em" }}>
-                {name}
+                {t(name)}
               </text>
             );
           })}
@@ -184,7 +185,7 @@ const summary = (rows: PortalRow[]) =>
   (["failed", "healing", "integrating", "serving"] as const)
     .map((s) => [s, rows.filter((r) => r.state === s).length] as const)
     .filter(([, n]) => n > 0)
-    .map(([s, n]) => `${n} ${CHARACTER[s].words.toLowerCase()}`)
+    .map(([s, n]) => `${n} ${stateLower(s)}`)
     .join(", ");
 
 // ------------------------------------------------------------ lights
@@ -221,17 +222,17 @@ function Light({ pl, k, active, setHover }: { pl: Placed; k: number; active: boo
 function ClusterMark({ cl, k, active, onOpen }: { cl: Cluster; k: number; active: boolean; onOpen: () => void }) {
   const { x, y, worst, list } = cl;
   const counts = WORST.map((s) => [s, list.filter((p) => p.state === s).length] as const).filter(([, n]) => n > 0);
-  const text = `${countryName(cl.country)}: ${list.length} portals, ${counts.map(([s, n]) => `${n} ${CHARACTER[s].words.toLowerCase()}`).join(", ")}`;
+  const text = `${t("chart.cluster", { n: list.length, country: countryName(cl.country) })}, ${counts.map(([s, n]) => `${n} ${stateLower(s)}`).join(", ")}`;
   return (
     <g
       role="button"
       tabIndex={0}
-      aria-label={`${text}. Show the list.`}
+      aria-label={t("chart.showList", { text })}
       onClick={onOpen}
       onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), onOpen())}
       className="map-control cursor-pointer"
     >
-      <title>{`${text}. Click for the list.`}</title>
+      <title>{t("chart.clickList", { text })}</title>
       <circle cx={x} cy={y} r={24 * k} className="fill-transparent" />
       <circle cx={x} cy={y} r={22 * k} className="map-focus fill-none" strokeWidth={2 * k} />
       <g className={GLOW[worst]}>
@@ -248,7 +249,7 @@ function ClusterMark({ cl, k, active, onOpen }: { cl: Cluster; k: number; active
 
 const countryName = (code: string) => {
   try {
-    return new Intl.DisplayNames(["en"], { type: "region" }).of(code) ?? code;
+    return new Intl.DisplayNames([getLang()], { type: "region" }).of(code) ?? code;
   } catch {
     return code;
   }
@@ -261,8 +262,8 @@ function ClusterList({ cl, hover, setHover, onClose }: { cl: Cluster; hover: str
   return (
     <div className="mt-2 rounded-[4px] border border-hairline bg-paper">
       <div className="flex items-center justify-between border-b border-hairline px-2.5 py-1.5">
-        <p className="text-[13px] font-semibold text-ink">{countryName(cl.country)}: {list.length} portals</p>
-        <button type="button" onClick={onClose} aria-label="Close the list" className="rounded-[4px] px-1.5 text-[15px] leading-none text-slate hover:bg-mist hover:text-ink cursor-pointer">
+        <p className="text-[13px] font-semibold text-ink">{t("chart.cluster", { n: list.length, country: countryName(cl.country) })}</p>
+        <button type="button" onClick={onClose} aria-label={t("chart.closeList")} className="rounded-[4px] px-1.5 text-[15px] leading-none text-slate hover:bg-mist hover:text-ink cursor-pointer">
           ×
         </button>
       </div>
@@ -295,7 +296,7 @@ const GAP = 58;
 /** What a label says under the portal's name: tenders when it delivers, else the short reason. */
 function shortReason(p: PortalRow): string | null {
   if (p.state === "serving") return null;
-  if (p.state === "integrating") return "Learning how to read it";
+  if (p.state === "integrating") return t("chart.learning");
   const [head, ...rest] = p.reason.split(":");
   const words = head!.trim().split(/\s+/).length;
   const text = words >= 3 || rest.length === 0 ? head! : `${head}: ${rest.join(":").split(/[,.;]/)[0]!.trim()}`;
@@ -352,7 +353,7 @@ function Label({ l, active }: { l: Placement; active: boolean }) {
         <p className="narrow truncate text-[15px] font-bold">{host(p.url)}</p>
         <p className="mt-0.5 truncate text-[13px]">
           <span className={`font-semibold ${STATE_COLOR[p.state]}`}>{c.words}</span>
-          {(p.state === "serving" || p.state === "healing") && <span className="text-slate">, {int(p.tenderCount)} open tenders</span>}
+          {(p.state === "serving" || p.state === "healing") && <span className="text-slate">{t("chart.openTenders", { n: p.tenderCount })}</span>}
         </p>
         {reason && <p className="mt-0.5 truncate text-[12.5px] text-slate">{reason}</p>}
       </div>
@@ -381,12 +382,12 @@ function Neatline({ xy, H, labels }: { xy: (lon: number, lat: number) => [number
       {ticks}
       {labels && [-10, 0, 10, 20, 30].map((lon) => (
         <text key={lon} x={xy(lon, 50)[0] + 4} y={30} className="narrow fill-slate text-[11px]">
-          {Math.abs(lon)}°{lon < 0 ? "W" : lon > 0 ? "E" : ""}
+          {Math.abs(lon)}°{lon < 0 ? t("chart.west") : lon > 0 ? t("chart.east") : ""}
         </text>
       ))}
       {labels && [40, 50, 60].map((lat) => (
         <text key={lat} x={22} y={xy(0, lat)[1] - 4} className="narrow fill-slate text-[11px]">
-          {lat}°N
+          {lat}°{t("chart.north")}
         </text>
       ))}
     </g>
@@ -399,7 +400,7 @@ function Inset({ rows, hover, setHover, compact }: { rows: PortalRow[]; hover: s
   return (
     <div className={compact ? "mt-2" : "absolute top-[4%] right-[2.5%] w-[min(330px,44%)] border border-hairline bg-paper/95 p-[3px] shadow-sm max-md:static max-md:mt-3 max-md:w-full"}>
       <div className={compact ? "" : "px-3 pt-2 pb-2.5"}>
-        <p className="font-chart text-[15px] text-slate italic">Not on the map: country unknown</p>
+        <p className="font-chart text-[15px] text-slate italic">{t("chart.unknown")}</p>
         <ul className="mt-1.5 space-y-1.5">
           {rows.slice(0, MAX_UNPLACED).map((p) => {
             const c = CHARACTER[p.state];
@@ -419,7 +420,7 @@ function Inset({ rows, hover, setHover, compact }: { rows: PortalRow[]; hover: s
             );
           })}
         </ul>
-        {rows.length > MAX_UNPLACED && <p className="mt-1.5 text-[12.5px] text-slate">and {rows.length - MAX_UNPLACED} more, listed in the table</p>}
+        {rows.length > MAX_UNPLACED && <p className="mt-1.5 text-[12.5px] text-slate">{t("chart.more", { n: rows.length - MAX_UNPLACED })}</p>}
       </div>
     </div>
   );

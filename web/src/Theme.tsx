@@ -3,6 +3,7 @@
  * index.html applies it before the first paint.
  */
 import { useRef, useState } from "react";
+import { t, type Key } from "./i18n";
 
 type Theme = "auto" | "light" | "dark";
 
@@ -26,10 +27,10 @@ function apply(t: Theme) {
   }
 }
 
-const OPTIONS: { id: Theme; label: string; icon: React.ReactNode }[] = [
+const OPTIONS: { id: Theme; label: Key; icon: React.ReactNode }[] = [
   {
     id: "auto",
-    label: "Follow the computer's setting",
+    label: "theme.auto",
     icon: (
       <>
         <rect x="2" y="3" width="12" height="8.5" rx="1.3" />
@@ -39,7 +40,7 @@ const OPTIONS: { id: Theme; label: string; icon: React.ReactNode }[] = [
   },
   {
     id: "light",
-    label: "Light",
+    label: "theme.light",
     icon: (
       <>
         <circle cx="8" cy="8" r="2.8" />
@@ -49,7 +50,7 @@ const OPTIONS: { id: Theme; label: string; icon: React.ReactNode }[] = [
   },
   {
     id: "dark",
-    label: "Dark",
+    label: "theme.dark",
     icon: <path d="M13.2 9.6A5.6 5.6 0 0 1 6.4 2.8a5.6 5.6 0 1 0 6.8 6.8Z" />,
   },
 ];
@@ -62,7 +63,7 @@ export function ThemeSwitch() {
     setTheme(value);
   };
   return (
-    <div ref={group} role="radiogroup" aria-label="Theme" className="flex shrink-0 items-center rounded-[5px] border border-hairline bg-sea p-0.5"
+    <div ref={group} role="radiogroup" aria-label={t("theme.group")} className="flex shrink-0 items-center rounded-[5px] border border-hairline bg-sea p-0.5"
       onKeyDown={(e) => {
         const delta = e.key === "ArrowRight" || e.key === "ArrowDown" ? 1 : e.key === "ArrowLeft" || e.key === "ArrowUp" ? -1 : 0;
         if (!delta) return;
@@ -81,8 +82,8 @@ export function ThemeSwitch() {
             role="radio"
             aria-checked={on}
             tabIndex={on ? 0 : -1}
-            aria-label={o.label}
-            title={o.label}
+            aria-label={t(o.label)}
+            title={t(o.label)}
             onClick={() => select(o.id)}
             className={`grid size-7 place-items-center rounded-[4px] transition-colors cursor-pointer ${
               on ? "bg-paper text-ink shadow-[0_0_0_1px_var(--color-hairline)]" : "text-faint hover:text-ink"

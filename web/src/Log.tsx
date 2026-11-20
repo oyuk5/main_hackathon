@@ -3,7 +3,8 @@
  * model cost. Time sort groups strictly by unique calendar day; portal sort groups by host.
  */
 import { useMemo, useState } from "react";
-import { clock, duration, host, plural, usd, usePoll, type PortalRow } from "./lib";
+import { clock, duration, host, usd, usePoll, type PortalRow } from "./lib";
+import { locale, t, useT, type Key } from "./i18n";
 import { StatusIcon, type StatusIconKind } from "./StatusIcon";
 import { Select } from "./Select";
 
@@ -22,12 +23,13 @@ interface LogRow {
 
 type Outcome = "passed" | "problem" | "repaired" | "unrepaired" | "running";
 
-const OUTCOME: Record<Outcome, { label: string; cls: string; order: number; icon: StatusIconKind }> = {
-  problem: { label: "Problem found", cls: "text-ink", order: 0, icon: "failed" },
-  unrepaired: { label: "Could not repair", cls: "text-ink", order: 1, icon: "failed" },
-  running: { label: "Running", cls: "text-ink", order: 2, icon: "running" },
-  repaired: { label: "Repaired", cls: "text-ink", order: 3, icon: "ok" },
-  passed: { label: "Passed", cls: "text-slate", order: 4, icon: "passed" },
+/** Labels come from the dictionary as log.<outcome>. */
+const OUTCOME: Record<Outcome, { cls: string; order: number; icon: StatusIconKind }> = {
+  problem: { cls: "text-ink", order: 0, icon: "failed" },
+  unrepaired: { cls: "text-ink", order: 1, icon: "failed" },
+  running: { cls: "text-ink", order: 2, icon: "running" },
+  repaired: { cls: "text-ink", order: 3, icon: "ok" },
+  passed: { cls: "text-slate", order: 4, icon: "passed" },
 };
 
 function outcome(r: LogRow): Outcome {
@@ -37,10 +39,11 @@ function outcome(r: LogRow): Outcome {
 }
 
 type Filter = "all" | "problems" | "repairs";
-const FILTERS: { id: Filter; label: string; empty: string; keep: (r: LogRow) => boolean }[] = [
-  { id: "all", label: "Everything", empty: "No log entries for the selected portals.", keep: () => true },
-  { id: "problems", label: "Problems", empty: "No failed reads or repairs for the selected portals.", keep: (r) => r.result === "failed" },
-  { id: "repairs", label: "Repairs", empty: "No repairs have started for the selected portals.", keep: (r) => r.kind === "repair" },
+/** Texts come from the dictionary: log.f.<id> (label), log.e.<id> (empty), log.nm.<id> (no search match). */
+const FILTERS: { id: Filter; keep: (r: LogRow) => boolean }[] = [
+  { id: "all", keep: () => true },
+  { id: "problems", keep: (r) => r.result === "failed" },
+  { id: "repairs", keep: (r) => r.kind === "repair" },
 ];
 
 type SortKey = "time" | "portal" | "outcome" | "took" | "cost";
@@ -57,22 +60,23 @@ const DEFAULT_DIR: Record<SortKey, SortDir> = {
 const ts = (iso: string) => Date.parse(iso) || 0;
 const elapsedMs = (r: LogRow) => (r.finished_at ? Math.max(0, ts(r.finished_at) - ts(r.started_at)) : -1);
 
-const dayFmt = new Intl.DateTimeFormat(undefined, { weekday: "long", day: "numeric", month: "long" });
-const shortDateFmt = new Intl.DateTimeFormat(undefined, { day: "numeric", month: "short" });
+const dayFmt = () => new Intl.DateTimeFormat(locale(), { weekday: "long", day: "numeric", month: "long" });
+const shortDateFmt = () => new Intl.DateTimeFormat(locale(), { day: "numeric", month: "short" });
 
 function dayLabel(iso: string, now: number): string {
   const d = new Date(iso).toDateString();
-  if (d === new Date(now).toDateString()) return "Today";
-  if (d === new Date(now - 86_400_000).toDateString()) return "Yesterday";
-  return dayFmt.format(new Date(iso));
+  if (d === new Date(now).toDateString()) return t("log.today");
+  if (d === new Date(now - 86_400_000).toDateString()) return t("log.yesterday");
+  return dayFmt().format(new Date(iso));
 }
 
-function shortWhen(iso: string, now: number): string {
-  const t = new Date(iso);
-  const d = t.toDateString();
-  if (d === new Date(now).toDateString()) return `Today ${clock(iso)}`;
-  if (d === new Date(now - 86_400_000).toDateString()) return `Yest ${clock(iso)}`;
-  return `${shortDateFmt.format(t)} ${clock(iso)}`;
+/** "Today 10:42" in a column, or "today at 10:42" inside a sentence. */
+function shortWhen(iso: string, now: number, inSentence = false): string {
+  const date = new Date(iso);
+  const d = date.toDateString();
+  if (d === new Date(now).toDateString()) return t(inSentence ? "log.sinceToday" : "log.todayAt", { t: clock(iso) });
+  if (d === new Date(now - 86_400_000).toDateString()) return t(inSentence ? "log.sinceYest" : "log.yestAt", { t: clock(iso) });
+  return `${shortDateFmt().format(date)} ${clock(iso)}`;
 }
 
 function SortArrow({ active, dir }: { active: boolean; dir: SortDir }) {
@@ -118,6 +122,7 @@ export function Log({ portals, now }: { portals: PortalRow[]; now: number }) {
   const [sortKey, setSortKey] = useState<SortKey>("time");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [open, setOpen] = useState<string | null>(null);
+  const { lang } = useT();
   const { data, failing } = usePoll<LogRow[]>(`/internal/log${passing ? "?all=1" : ""}`, 5000);
   const currentFilter = FILTERS.find((f) => f.id === filter)!;
 
@@ -208,16 +213,17 @@ export function Log({ portals, now }: { portals: PortalRow[]; now: number }) {
         }
         bucket.rows.push(r);
       }
-      return [...map.values()].map((b) => ({ ...b, label: `${b.label}, ${plural(b.rows.length, "entry", "entries")}` }));
+      return [...map.values()].map((b) => ({ ...b, label: `${b.label}, ${t("log.entries", { n: b.rows.length })}` }));
     }
     return [{ key: "flat", label: null as string | null, rows: folded }];
-  }, [folded, now, sortKey]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [folded, now, sortKey, lang]);
 
   return (
     <section aria-labelledby="log" className="overflow-hidden rounded-[6px] border border-hairline bg-paper">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2.5 border-b border-hairline px-4 py-3">
         <h2 id="log" className="text-[13.5px] font-semibold text-ink">
-          {data ? plural(folded.length, "entry", "entries") : "Log"}
+          {data ? t("log.entries", { n: folded.length }) : t("log.title")}
         </h2>
 
         <div className="relative w-full sm:w-[220px]">
@@ -234,18 +240,18 @@ export function Log({ portals, now }: { portals: PortalRow[]; now: number }) {
             <circle cx="7" cy="7" r="4.8" />
             <path d="m10.6 10.6 3.2 3.2" strokeLinecap="round" />
           </svg>
-          <label htmlFor="log-find" className="sr-only">Filter by portal or text</label>
+          <label htmlFor="log-find" className="sr-only">{t("log.find")}</label>
           <input
             id="log-find"
             type="search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Filter portal or text"
+            placeholder={t("log.findPlaceholder")}
             className="h-7 w-full rounded-[4px] border border-hairline bg-sea pr-2.5 pl-8 text-[12.5px] text-ink placeholder:text-faint focus:border-docker focus:bg-paper"
           />
         </div>
 
-        <div role="group" aria-label="Show" className="flex flex-wrap gap-1.5">
+        <div role="group" aria-label={t("log.show")} className="flex flex-wrap gap-1.5">
           {FILTERS.map((f) => (
             <button
               key={f.id}
@@ -258,14 +264,14 @@ export function Log({ portals, now }: { portals: PortalRow[]; now: number }) {
                   : "border-hairline text-slate hover:border-slate/50 hover:text-ink"
               }`}
             >
-              {f.label}{f.id === "problems" && data && <span className="num"> ({problemCount})</span>}
+              {t(`log.f.${f.id}` as Key)}{f.id === "problems" && data && <span className="num"> ({problemCount})</span>}
             </button>
           ))}
         </div>
 
         <div className="flex w-full flex-wrap items-center gap-x-4 gap-y-2 sm:ml-auto sm:w-auto">
           <Select
-            label="Sort"
+            label={t("sort.label")}
             size="sm"
             value={`${sortKey}:${sortDir}`}
             onChange={(v) => {
@@ -274,16 +280,16 @@ export function Log({ portals, now }: { portals: PortalRow[]; now: number }) {
               setSortDir(d);
             }}
             options={[
-              { value: "time:desc", label: "Newest first" },
-              { value: "time:asc", label: "Oldest first" },
-              { value: "portal:asc", label: "Portal, A to Z" },
-              { value: "portal:desc", label: "Portal, Z to A" },
-              { value: "outcome:asc", label: "Problems first" },
-              { value: "outcome:desc", label: "Passed first" },
-              { value: "took:desc", label: "Took longest" },
-              { value: "took:asc", label: "Quickest" },
-              { value: "cost:desc", label: "Highest model cost" },
-              { value: "cost:asc", label: "Lowest model cost" },
+              { value: "time:desc", label: t("log.s.timeDesc") },
+              { value: "time:asc", label: t("log.s.timeAsc") },
+              { value: "portal:asc", label: t("log.s.portalAsc") },
+              { value: "portal:desc", label: t("log.s.portalDesc") },
+              { value: "outcome:asc", label: t("log.s.outcomeAsc") },
+              { value: "outcome:desc", label: t("log.s.outcomeDesc") },
+              { value: "took:desc", label: t("log.s.tookDesc") },
+              { value: "took:asc", label: t("log.s.tookAsc") },
+              { value: "cost:desc", label: t("log.s.costDesc") },
+              { value: "cost:asc", label: t("log.s.costAsc") },
             ]}
           />
 
@@ -297,18 +303,18 @@ export function Log({ portals, now }: { portals: PortalRow[]; now: number }) {
             <span className={`relative inline-block h-[18px] w-[30px] shrink-0 rounded-full transition-colors ${passing ? "bg-docker-solid" : "bg-hairline"}`}>
               <span className={`absolute top-[2px] left-[2px] size-[14px] rounded-full bg-paper shadow-sm transition-transform ${passing ? "translate-x-[12px]" : ""}`} />
             </span>
-            Include reads that passed
+            {t("log.passing")}
           </button>
         </div>
       </div>
 
       {failing && !data && (
-        <p className="px-5 py-10 text-center text-[13.5px] text-failed">The log could not be loaded. Retrying every 5 seconds.</p>
+        <p className="px-5 py-10 text-center text-[13.5px] text-failed">{t("log.failed")}</p>
       )}
       {data && rows.length === 0 && (
         <p className="px-5 py-10 text-center text-[13.5px] text-slate">
-          {query.trim() ? `No ${filter === "all" ? "log entries" : filter} match your search.` : currentFilter.empty}
-          {filter === "all" && !passing && !query.trim() && " Turn on ‘Include reads that passed’ to see routine reads."}
+          {query.trim() ? t(`log.nm.${filter}` as Key) : t(`log.e.${filter}` as Key)}
+          {filter === "all" && !passing && !query.trim() && t("log.hint")}
         </p>
       )}
 
@@ -319,7 +325,7 @@ export function Log({ portals, now }: { portals: PortalRow[]; now: number }) {
             onClick={() => toggleSort("time")}
             className="flex items-center border-r border-hairline px-3 py-2 text-left whitespace-nowrap hover:text-docker cursor-pointer"
           >
-            Time
+            {t("log.c.time")}
             <SortArrow active={sortKey === "time"} dir={sortDir} />
           </button>
           <button
@@ -327,16 +333,16 @@ export function Log({ portals, now }: { portals: PortalRow[]; now: number }) {
             onClick={() => toggleSort("portal")}
             className="flex items-center border-r border-hairline px-3 py-2 text-left whitespace-nowrap hover:text-docker cursor-pointer"
           >
-            Portal
+            {t("log.c.portal")}
             <SortArrow active={sortKey === "portal"} dir={sortDir} />
           </button>
-          <span className="border-r border-hairline px-3 py-2 whitespace-nowrap">What happened</span>
+          <span className="border-r border-hairline px-3 py-2 whitespace-nowrap">{t("log.c.what")}</span>
           <button
             type="button"
             onClick={() => toggleSort("outcome")}
             className="flex items-center border-r border-hairline px-3 py-2 text-left whitespace-nowrap hover:text-docker cursor-pointer"
           >
-            Outcome
+            {t("log.c.outcome")}
             <SortArrow active={sortKey === "outcome"} dir={sortDir} />
           </button>
           <button
@@ -344,7 +350,7 @@ export function Log({ portals, now }: { portals: PortalRow[]; now: number }) {
             onClick={() => toggleSort("took")}
             className="flex items-center justify-end border-r border-hairline px-3 py-2 whitespace-nowrap hover:text-docker cursor-pointer"
           >
-            Took
+            {t("log.c.took")}
             <SortArrow active={sortKey === "took"} dir={sortDir} />
           </button>
           <button
@@ -352,7 +358,7 @@ export function Log({ portals, now }: { portals: PortalRow[]; now: number }) {
             onClick={() => toggleSort("cost")}
             className="flex items-center justify-end px-3 py-2 whitespace-nowrap hover:text-docker cursor-pointer"
           >
-            Model cost
+            {t("log.c.cost")}
             <SortArrow active={sortKey === "cost"} dir={sortDir} />
           </button>
         </div>
@@ -399,8 +405,8 @@ function Entry({
   toggle: () => void;
 }) {
   const o = OUTCOME[outcome(r)];
-  const step = r.kind === "repair" ? "Repair" : "Read";
-  const text = r.summary || (r.result === null ? `${step} in progress.` : "");
+  const step = r.kind === "repair" ? t("log.repair") : t("log.read");
+  const text = r.summary || (r.result === null ? t("log.inProgress", { step }) : "");
   return (
     <li className="border-b border-hairline last:border-b-0">
       <button
@@ -421,18 +427,18 @@ function Entry({
           {text}
           {r.times > 1 && (
             <span className="mt-1 block text-[12.5px] text-faint">
-              {r.times} times since <time dateTime={r.since}>{shortWhen(r.since, now).replace(/^Today /, "today at ").replace(/^Yest /, "yesterday at ")}</time>
+              {t("log.times", { n: r.times })} <time dateTime={r.since}>{shortWhen(r.since, now, true)}</time>
             </span>
           )}
           {r.events.length > 0 && (
             <span className="ml-1.5 text-[12px] whitespace-nowrap text-docker">
-              {open ? "Hide steps" : plural(r.events.length, "step")}
+              {open ? t("log.hideSteps") : t("log.steps", { n: r.events.length })}
             </span>
           )}
         </span>
         <span className={`flex items-center gap-2 self-start px-3 py-2.5 text-[13px] font-medium ${o.cls}`}>
           <StatusIcon kind={o.icon} size={11} />
-          {o.label}
+          {t(`log.${outcome(r)}` as Key)}
         </span>
         <span className="num px-3 py-2.5 text-[13px] whitespace-nowrap text-slate md:text-right">
           {duration(r.started_at, r.finished_at)}

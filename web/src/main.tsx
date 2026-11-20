@@ -2,6 +2,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import "./index.css";
 import { App } from "./App";
+import { t } from "./i18n";
 
 const root = createRoot(document.getElementById("root")!);
 
@@ -22,7 +23,7 @@ async function start() {
     const { OperatorDashboard } = await import("./OperatorDashboard");
     root.render(<StrictMode><OperatorDashboard publishableKey={key} /></StrictMode>);
   } catch {
-    root.render(<main className="p-6 text-ink" role="alert">Operator sign-in could not load. Reload the page to try again.</main>);
+    root.render(<main className="p-6 text-ink" role="alert">{t("auth.loadFailed")}</main>);
   }
 }
 

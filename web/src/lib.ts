@@ -1,5 +1,6 @@
 /** Data from the Watchtower API, polling, and the small formatters the screens share. */
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
+import { fmtInt, getLang, locale, t } from "./i18n";
 
 export const OperatorToken = createContext<(() => Promise<string | null>) | null>(null);
 
@@ -109,21 +110,34 @@ export function useNow(everyMs = 30_000) {
 
 // ------------------------------------------------------------ formatting
 
-const clockFmt = new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit", hour12: false });
-const dayFmt = new Intl.DateTimeFormat(undefined, { weekday: "short" });
-const dateFmt = new Intl.DateTimeFormat(undefined, { day: "numeric", month: "short" });
+/** Formatters per language; the 24-hour clock in both. */
+const fmts = new Map<string, { clock: Intl.DateTimeFormat; day: Intl.DateTimeFormat; date: Intl.DateTimeFormat }>();
+export function dateFormats() {
+  const lang = getLang();
+  let f = fmts.get(lang);
+  if (!f) {
+    const loc = locale();
+    f = {
+      clock: new Intl.DateTimeFormat(loc, { hour: "2-digit", minute: "2-digit", hour12: false }),
+      day: new Intl.DateTimeFormat(loc, { weekday: "short" }),
+      date: new Intl.DateTimeFormat(loc, { day: "numeric", month: "short" }),
+    };
+    fmts.set(lang, f);
+  }
+  return f;
+}
 
-export const clock = (iso: string) => clockFmt.format(new Date(iso));
+export const clock = (iso: string) => dateFormats().clock.format(new Date(iso));
 
 export function ago(iso: string, now: number): string {
   const s = Math.round((now - new Date(iso).getTime()) / 1000);
-  if (s < 45) return "just now";
+  if (s < 45) return t("ago.now");
   const m = Math.round(s / 60);
-  if (m < 60) return `${m} min ago`;
+  if (m < 60) return t("ago.min", { n: m });
   const h = Math.round(m / 60);
-  if (h < 24) return `${h} h ago`;
+  if (h < 24) return t("ago.h", { n: h });
   const d = Math.round(h / 24);
-  return d === 1 ? "yesterday" : `${d} days ago`;
+  return d === 1 ? t("ago.yesterday") : t("ago.days", { n: d });
 }
 
 /** "10:42, 3 min ago" today; "Tue 22:10" this week; "18 Nov, 09:00" before. */
@@ -132,18 +146,22 @@ export function when(iso: string, now: number): string {
   const days = (now - t.getTime()) / 86_400_000;
   const sameDay = new Date(now).toDateString() === t.toDateString();
   if (sameDay) return `${clock(iso)}, ${ago(iso, now)}`;
-  if (days < 6) return `${dayFmt.format(t)} ${clock(iso)}`;
-  return `${dateFmt.format(t)}, ${clock(iso)}`;
+  if (days < 6) return `${dateFormats().day.format(t)} ${clock(iso)}`;
+  return `${dateFormats().date.format(t)}, ${clock(iso)}`;
 }
 
 export function duration(fromIso: string, toIso: string | null): string {
   if (!toIso) return "";
   const s = Math.max(0, Math.round((new Date(toIso).getTime() - new Date(fromIso).getTime()) / 1000));
-  return s < 90 ? `${s} s` : `${Math.round(s / 60)} min`;
+  return s < 90 ? t("dur.s", { n: s }) : t("dur.min", { n: Math.round(s / 60) });
 }
 
-export const usd = (n: number) => (n === 0 ? "$0" : n < 0.01 ? `$${n.toFixed(4)}` : n < 1 ? `$${n.toFixed(3)}` : `$${n.toFixed(2)}`);
-export const int = (n: number) => n.toLocaleString("en-US");
+/** Dollars with as many decimals as small amounts need: "$0.004" in English, "0,004 $" in German. */
+export function usd(n: number, digits = n === 0 ? 0 : n < 0.01 ? 4 : n < 1 ? 3 : 2): string {
+  if (getLang() === "de") return `${n.toLocaleString("de-DE", { minimumFractionDigits: digits, maximumFractionDigits: digits })} $`;
+  return `$${n.toFixed(digits)}`;
+}
+export const int = fmtInt;
 export const plural = (n: number, one: string, many = `${one}s`) => `${int(n)} ${n === 1 ? one : many}`;
 
 export function host(url: string): string {
@@ -159,7 +177,15 @@ export function host(url: string): string {
 }
 
 export const STATE_ORDER: Record<State, number> = { failed: 0, healing: 1, integrating: 2, serving: 3 };
-export const STATE_LABEL: Record<State, string> = { serving: "Serving", healing: "Being repaired", integrating: "Being attached", failed: "Needs a person" };
+/** State words in the current language. Getters, so every read follows the language switch. */
+export const STATE_LABEL: Record<State, string> = {
+  get serving() { return t("state.serving"); },
+  get healing() { return t("state.healing"); },
+  get integrating() { return t("state.integrating"); },
+  get failed() { return t("state.failed"); },
+};
+/** State words inside a sentence ("3 need a person"). */
+export const stateLower = (s: State) => t(`stateLower.${s}`);
 export const STATE_COLOR: Record<State, string> = {
   serving: "text-serving",
   healing: "text-healing-text",
@@ -197,10 +223,10 @@ export function diffRecipes(before: unknown, after: unknown): Change[] {
 
 /** The light characteristic that stands for each state, as printed on nautical charts. */
 export const CHARACTER: Record<State, { code: string; words: string; cls: string }> = {
-  serving: { code: "F.G", words: "Serving", cls: "ch-serving" },
-  healing: { code: "Fl.Y 3s", words: "Being repaired", cls: "ch-healing" },
-  failed: { code: "Q.R", words: "Needs a person", cls: "ch-failed" },
-  integrating: { code: "Iso 2s", words: "Being attached", cls: "ch-integrating" },
+  serving: { code: "F.G", get words() { return t("state.serving"); }, cls: "ch-serving" },
+  healing: { code: "Fl.Y 3s", get words() { return t("state.healing"); }, cls: "ch-healing" },
+  failed: { code: "Q.R", get words() { return t("state.failed"); }, cls: "ch-failed" },
+  integrating: { code: "Iso 2s", get words() { return t("state.integrating"); }, cls: "ch-integrating" },
 };
 
 /** A point inside each country where its lights are anchored, [longitude, latitude]. */
