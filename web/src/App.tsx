@@ -2,7 +2,7 @@
  * Operator dashboard styled after Docker Desktop: clean dark/light surfaces, 1px hairlines,
  * vertical column header dividers, Docker Blue primary controls, and 10px status circles.
  */
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { Board, openIssues } from "./Board";
 import { Chart } from "./Chart";
 import { Detail } from "./Detail";
@@ -64,6 +64,12 @@ export function App() {
   // Every tab shows only the portals picked in the tab bar. Ids of deleted portals are ignored.
   const rows = useMemo(() => (picked ? all.filter((p) => picked.includes(p.id)) : all), [all, picked]);
   const totalCost = useMemo(() => (ledger ?? []).reduce((s, r) => s + r.cost_usd, 0), [ledger]);
+
+  // The browser tab says how many portals need a person, so a glance at the tab bar is enough.
+  const needPerson = all.filter((r) => r.state === "failed").length;
+  useEffect(() => {
+    document.title = needPerson > 0 ? `(${needPerson}) Watchtower` : "Watchtower";
+  }, [needPerson]);
 
   return (
     <div className="min-h-dvh bg-sea text-ink">
@@ -283,6 +289,8 @@ function HoverNote({ rows, hover }: { rows: PortalRow[]; hover: string | null })
 // ------------------------------------------------------------ docker-style summary strip
 
 const ORDER: State[] = ["failed", "healing", "integrating", "serving"];
+/** Literal class names, so Tailwind finds them. */
+const GROUP_TEXT: Record<State, string> = { failed: "text-failed", healing: "text-healing-text", integrating: "text-integrating", serving: "text-serving" };
 
 function SummaryStrip({
   rows,
@@ -455,6 +463,18 @@ function Portals({
   onReload: () => void;
 }) {
   const [showFilterBar, setShowFilterBar] = useState(false);
+
+  // "/" jumps to the search box, as on most tools operators already use.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement;
+      if (e.key !== "/" || e.metaKey || e.ctrlKey || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) || el.isContentEditable) return;
+      e.preventDefault();
+      document.getElementById("portal-find")?.focus();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, []);
   const [refreshing, setRefreshing] = useState<Record<string, boolean>>({});
 
   const q = query.trim().toLowerCase();
@@ -503,13 +523,16 @@ function Portals({
             <path d="m10.6 10.6 3.2 3.2" strokeLinecap="round" />
           </svg>
           <label htmlFor="portal-find" className="sr-only">Search portals</label>
+          {!query && (
+            <kbd aria-hidden="true" className="pointer-events-none absolute top-1/2 right-2.5 -translate-y-1/2 rounded-[3px] border border-hairline px-1.5 text-[11px] leading-[18px] text-faint">/</kbd>
+          )}
           <input
             id="portal-find"
             type="search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search"
-            className="h-9 w-full rounded-[4px] border border-hairline bg-paper pr-3 pl-9 text-[13.5px] text-ink placeholder:text-faint focus:border-docker focus:outline-none"
+            placeholder="Search portals and reasons"
+            className="h-9 w-full rounded-[4px] border border-hairline bg-paper pr-8 pl-9 text-[13.5px] text-ink placeholder:text-faint focus:border-docker focus:outline-none"
           />
         </div>
 
@@ -656,20 +679,30 @@ function Portals({
               </tr>
             </thead>
             <tbody>
-              {rows.map((r) => {
+              {rows.map((r, i) => {
                 const isSelectedRow = hover === r.id;
+                const groupStart = view.sort === "urgent" && (i === 0 || rows[i - 1]!.state !== r.state);
+                const groupSize = groupStart ? rows.filter((x) => x.state === r.state).length : 0;
                                 const isBusy = Boolean(r.busy || refreshing[r.id]);
                 const detailHref = `#/p/${encodeURIComponent(r.id)}`;
 
                 return (
+                  <Fragment key={r.id}>
+                  {groupStart && (
+                    <tr className="border-b border-hairline bg-sea/70">
+                      <th scope="rowgroup" colSpan={6} className={`px-3 py-1.5 text-left text-[12.5px] font-semibold ${GROUP_TEXT[r.state]}`}>
+                        {CHARACTER[r.state].words}
+                        <span className="num ml-2 font-medium text-faint">{groupSize}</span>
+                      </th>
+                    </tr>
+                  )}
                   <tr
-                    key={r.id}
                     onMouseEnter={() => setHover(r.id)}
                     onMouseLeave={() => setHover(null)}
                     onClick={() => {
                       window.location.hash = detailHref;
                     }}
-                    className={`border-b border-hairline last:border-b-0 cursor-pointer transition-colors ${
+                    className={`group border-b border-hairline last:border-b-0 cursor-pointer transition-colors ${
                       isSelectedRow ? "bg-mist" : "hover:bg-mist/80"
                     }`}
                   >
@@ -687,13 +720,13 @@ function Portals({
                       >
                         {host(r.url)}
                       </a>
-                      <span className={`mt-0.5 block text-[12.5px] whitespace-nowrap ${r.state === "failed" ? "font-medium text-failed" : r.state === "healing" ? "text-healing-text" : "text-slate"}`}>
-                        {CHARACTER[r.state].words}
-                        {r.busy && <span className="text-faint">, {r.busy.kind === "repair" ? "repairing now" : "reading now"}</span>}
+                      <span className={`mt-0.5 block text-[12.5px] whitespace-nowrap ${view.sort === "urgent" && !r.busy ? "sr-only" : ""} ${r.state === "failed" ? "font-medium text-failed" : r.state === "healing" ? "text-healing-text" : "text-slate"}`}>
+                        {view.sort === "urgent" ? "" : CHARACTER[r.state].words}
+                        {r.busy && <span className="text-faint">{view.sort === "urgent" ? "" : ", "}{r.busy.kind === "repair" ? "repairing now" : "reading now"}</span>}
                       </span>
                     </td>
-                    <td className="min-w-[260px] px-3 py-2.5 align-top text-slate" title={r.reason}>
-                      <span className="line-clamp-2">{r.reason}</span>
+                    <td className={`min-w-[260px] px-3 py-2.5 align-top ${r.state === "serving" ? "text-faint" : r.state === "integrating" ? "text-slate" : "text-ink"}`} title={r.reason}>
+                      <span className="line-clamp-2">{shortReason(r)}</span>
                     </td>
                     <td className="num px-3 py-2.5 text-right align-top font-medium text-ink whitespace-nowrap">
                       {int(r.tenderCount)}
@@ -707,12 +740,13 @@ function Portals({
                         onClick={(e) => void triggerRefresh(e, r.id)}
                         disabled={isBusy}
                         aria-label={`Read ${host(r.url)} now`}
-                        className="h-7 rounded-[4px] border border-hairline px-2.5 text-[12.5px] font-medium whitespace-nowrap text-ink hover:border-docker hover:text-docker disabled:border-transparent disabled:text-faint cursor-pointer disabled:cursor-default"
+                        className={`h-7 rounded-[4px] border border-hairline px-2.5 text-[12.5px] font-medium whitespace-nowrap text-ink transition-opacity ${isBusy ? "" : "md:opacity-0 md:group-hover:opacity-100 md:focus-visible:opacity-100"} hover:border-docker hover:text-docker disabled:border-transparent disabled:text-faint cursor-pointer disabled:cursor-default`}
                       >
                         {isBusy ? "Running" : "Read now"}
                       </button>
                     </td>
                   </tr>
+                  </Fragment>
                 );
               })}
             </tbody>
@@ -721,6 +755,15 @@ function Portals({
       </div>
     </section>
   );
+}
+
+/**
+ * A healthy portal's reason repeats what its own columns already say (tender count, last read).
+ * Keep only the news: "2 new, 0 changed, all checks passed". Anything else is shown as written.
+ */
+function shortReason(r: PortalRow): string {
+  const m = r.state === "serving" && /^Serving [\d,]+ open tenders? \(([^)]*)\)\.(?: Last read [\d:]+,)? all checks passed\.$/.exec(r.reason);
+  return m ? `${m[1]}, all checks passed` : r.reason;
 }
 
 // ------------------------------------------------------------ cost
