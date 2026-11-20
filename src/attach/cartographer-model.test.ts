@@ -35,6 +35,7 @@ const rows = (n: number) =>
   Array.from({ length: n }, (_, i) => `<tr class="hit"><td class="nr">V-${100 + i}</td><td><a href="/m/t/${100 + i}">Sanierung ${i}</a></td><td class="buyer">Stadt Testheim</td><td class="pub">0${(i % 9) + 1}.11.2026</td><td class="frist">15.12.2026 10:00</td></tr>`).join("");
 
 function portal(n = 6) {
+  for (let i = 0; i < n; i++) routes.set(`/m/t/${100 + i}`, () => ({ body: page(`<h1>Sanierung ${i}</h1><a class="file" href="/m/f/${100 + i}.pdf">Unterlagen.pdf</a>`) }));
   routes.set("/m/home", () => ({ body: page('<nav><a href="/m/list">Aktuelle Ausschreibungen</a><a href="/m/about">Über uns</a></nav><p>Willkommen</p>') }));
   routes.set("/m/list", () => ({ body: page(`<main><table class="results"><tbody>${rows(n)}</tbody></table></main>`) }));
 }
@@ -54,6 +55,7 @@ const goodRecipe = (): Recipe =>
       publicationDate: { css: "td.pub" },
       submissionDeadline: { css: "td.frist" },
     },
+    documents: { hops: [], files: { css: "a.file", attr: "href", all: true }, via: "http" },
   });
 
 /** A context whose model answers from a script and records every prompt. */
@@ -124,16 +126,25 @@ test("the model sees a compressed page: no scripts, repeated rows collapsed to 2
   assert.match(p, /Domain suggests|does not tell the country/);
 });
 
-test("a required field empty on every tender must be fixed in every draft (the watch checks reject it)", async () => {
+test("a missing buyerName rule is a hint for the first draft only; it may stay null after that", async () => {
   portal(6);
   const noBuyer = goodRecipe();
   delete noBuyer.listFields.buyerName;
-  const ctx = scripted(`${base}/m/list`, [step("recipe", { recipe: noBuyer }), step("recipe", { recipe: noBuyer }), step("recipe", { recipe: goodRecipe() })]);
+  const ctx = scripted(`${base}/m/list`, [step("recipe", { recipe: noBuyer }), step("recipe", { recipe: noBuyer })]);
   const out = await attachWithModel(ctx);
   assert.equal(out.kind, "ok");
-  assert.equal(ctx.prompts.length, 3, "the second draft without buyerName is not accepted either");
-  assert.match(ctx.prompts[1]!, /No rule gives buyerName/);
-  assert.match(ctx.prompts[2]!, /No rule gives buyerName/);
+  assert.equal(ctx.prompts.length, 2);
+  assert.match(ctx.prompts[1]!, /There is no rule for buyerName/);
+});
+
+test("a rule that matches nothing must be fixed or removed in every draft", async () => {
+  portal(6);
+  const wrongDate = goodRecipe();
+  wrongDate.listFields.publicationDate = { css: "td.nothing-here" };
+  const ctx = scripted(`${base}/m/list`, [step("recipe", { recipe: wrongDate }), step("recipe", { recipe: wrongDate }), step("recipe", { recipe: goodRecipe() })]);
+  assert.equal((await attachWithModel(ctx)).kind, "ok");
+  assert.equal(ctx.prompts.length, 3);
+  assert.match(ctx.prompts[2]!, /The publicationDate rule matched on none/);
 });
 
 test("403 on the first page is blocked without any model call", async () => {
@@ -203,7 +214,7 @@ function t(i: number, fields: Partial<ExtractedTender> = {}): ExtractedTender {
     buyerName: "Buyer",
     publicationDate: "2026-11-10",
     submissionDeadline: "2026-12-10T10:00:00+01:00",
-    documentRefs: [],
+    documentRefs: [{ url: `https://p.test/f/${i}.pdf`, via: "http" }],
     ...fields,
   };
 }
@@ -359,4 +370,13 @@ test("give up on a page with a login box is 'failed' unless the model names the 
   assert.equal((await attachWithModel(notBlock)).kind, "failed");
   const block = scripted(`${base}/m/hdr`, [step("give_up", { reason: "Tenders are only shown after you log in." })]);
   assert.equal((await attachWithModel(block)).kind, "blocked");
+});
+
+test("a first draft without a documents rule gets a hint to map the files", async () => {
+  portal(6);
+  const noDocs = { ...goodRecipe(), documents: null };
+  const ctx = scripted(`${base}/m/list`, [step("recipe", { recipe: noDocs }), step("recipe", { recipe: goodRecipe() })]);
+  assert.equal((await attachWithModel(ctx)).kind, "ok");
+  assert.equal(ctx.prompts.length, 2);
+  assert.match(ctx.prompts[1]!, /There is no documents rule/);
 });

@@ -396,15 +396,19 @@ export function judgeSample(recipe: Recipe, read: ReadOutcome, listUrl: string):
     const hasRule = f in recipe.listFields || f in (recipe.detail?.fields ?? {});
     if ((f === "id" || f === "url") && fill.filled < fill.total) errors.push(`${f} is missing on ${fill.total - fill.filled} of ${fill.total} tenders.`);
     else if (f === "title" && fill.filled < Math.ceil(fill.total * 0.8)) errors.push(`title found on only ${fill.filled} of ${fill.total} tenders.`);
-    // The watch checks reject any read where a required field is empty on every tender, so this must
-    // be fixed in every draft: usually the value is on the tender's own page (detail.fields).
+    // buyerName, publicationDate and submissionDeadline may be null when a portal does not show them
+    // (the watch checks accept that). A missing rule is a hint for the first draft; a rule that matches
+    // nothing is wrong and must be fixed or removed.
+    else if (!hasRule)
+      warnings.push(`There is no rule for ${f}. If the list or the tender's own page shows it, add one (detail.fields for the tender page); if the portal does not show it, leave it out.`);
     else if (fill.filled === 0)
-      errors.push(
-        hasRule
-          ? `The ${f} rule matched on none of ${fill.total} tenders. Fix it; if the list does not show ${f}, read it from the tender's own page with detail.fields.`
-          : `No rule gives ${f}, and every read must have it on at least some tenders. Find it on the list or on the tender's own page (detail.fields).`,
-      );
+      errors.push(`The ${f} rule matched on none of ${fill.total} tenders. Fix it (the tender's own page may show it: detail.fields), or remove it if the portal does not show ${f}.`);
     else if (fill.filled < fill.total / 2) warnings.push(`${f} found on only ${fill.filled} of ${fill.total} tenders.`);
+  }
+  if (!recipe.documents) {
+    warnings.push("There is no documents rule, so every tender would be served without its files. Find where the tender's own page lists its documents (links to PDF/ZIP or a 'documents' tab) and add documents.hops/files.");
+  } else if (t.every((x) => x.documentRefs.length === 0 && !x.documentRefsPending)) {
+    warnings.push(`The documents rule found no file on any of ${t.length} tenders. Check documents.hops and documents.files against the tender's own page.`);
   }
   const ids = t.map((x) => x.id);
   if (new Set(ids).size < ids.length) errors.push("Some tenders share an id; the id must be the portal's own unique identifier.");

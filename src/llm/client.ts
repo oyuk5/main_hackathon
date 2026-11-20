@@ -10,10 +10,15 @@ import { store } from "../platform/store.js";
 import { nowWithOffset } from "../shared/time.js";
 import type { Llm, ModelTier } from "../shared/modules.js";
 
+export const LLM_TIMEOUT_MS = 90_000;
+export const LLM_MAX_RETRIES = 2;
+
 let client: OpenAI | null = null;
 function openai(): OpenAI {
   if (!config.llm.apiKey) throw new Error("OPENAI_API_KEY is not set");
-  client ??= new OpenAI({ apiKey: config.llm.apiKey, baseURL: config.llm.baseUrl });
+  // A hung call must not keep a portal in "integrating" forever: 90 s per attempt, and the SDK retries
+  // twice on connection errors, 408/409/429 and 5xx (with backoff). Failed calls are not billed.
+  client ??= new OpenAI({ apiKey: config.llm.apiKey, baseURL: config.llm.baseUrl, timeout: LLM_TIMEOUT_MS, maxRetries: LLM_MAX_RETRIES });
   return client;
 }
 
