@@ -302,7 +302,7 @@ function useStored<T>(key: string, initial: T): [T, (v: T) => void] {
   return [value, set];
 }
 
-const COLS = "md:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)_88px_104px] xl:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)_88px_104px_150px]";
+const COLS = "md:grid-cols-[minmax(0,1.15fr)_minmax(0,1.5fr)_88px_104px] xl:grid-cols-[minmax(0,1.15fr)_minmax(0,1.5fr)_88px_104px_140px]";
 
 function Portals({ rows: all, view, setView, query, setQuery, now, hover, setHover }: {
   rows: PortalRow[]; view: View; setView: (v: View) => void; query: string; setQuery: (q: string) => void;
@@ -318,7 +318,7 @@ function Portals({ rows: all, view, setView, query, setQuery, now, hover, setHov
 
   return (
     <section aria-label="Portals" className="min-w-0 self-start border border-hairline bg-paper">
-      <div className="flex flex-wrap items-center gap-2 border-b border-hairline px-4 py-2.5">
+      <div className="flex flex-wrap items-center gap-2 border-b border-hairline px-5 py-3">
         <div role="group" aria-label="Show portals that are" className="flex flex-wrap gap-1">
           {chips.map((s) => {
             const n = s === "all" ? all.length : all.filter((r) => r.state === s).length;
@@ -369,7 +369,7 @@ function Portals({ rows: all, view, setView, query, setQuery, now, hover, setHov
           </button>
         </div>
       ) : (
-        <div className={`hidden gap-x-4 border-b border-hairline px-4 py-1.5 text-[12px] text-slate md:grid ${COLS}`}>
+        <div className={`hidden gap-x-5 border-b border-hairline px-5 py-2 text-[12px] text-slate md:grid ${COLS}`}>
           <span>Portal</span>
           <span>What Watchtower says</span>
           <span className="text-right">Open tenders</span>
@@ -386,24 +386,24 @@ function Portals({ rows: all, view, setView, query, setQuery, now, hover, setHov
               onMouseLeave={() => setHover(null)}
               onFocus={() => setHover(r.id)}
               onBlur={() => setHover(null)}
-              className={`grid items-center gap-x-4 gap-y-0.5 px-4 py-2 ${COLS} ${hover === r.id ? "bg-mist" : "hover:bg-mist"}`}
+              className={`grid items-center gap-x-5 gap-y-1 px-5 py-3.5 ${COLS} ${hover === r.id ? "bg-mist" : "hover:bg-mist"}`}
             >
               <span className="flex min-w-0 items-center gap-2.5">
-                <Beacon state={r.state} size={16} />
-                <span className="min-w-0 leading-tight">
-                  <span className="narrow block truncate text-[15px] font-semibold" title={r.url}>{host(r.url)}</span>
-                  <span className="block truncate text-[12.5px]">
+                <Beacon state={r.state} size={19} />
+                <span className="min-w-0 leading-snug">
+                  <span className="narrow block truncate text-[16.5px] font-semibold" title={r.url}>{host(r.url)}</span>
+                  <span className="block truncate text-[13px]">
                     <span className={`font-semibold ${STATE_COLOR[r.state]}`}>{CHARACTER[r.state].words}</span>
                     {r.busy && <span className="text-slate">, {r.busy.kind === "repair" ? "repairing" : "reading"} now</span>}
                   </span>
                 </span>
               </span>
-              <span className="line-clamp-2 text-[13.5px] leading-snug text-ink/90" title={r.reason}>{r.reason}</span>
-              <span className="num wide text-[15px] font-[700] md:text-right">
+              <span className="line-clamp-3 text-[14.5px] leading-snug" title={r.reason}>{r.reason}</span>
+              <span className="num wide text-[18px] font-[700] md:text-right">
                 {int(r.tenderCount)}
                 <span className="narrow ml-1 text-[12.5px] font-normal text-slate md:hidden">open tenders</span>
               </span>
-              <span className="text-[12.5px] leading-tight text-slate">{r.lastSuccessAt ? when(r.lastSuccessAt, now) : "Not yet"}</span>
+              <span className="text-[13px] leading-snug text-slate">{r.lastSuccessAt ? when(r.lastSuccessAt, now) : "Not yet"}</span>
               <span className="hidden xl:block">
                 <Strip runs={r.recent ?? []} now={now} />
               </span>
