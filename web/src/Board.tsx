@@ -42,7 +42,10 @@ export function ticketText(reason: string, max = 64): { title: string; body: str
     const label = r.slice(0, colon);
     const rest = r.slice(colon + 2);
     if (label.split(/\s+/).length >= 3) return { title: clip(label, max), body: cap(rest) };
-    return { title: clip(`${label}: ${firstClause(rest)}`, max), body: r };
+    const first = firstClause(rest);
+    const more = rest.slice(first.length).replace(/^[.,;]\s*/, "");
+    // A remainder that starts mid-sentence ("where this portal…") reads better whole.
+    return { title: clip(`${label}: ${first}`, max), body: cap(/^(where|which|so|and|because|but)\b/i.test(more) ? rest : more) };
   }
   const first = firstClause(r);
   const rest = r.slice(first.length).replace(/^[.,;]\s*/, "");

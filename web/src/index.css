@@ -2,7 +2,8 @@
 @import "@fontsource/newsreader/400-italic.css";
 
 /*
- * Watchtower — Docker Desktop inspired UI palette.
+ * Watchtower palette: harbour slate surfaces, a deep petrol blue for actions (the colour of
+ * water at night, not a stock UI blue), and the four state colours carrying everything else.
  * Neutral charcoal-slate surfaces (#0b0f14 / #0f1318), crisp 1px hairlines (#252e37),
  * Docker Blue (#388bfd / #1f6feb) for primary actions & active tabs, and restrained
  * 10px status circles (#00b894 active, hollow #6e7d8a idle, #d29922 healing, #e5534b failed).
@@ -24,10 +25,10 @@
   --color-faint: #7c8b99;
   --color-hairline: #d8dee4;
 
-  --color-docker: #0969da;
-  --color-docker-solid: #0969da;
-  --color-docker-hover: #0550ae;
-  --color-magenta: #0969da;
+  --color-docker: #17607f;
+  --color-docker-solid: #17607f;
+  --color-docker-hover: #0f4a63;
+  --color-magenta: #17607f;
 
   --color-serving: #00997a;
   --color-healing: #b07b00;
@@ -60,10 +61,10 @@
       --color-faint: #63727e;
       --color-hairline: #252e37;
 
-      --color-docker: #388bfd;
-      --color-docker-solid: #1f6feb;
-      --color-docker-hover: #58a6ff;
-      --color-magenta: #388bfd;
+      --color-docker: #5eb3d6;
+      --color-docker-solid: #1f6f91;
+      --color-docker-hover: #8ccbe5;
+      --color-magenta: #5eb3d6;
 
       --color-serving: #00b894;
       --color-healing: #d29922;

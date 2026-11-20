@@ -152,11 +152,32 @@ export function Log({ portals, now }: { portals: PortalRow[]; now: number }) {
       });
   }, [data, filter, portals, query, sortKey, sortDir]);
 
+  // A portal that fails the same way read after read gets one row ("5 times since …"), not five.
+  // Only in time order, and only while that portal's own entries keep repeating; anything else breaks the run.
+  const folded = useMemo(() => {
+    if (sortKey !== "time" || sortDir !== "desc") return rows.map((r) => ({ ...r, times: 1, since: r.started_at }));
+    const same = (s: string) => s.toLowerCase().replace(/\bstill\s+/g, "").replace(/[.\s]+$/, "");
+    const out: Folded[] = [];
+    const last = new Map<string, Folded>();
+    for (const r of rows) {
+      const prev = last.get(r.portal_id);
+      if (prev && r.result !== null && prev.kind === r.kind && outcome(prev) === outcome(r) && same(prev.summary) === same(r.summary)) {
+        prev.times += 1;
+        prev.since = r.started_at;
+        continue;
+      }
+      const f = { ...r, times: 1, since: r.started_at };
+      out.push(f);
+      last.set(r.portal_id, f);
+    }
+    return out;
+  }, [rows, sortKey, sortDir]);
+
   // Unique groups so Today / Yesterday never repeat, and Portal sort groups neatly by hostname.
   const sections = useMemo(() => {
     if (sortKey === "time") {
-      const map = new Map<string, { key: string; label: string; rows: LogRow[] }>();
-      for (const r of rows) {
+      const map = new Map<string, { key: string; label: string; rows: Folded[] }>();
+      for (const r of folded) {
         const key = new Date(r.started_at).toDateString();
         let bucket = map.get(key);
         if (!bucket) {
@@ -168,8 +189,8 @@ export function Log({ portals, now }: { portals: PortalRow[]; now: number }) {
       return [...map.values()];
     }
     if (sortKey === "portal") {
-      const map = new Map<string, { key: string; label: string; rows: LogRow[] }>();
-      for (const r of rows) {
+      const map = new Map<string, { key: string; label: string; rows: Folded[] }>();
+      for (const r of folded) {
         const key = host(r.url);
         let bucket = map.get(key);
         if (!bucket) {
@@ -178,16 +199,16 @@ export function Log({ portals, now }: { portals: PortalRow[]; now: number }) {
         }
         bucket.rows.push(r);
       }
-      return [...map.values()].map((b) => ({ ...b, label: `${b.label} — ${plural(b.rows.length, "entry", "entries")}` }));
+      return [...map.values()].map((b) => ({ ...b, label: `${b.label}, ${plural(b.rows.length, "entry", "entries")}` }));
     }
-    return [{ key: "flat", label: null as string | null, rows }];
-  }, [rows, now, sortKey]);
+    return [{ key: "flat", label: null as string | null, rows: folded }];
+  }, [folded, now, sortKey]);
 
   return (
     <section aria-labelledby="log" className="overflow-hidden rounded-[6px] border border-hairline bg-paper">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2.5 border-b border-hairline px-4 py-3">
         <h2 id="log" className="text-[13.5px] font-semibold text-ink">
-          {data ? plural(rows.length, "entry", "entries") : "Log"}
+          {data ? plural(folded.length, "entry", "entries") : "Log"}
         </h2>
 
         <div className="relative w-full sm:w-[220px]">
@@ -234,31 +255,6 @@ export function Log({ portals, now }: { portals: PortalRow[]; now: number }) {
         </div>
 
         <div className="flex w-full flex-wrap items-center gap-x-4 gap-y-2 sm:ml-auto sm:w-auto">
-          <div role="group" aria-label="Sort by" className="flex items-center gap-1 text-[12px] text-slate">
-            <span className="mr-0.5 text-faint">Sort:</span>
-            {(
-              [
-                ["time", "Time"],
-                ["portal", "Site"],
-                ["cost", "Cost"],
-              ] as const
-            ).map(([k, lbl]) => (
-              <button
-                key={k}
-                type="button"
-                onClick={() => toggleSort(k)}
-                className={`h-7 rounded-[4px] border px-2 font-medium cursor-pointer ${
-                  sortKey === k
-                    ? "border-docker bg-docker/15 text-ink"
-                    : "border-hairline text-slate hover:border-slate/50 hover:text-ink"
-                }`}
-              >
-                {lbl}
-                <SortArrow active={sortKey === k} dir={sortDir} />
-              </button>
-            ))}
-          </div>
-
           <label className="flex items-center gap-2 text-[13px] text-slate cursor-pointer">
             <input
               type="checkbox"
@@ -353,6 +349,8 @@ export function Log({ portals, now }: { portals: PortalRow[]; now: number }) {
   );
 }
 
+type Folded = LogRow & { times: number; since: string };
+
 function Entry({
   r,
   now,
@@ -360,7 +358,7 @@ function Entry({
   open,
   toggle,
 }: {
-  r: LogRow;
+  r: Folded;
   now: number;
   compactDate: boolean;
   open: boolean;
@@ -387,6 +385,11 @@ function Entry({
         </span>
         <span className="px-3 py-2.5 text-[13.5px] leading-snug text-slate">
           {text}
+          {r.times > 1 && (
+            <span className="ml-1.5 text-[12.5px] whitespace-nowrap text-faint">
+              {r.times} times since {shortWhen(r.since, now).replace(/^Today /, "").replace(/^Yest /, "yesterday ")}
+            </span>
+          )}
           {r.events.length > 0 && (
             <span className="ml-1.5 text-[12px] whitespace-nowrap text-docker">
               {open ? "Hide steps" : plural(r.events.length, "step")}

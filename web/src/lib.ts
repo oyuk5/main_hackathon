@@ -141,6 +141,8 @@ export function host(url: string): string {
   try {
     const u = new URL(url);
     const path = u.pathname.replace(/\/$/, "");
+    // Demo portals from the lab run on localhost; show their name, not the port.
+    if (/^(localhost|127\.0\.0\.1)$/.test(u.hostname) && path) return `${path.split("/").pop()} (lab)`;
     return u.host.replace(/^www\./, "") + (path && path !== "/" ? path : "");
   } catch {
     return url;

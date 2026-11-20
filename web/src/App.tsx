@@ -119,7 +119,7 @@ export function App() {
               id="panel-portals"
               role="tabpanel"
               aria-labelledby="tab-portals"
-              className={`mt-4 grid gap-5 ${showSide && rows.length > 0 ? "lg:grid-cols-[minmax(0,1fr)_360px]" : ""}`}
+              className={`mt-4 grid gap-5 ${showSide && rows.length > 0 ? "lg:grid-cols-[minmax(0,1fr)_300px]" : ""}`}
             >
               <Portals
                 rows={rows}
@@ -136,6 +136,7 @@ export function App() {
               />
               {showSide && rows.length > 0 && (
                 <aside className="space-y-4">
+                  <Cost rows={ledger ?? []} portals={rows.length} />
                   <section aria-labelledby="where" className="rounded-[6px] border border-hairline bg-paper p-3.5">
                     <div className="mb-2 flex items-baseline justify-between">
                       <h2 id="where" className="text-[13px] font-semibold text-ink">Where they are</h2>
@@ -143,7 +144,6 @@ export function App() {
                     </div>
                     <Chart rows={rows} hover={hover} setHover={setHover} compact />
                   </section>
-                  <Cost rows={ledger ?? []} portals={rows.length} />
                 </aside>
               )}
             </div>
@@ -202,7 +202,7 @@ function Header({ onAdded }: { onAdded: () => void }) {
             <circle cx="10" cy="10" r="3" fill="currentColor" />
           </svg>
           <span className="text-[16px] font-semibold tracking-tight text-ink">Watchtower</span>
-          <span className="hidden text-[13px] text-slate md:inline">Tender Portal Monitor</span>
+          <span className="hidden text-[13px] text-slate md:inline">keeps tender portals delivering</span>
         </a>
         <form onSubmit={add} className="flex w-full gap-2 sm:ml-auto sm:w-auto">
           <label htmlFor="portal-url" className="sr-only">Portal address</label>
@@ -315,70 +315,60 @@ function SummaryStrip({
   const servingCount = rows.filter((r) => r.state === "serving").length;
   const failedCount = rows.filter((r) => r.state === "failed").length;
   const open = rows.reduce((s, r) => s + (r.state === "serving" || r.state === "healing" ? r.tenderCount : 0), 0);
-  const pct = rows.length > 0 ? Math.round((servingCount / rows.length) * 100) : 0;
   const headline = failedCount === 0 ? "Nothing needs a person" : `${plural(failedCount, "portal")} ${failedCount === 1 ? "needs" : "need"} a person`;
   const refreshed = new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }).format(now);
 
+  // One statement, then the four states as filters. The counts appear once, not in a second row of tiles.
   return (
-    <section aria-label="Summary" className="grid grid-cols-2 overflow-hidden rounded-[6px] border border-hairline bg-paper sm:grid-cols-[minmax(0,1.55fr)_repeat(4,minmax(0,1fr))]">
-      <div className="col-span-2 flex flex-col justify-between border-b border-hairline px-5 py-4 sm:col-span-1 sm:border-r sm:border-b-0">
-        <div>
-          <h1 className={`text-[21px] leading-tight font-semibold tracking-tight ${failedCount > 0 ? "text-failed" : "text-ink"}`}>
-            {headline}
-          </h1>
-          <p className="mt-1 text-[13.5px] text-slate">
-            <span className="num font-medium text-ink">{servingCount}/{rows.length}</span> serving
-            <span className="mx-1.5 text-faint">·</span>
-            <span className="num font-medium text-ink">{int(open)}</span> open tenders
-            <span className="mx-1.5 text-faint">·</span>
-            <span className="num">{usd(totalCost)}</span>
-          </p>
-        </div>
-
-        <div className="mt-3 flex items-center justify-between gap-3">
-          <div className="h-1.5 w-full max-w-[200px] overflow-hidden rounded-full bg-hairline">
-            <div className="h-full rounded-full bg-serving transition-all" style={{ width: `${pct}%` }} />
-          </div>
-          <div className="flex shrink-0 items-center gap-1.5 text-[12px] text-slate">
-            <span className="num" title="Last refresh">{refreshed}</span>
+    <section aria-label="Summary" className="flex flex-col gap-4 rounded-[6px] border border-hairline bg-paper px-5 py-4 lg:flex-row lg:items-center lg:gap-8">
+      <div className="min-w-0">
+        <h1 className={`text-[22px] leading-tight font-semibold tracking-tight ${failedCount > 0 ? "text-failed" : "text-ink"}`}>{headline}</h1>
+        <p className="mt-1 flex flex-wrap items-center gap-x-1 text-[13.5px] text-slate">
+          <span>
+            <span className="num font-semibold text-ink">{int(open)}</span> open tenders delivered from{" "}
+            <span className="num font-semibold text-ink">{servingCount}</span> of {plural(rows.length, "portal")}.
+          </span>
+          <span className="inline-flex items-center gap-1">
+            Checked <span className="num">{refreshed}</span>
             <button
               type="button"
               onClick={onReload}
-              title="Refresh overview now"
-              aria-label="Refresh overview now"
+              title="Check again now"
+              aria-label="Check again now"
               className="rounded-[4px] p-1 text-docker hover:bg-mist cursor-pointer"
             >
-              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <path d="M13.5 8a5.5 5.5 0 1 1-1.35-3.6" />
                 <path d="M13.8 2.4v2.8H11" />
               </svg>
             </button>
-          </div>
-        </div>
+          </span>
+        </p>
       </div>
 
-      {ORDER.map((s) => {
-        const n = rows.filter((r) => r.state === s).length;
-        const active = picked === s;
-        return (
-          <button
-            key={s}
-            type="button"
-            onClick={() => onPick(s)}
-            aria-pressed={active}
-            title={active ? "Show all portals" : `Filter: ${CHARACTER[s].words}`}
-            className={`flex items-center gap-3.5 border-hairline px-5 py-4 text-left transition-colors cursor-pointer max-sm:odd:border-l max-sm:[&:nth-child(-n+3)]:border-b sm:border-l sm:first-of-type:border-l-0 ${
-              active ? "bg-mist shadow-[inset_0_-3px_0_var(--color-docker)]" : "hover:bg-mist"
-            } ${n === 0 ? "opacity-45" : ""}`}
-          >
-            <StatusIcon kind={stateToIconKind(s)} size={14} />
-            <span>
-              <span className="num block text-[24px] leading-none font-bold text-ink">{n}</span>
-              <span className="mt-1.5 block text-[13px] font-medium text-slate">{CHARACTER[s].words}</span>
-            </span>
-          </button>
-        );
-      })}
+      <div role="group" aria-label="Show only portals that are" className="flex flex-wrap gap-2 lg:ml-auto">
+        {ORDER.map((s) => {
+          const n = rows.filter((r) => r.state === s).length;
+          const active = picked === s;
+          return (
+            <button
+              key={s}
+              type="button"
+              onClick={() => onPick(s)}
+              aria-pressed={active}
+              disabled={n === 0 && !active}
+              title={active ? "Show all portals" : `Show only: ${CHARACTER[s].words}`}
+              className={`flex h-10 items-center gap-2.5 rounded-[6px] border px-3.5 text-left transition-colors cursor-pointer disabled:cursor-default disabled:opacity-45 ${
+                active ? "border-docker bg-docker/10" : "border-hairline hover:border-slate/40 hover:bg-mist disabled:hover:bg-transparent"
+              }`}
+            >
+              <StatusIcon kind={stateToIconKind(s)} size={11} />
+              <span className="num text-[17px] leading-none font-semibold text-ink">{n}</span>
+              <span className="text-[13px] font-medium text-slate">{CHARACTER[s].words}</span>
+            </button>
+          );
+        })}
+      </div>
     </section>
   );
 }
@@ -599,7 +589,17 @@ function Portals({
           <table className="w-full border-collapse text-left text-[13.5px]">
             <thead>
               <tr className="border-b border-hairline bg-sea/70 text-[12.5px] font-semibold text-ink">
-                <th scope="col" className="w-10 border-r border-hairline px-2 py-2.5 text-center" aria-label="Status" />
+                <th scope="col" className="w-10 border-r border-hairline px-2 py-2.5 text-center">
+                  <button
+                    type="button"
+                    onClick={() => setView({ ...view, sort: "urgent" })}
+                    title="Most urgent first"
+                    aria-label="Sort by urgency"
+                    className={`inline-flex items-center hover:text-docker cursor-pointer ${view.sort === "urgent" ? "text-docker" : "text-faint"}`}
+                  >
+                    <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><circle cx="6" cy="6" r="4" fill="currentColor" /></svg>
+                  </button>
+                </th>
                 <th scope="col" className="border-r border-hairline px-3 py-2.5 whitespace-nowrap">
                   <button
                     type="button"
@@ -608,16 +608,6 @@ function Portals({
                   >
                     Portal
                     <SortArrow active={view.sort === "name"} />
-                  </button>
-                </th>
-                <th scope="col" className="border-r border-hairline px-3 py-2.5 whitespace-nowrap">
-                  <button
-                    type="button"
-                    onClick={() => setView({ ...view, sort: "urgent" })}
-                    className="inline-flex items-center hover:text-docker cursor-pointer"
-                  >
-                    State
-                    <SortArrow active={view.sort === "urgent"} />
                   </button>
                 </th>
                 <th scope="col" className="border-r border-hairline px-3 py-2.5 whitespace-nowrap">
@@ -643,16 +633,13 @@ function Portals({
                     <SortArrow active={view.sort === "stale"} />
                   </button>
                 </th>
-                <th scope="col" className="w-[76px] px-3 py-2.5 text-center whitespace-nowrap">
-                  Actions
-                </th>
+                <th scope="col" className="px-3 py-2.5"><span className="sr-only">Actions</span></th>
               </tr>
             </thead>
             <tbody>
               {rows.map((r) => {
                 const isSelectedRow = hover === r.id;
-                const isActive = r.state === "serving";
-                const isBusy = Boolean(r.busy || refreshing[r.id]);
+                                const isBusy = Boolean(r.busy || refreshing[r.id]);
                 const detailHref = `#/p/${encodeURIComponent(r.id)}`;
 
                 return (
@@ -667,70 +654,44 @@ function Portals({
                       isSelectedRow ? "bg-mist" : "hover:bg-mist/80"
                     }`}
                   >
-                    <td className="px-2 py-2.5 text-center align-middle">
+                    <td className="px-2 py-2.5 text-center align-top">
                       <div className="flex justify-center">
                         <StatusIcon kind={stateToIconKind(r.state)} size={11} />
                       </div>
                     </td>
-                    <td className="max-w-[210px] px-3 py-2.5 align-middle">
+                    <td className="max-w-[230px] px-3 py-2.5 align-top">
                       <a
                         href={detailHref}
                         onClick={(e) => e.stopPropagation()}
                         title={r.url}
-                        className={`block truncate hover:underline ${
-                          isActive || r.state === "failed" ? "font-semibold text-ink" : "font-normal text-ink/90"
-                        }`}
+                        className="block truncate font-semibold text-ink hover:underline"
                       >
                         {host(r.url)}
                       </a>
-                    </td>
-                    <td className="px-3 py-2.5 align-middle whitespace-nowrap">
-                      <span className={r.state === "failed" ? "font-medium text-ink" : "text-slate"}>
+                      <span className={`mt-0.5 block text-[12.5px] whitespace-nowrap ${r.state === "failed" ? "font-medium text-failed" : r.state === "healing" ? "text-healing-text" : "text-slate"}`}>
                         {CHARACTER[r.state].words}
+                        {r.busy && <span className="text-faint">, {r.busy.kind === "repair" ? "repairing now" : "reading now"}</span>}
                       </span>
-                      {r.busy && (
-                        <span className="text-[12px] text-faint">
-                          , {r.busy.kind === "repair" ? "repairing" : "reading"}
-                        </span>
-                      )}
                     </td>
-                    <td className="max-w-[290px] px-3 py-2.5 align-middle text-slate" title={r.reason}>
-                      <span className="block truncate">{r.reason}</span>
+                    <td className="min-w-[260px] px-3 py-2.5 align-top text-slate" title={r.reason}>
+                      <span className="line-clamp-2">{r.reason}</span>
                     </td>
-                    <td className="num px-3 py-2.5 text-right align-middle font-medium text-ink whitespace-nowrap">
+                    <td className="num px-3 py-2.5 text-right align-top font-medium text-ink whitespace-nowrap">
                       {int(r.tenderCount)}
                     </td>
-                    <td className="px-3 py-2.5 align-middle text-[13px] text-slate whitespace-nowrap">
+                    <td className="px-3 py-2.5 align-top text-[13px] text-slate whitespace-nowrap">
                       {r.lastSuccessAt ? when(r.lastSuccessAt, now) : <span className="text-faint">Not yet</span>}
                     </td>
-                    <td className="px-2 py-2.5 align-middle">
-                      <div className="flex items-center justify-center gap-1">
-                        <button
-                          type="button"
-                          onClick={(e) => void triggerRefresh(e, r.id)}
-                          disabled={isBusy}
-                          title={isBusy ? "Run in progress" : "Read portal now"}
-                          aria-label={`Read ${host(r.url)} now`}
-                          className="rounded p-1 text-docker hover:bg-sea disabled:opacity-40 cursor-pointer"
-                        >
-                          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round">
-                            <path d="M5 3.5 12.5 8 5 12.5V3.5Z" />
-                          </svg>
-                        </button>
-                        <a
-                          href={detailHref}
-                          onClick={(e) => e.stopPropagation()}
-                          title="Inspect portal details"
-                          aria-label={`Open details for ${host(r.url)}`}
-                          className="rounded p-1 text-docker hover:bg-sea"
-                        >
-                          <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
-                            <circle cx="8" cy="3.5" r="1.15" />
-                            <circle cx="8" cy="8" r="1.15" />
-                            <circle cx="8" cy="12.5" r="1.15" />
-                          </svg>
-                        </a>
-                      </div>
+                    <td className="px-2 py-2.5 align-top">
+                      <button
+                        type="button"
+                        onClick={(e) => void triggerRefresh(e, r.id)}
+                        disabled={isBusy}
+                        aria-label={`Read ${host(r.url)} now`}
+                        className="h-7 rounded-[4px] border border-hairline px-2.5 text-[12.5px] font-medium whitespace-nowrap text-ink hover:border-docker hover:text-docker disabled:border-transparent disabled:text-faint cursor-pointer disabled:cursor-default"
+                      >
+                        {isBusy ? "Running" : "Read now"}
+                      </button>
                     </td>
                   </tr>
                 );
