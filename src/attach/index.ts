@@ -24,7 +24,9 @@ export async function attachKnown(known: KnownRecipe, ctx: PortalContext, read: 
         return { kind: "failed", reason: `The known ${known.name} recipe read no tenders, so it cannot be trusted for this portal.` };
       }
       const golden = pickGolden(out.tenders);
-      ctx.log(`Read ${out.tenders.length} tenders with the known recipe; kept ${golden.length} as golden records.`);
+      // Staged enrichment: tenders past this read's detail budget are served from the next reads.
+      const waiting = out.tenders.filter((t) => t.documentRefsPending).length;
+      ctx.log(`Read ${out.tenders.length} tenders with the known recipe; kept ${golden.length} as golden records.${waiting ? ` ${waiting} wait for their detail pages; they follow in the next reads.` : ""}`);
       return { kind: "ok", recipe, golden, read: out, note: `Used the known ${known.name} recipe; no model call.` };
     }
     case "blocked":

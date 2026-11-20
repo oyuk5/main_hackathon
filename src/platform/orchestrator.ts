@@ -381,20 +381,6 @@ function validDeadline(value: ExtractedTender["submissionDeadline"]): string | n
   return value && Tender.shape.submissionDeadline.safeParse(value).success && Number.isFinite(dateTimeEpoch(value)) ? value : null;
 }
 
-/**
- * For a tender whose details this read skipped: values the list did not give keep their stored
- * value, so the tender does not flip between "changed" and back on every read.
- */
-function withStoredValues(et: ExtractedTender, last: TenderT): ExtractedTender {
-  const merged: Record<string, unknown> = { ...et };
-  const keys = ["title", "buyerName", "publicationDate", "submissionDeadline", "referenceNumber", "description", "procedureType", "contractNature", "cpvCodes", "placeOfPerformance"] as const;
-  for (const k of keys) {
-    if ((merged[k] === undefined || merged[k] === null) && last[k] !== undefined && last[k] !== null) merged[k] = last[k];
-  }
-  if (merged.withdrawn === undefined && last.status === "withdrawn") merged.withdrawn = true;
-  return merged as ExtractedTender;
-}
-
 /** Stage metadata until downloads pass the publication policy. Files are still streamed to disk. */
 export async function deliver(portalId: string, read: OkRead, ctx: PortalContext, repairRecipe?: Recipe): Promise<{ summary: string; pendingNew: number; documentsPending: boolean; documentFailures: DocumentFailure[]; documentsFetched: number }> {
   const now = nowWithOffset();
@@ -428,13 +414,21 @@ export async function deliver(portalId: string, read: OkRead, ctx: PortalContext
   // Older rows with an empty refs hash are also retried. The budget decides which get a turn.
   const rows = new Map(unique.map((et) => [et.id, store.getTenderRow(portalId, et.id)]));
   const refsHashOf = new Map(unique.map((et) => [et.id, sha(JSON.stringify(et.documentRefs))]));
+  const previousFileCounts = new Map<string, number>();
+  if (repairRecipe) {
+    for (const [id, row] of rows) {
+      if (!row) continue;
+      const files = (JSON.parse(row.json) as TenderT).documents.length;
+      if (files > 0) previousFileCounts.set(id, files);
+    }
+  }
   const plan = planDocuments(
     unique.map((et) => {
       const row = rows.get(et.id);
       // Refs not looked for in this read (documentRefsPending) say nothing new: no fetch planned.
       const need: Need = et.documentRefsPending
         ? "none"
-        : !row ? "new" : row.refs_hash === refsHashOf.get(et.id) ? "none" : row.refs_hash === "" ? "retry" : "changed";
+        : !row ? "new" : previousFileCounts.has(et.id) ? "changed" : row.refs_hash === refsHashOf.get(et.id) ? "none" : row.refs_hash === "" ? "retry" : "changed";
       return { id: et.id, need, refs: et.documentRefs.length, open: statusOf(et) === "open", publicationDate: et.publicationDate ?? null };
     }),
     config.docRefsPerRead,
@@ -444,22 +438,21 @@ export async function deliver(portalId: string, read: OkRead, ctx: PortalContext
   const documentFailures: DocumentFailure[] = [];
   const staged: { tender: TenderT; hash: string; refsHash: string }[] = [];
   let documentsFetched = 0;
-  for (let et of unique) {
+  for (const et of unique) {
     if (ctx.signal.aborted) break;
     const row = rows.get(et.id);
     const refsHash = refsHashOf.get(et.id)!;
+    const previousFiles = previousFileCounts.get(et.id) ?? 0;
+    if (previousFiles > 0 && (et.documentRefsPending || !plan.fetch.has(et.id))) {
+      documentFailures.push({ tenderId: et.id, blocked: false, detail: "A previously delivered tender's files could not be checked within this repair." });
+      continue;
+    }
     let documents: TenderDocument[];
-    let storedRefsHash = refsHash;
     if (et.documentRefsPending) {
-      // This read did not look at the tender's details: an empty refs list means "unknown".
-      // A new tender waits; a known one keeps its documents, refs hash and detail-only values.
+      // Do not combine a new listing with attachments from a different snapshot.
       pendingRefs += 1;
-      if (!row) continue;
-      const last = JSON.parse(row.json) as TenderT;
-      documents = last.documents;
-      storedRefsHash = row.refs_hash;
-      et = withStoredValues(et, last);
-    } else if (row && row.refs_hash === refsHash) {
+      continue;
+    } else if (row && row.refs_hash === refsHash && previousFiles === 0) {
       documents = (JSON.parse(row.json) as TenderT).documents;
     } else if (plan.fetch.has(et.id)) {
       const got = await documentFetcher.fetchAll(et.documentRefs, ctx);
@@ -477,19 +470,19 @@ export async function deliver(portalId: string, read: OkRead, ctx: PortalContext
         // ensures we retry these refs instead of caching an incomplete attachment list.
         continue;
       }
-    } else if (row) {
-      // Not its turn yet: keep serving the last documents, and fetch again in a later read.
-      documents = (JSON.parse(row.json) as TenderT).documents;
-      storedRefsHash = row.refs_hash;
+      if (documents.length < previousFiles) {
+        documentFailures.push({ tenderId: et.id, blocked: false, detail: `A previously delivered tender now has ${count(documents.length, "verified file")} instead of ${previousFiles}.` });
+        continue;
+      }
     } else {
-      continue; // a new tender is served once its documents are in
+      continue; // keep the last snapshot until this tender's documents can be verified
     }
     const draft = sanitize(et, documents, statusOf(et), now);
     const hash = hashTender(draft);
     if (!row) fresh += 1;
     else if (row.content_hash !== hash) changed += 1;
     const lastChangedAt = row && row.content_hash === hash ? row.last_changed_at : now;
-    staged.push({ tender: { ...draft, lastChangedAt }, hash, refsHash: storedRefsHash });
+    staged.push({ tender: { ...draft, lastChangedAt }, hash, refsHash });
   }
 
   // No longer listed => closed, but only when this read saw the whole list (see listing.ts):

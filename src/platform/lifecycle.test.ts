@@ -270,6 +270,36 @@ test("a repair that cannot fetch its documents does not replace the last good de
   }
 });
 
+test("repair rechecks unchanged attachment URLs before promotion", async (t) => {
+  let broken = false;
+  const fake = await fakePortal({ "/same.pdf": (req, res, body) => {
+    if (broken) return void res.writeHead(200, { "content-type": "text/html" }).end("<html>Moved</html>");
+    file("%PDF-1.4\noriginal", "same.pdf")(req, res, body);
+  } });
+  const url = `${fake.base}/`;
+  const initial = attached(url, read(url, "Original title", [{ url: `${url}same.pdf`, via: "http" }]));
+  t.mock.method(cartographer, "attach", async () => initial);
+  t.mock.method(extractor, "read", async () => ({ kind: "error", reason: "The list moved." }));
+  t.mock.method(medic, "repair", async () => ({ kind: "ok", recipe: initial.recipe, read: initial.read, summary: "Found the list." }));
+  const id = await add(url);
+  const portal = `/portals/${id}`;
+  try {
+    await waitForIdle(id);
+    const before = (await get(`${portal}/tenders`)).json();
+    assert.equal(before[0].documents.length, 1);
+    broken = true;
+    await refresh(id);
+    await waitForIdle(id);
+    assert.equal((await get(portal)).json().state, "failed");
+    assert.deepEqual((await get(`${portal}/tenders`)).json(), before);
+    assert.equal((await get(`/internal/portals/${id}`)).json().recipes.length, 1);
+    assert.equal(fake.hits.filter((hit) => hit === "/same.pdf").length, 2);
+  } finally {
+    await remove(portal);
+    await fake.close();
+  }
+});
+
 for (const failure of ["missing golden match", "dropped attachments", "lost cancellation"] as const) {
   test(`repair rejects ${failure}, then refreshes probe without calling Medic again`, async (t) => {
     const fake = await fakePortal({ "/original.pdf": file("%PDF-1.4\noriginal", "original.pdf") });

@@ -77,13 +77,13 @@ test("a big first read is served in batches, newest first, never without documen
 test("a known tender whose documents changed keeps its old documents until its turn", async () => {
   store.insertPortal({ id: "p2", url: "https://portal2.example/", state: "integrating", reason: "Attaching.", createdAt: "2026-11-20T18:00:00+01:00" });
   await deliver("p2", read([tender(1, 1)]), ctx());
-  const before = store.listTenders("p2")[0]!.documents;
+  const before = store.listTenders("p2")[0]!;
 
   // T1 now has 2 refs; 3 new tenders with 1 ref each take the whole budget of 3 first.
-  const changed = { ...tender(1, 2), publicationDate: "2026-11-01" };
+  const changed = { ...tender(1, 2), publicationDate: "2026-11-01", title: "Revised title" };
   const out = await deliver("p2", read([changed, tender(7, 1), tender(8, 1), tender(9, 1)]), ctx());
   const t1 = store.listTenders("p2").find((t) => t.id === "T1")!;
-  assert.deepEqual(t1.documents, before, "T1 must keep serving its last documents");
+  assert.deepEqual(t1, before, "T1 must keep serving its whole previous snapshot");
   assert.equal(out.pendingNew, 0);
   assert.equal(out.documentsPending, true, "known tenders with deferred updates also need a fast follow-up");
   assert.match(out.summary, /Document updates for 1 tender are on their way/);
@@ -101,6 +101,16 @@ function newPortal(): string {
   return id;
 }
 const byId = (p: string) => Object.fromEntries(store.listTenders(p).map((t) => [t.id, t]));
+
+test("pending document references never update or publish a tender", async () => {
+  const p = newPortal();
+  await deliver(p, read([tender(1, 0)]), ctx());
+  const before = store.listTenders(p);
+  const pending = { ...tender(1, 0), title: "Unverified update", documentRefsPending: true };
+  const out = await deliver(p, read([pending, { ...pending, id: "T2" }]), ctx());
+  assert.deepEqual(store.listTenders(p), before);
+  assert.equal(out.documentsPending, true);
+});
 
 test("the first of two tenders with the same id wins", async () => {
   const p = newPortal();
