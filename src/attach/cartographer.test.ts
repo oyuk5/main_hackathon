@@ -2,7 +2,7 @@ import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
-import { cartographer, pickGolden, attachKnown, NOT_KNOWN_REASON } from "./index.js";
+import { cartographer, pickGolden, attachKnown } from "./index.js";
 import { findKnownRecipe, registerKnownRecipe, type KnownRecipe } from "./known.js";
 import type { ExtractedTender, PortalContext } from "../shared/modules.js";
 import { Recipe } from "../shared/recipe.js";
@@ -83,9 +83,19 @@ test("path prefix narrows a match", () => {
   assert.equal(findKnownRecipe("https://example.test/other", list), null);
 });
 
-test("unknown host fails honestly without a model call", async () => {
-  const out = await cartographer.attach(makeCtx("https://unknown-portal.test/"));
-  assert.deepEqual(out, { kind: "failed", reason: NOT_KNOWN_REASON });
+test("unknown portal without a model key fails honestly after one attempt", async () => {
+  const ctx = { ...makeCtx(`${base}/not-known`) };
+  let calls = 0;
+  ctx.llm = {
+    json() {
+      calls += 1;
+      throw new Error("OPENAI_API_KEY is not set");
+    },
+  };
+  const out = await cartographer.attach(ctx);
+  assert.equal(out.kind, "failed");
+  assert.match((out as { reason: string }).reason, /^No model is configured/);
+  assert.equal(calls, 1, "a missing key is not retried");
 });
 
 test("golden records: most filled first, only non-null fields, at most 5", () => {
@@ -158,5 +168,6 @@ test("end to end: a registered jsonApi recipe attaches with the real Extractor",
   });
   assert.ok(ctx.logs.some((l) => l.includes("Test portal")));
   // the prefix keeps other paths on the same host unknown
-  assert.equal((await cartographer.attach(makeCtx(`${base}/elsewhere`))).kind, "failed");
+  const elsewhere = { ...makeCtx(`${base}/elsewhere`), llm: { json: () => Promise.reject(new Error("OPENAI_API_KEY is not set")) } };
+  assert.equal((await cartographer.attach(elsewhere)).kind, "failed", "not known: goes to the model path, which has no key here");
 });

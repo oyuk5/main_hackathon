@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 import { extractor, clearDetailCache } from "./extractor.js";
-import { cartographer, NOT_KNOWN_REASON } from "./index.js";
+import { cartographer } from "./index.js";
 import { registerKnownRecipe } from "./known.js";
 import { parseDateTime, mapProcedureType } from "./normalize.js";
 import type { PortalContext, ReadOutcome } from "../shared/modules.js";
@@ -409,10 +409,7 @@ test("cartographer, unknown portal: model use is bounded, and reading with whate
   const out = await cartographer.attach(ctx);
   // 1 first call + at most 3 correction rounds.
   assert.ok(ctx.spy.llm <= 4, `attach made ${ctx.spy.llm} model calls`);
-  if (out.kind === "failed" && out.reason === NOT_KNOWN_REASON) {
-    assert.equal(ctx.spy.llm, 0, "the not-yet-built Cartographer must not call the model");
-    return;
-  }
+
   if (out.kind === "ok") {
     const before = ctx.spy.llm;
     ok(await extractor.read(out.recipe, ctx));

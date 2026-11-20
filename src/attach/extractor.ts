@@ -95,6 +95,14 @@ interface ReadState {
   ctx: PortalContext;
   requests: number;
   warned: Set<string>;
+  limits?: SampleLimits;
+}
+
+/** Limits for a quick dry-run (the Cartographer's sample reads). Regular reads use none. */
+export interface SampleLimits {
+  maxPages: number;
+  /** Tenders to process; later list items are ignored entirely. */
+  maxItems: number;
 }
 
 function sha256(s: string): string {
@@ -119,7 +127,7 @@ function charsetOf(contentType: string, bytes: Uint8Array): string | null {
   return /<meta[^>]+charset\s*=\s*["']?([\w-]+)/i.exec(head)?.[1] ?? /encoding\s*=\s*["']([\w-]+)/i.exec(head)?.[1] ?? null;
 }
 
-function decode(bytes: Uint8Array, contentType: string): string {
+export function decode(bytes: Uint8Array, contentType: string): string {
   const charset = charsetOf(contentType, bytes);
   if (charset) {
     try {
@@ -781,7 +789,8 @@ async function run(st: ReadState, started: number): Promise<ReadOutcome> {
   if (recipe.tier === "browser") return { kind: "error", reason: "Browser tier not supported by the Extractor yet." };
 
   const pg = recipe.list.pagination;
-  const maxPages = pg.type === "none" ? 1 : pg.type === "clickNext" ? 1 : Math.max(1, pg.maxPages ?? 50);
+  const recipeMaxPages = pg.type === "none" ? 1 : pg.type === "clickNext" ? 1 : Math.max(1, pg.maxPages ?? 50);
+  const maxPages = Math.min(recipeMaxPages, st.limits?.maxPages ?? recipeMaxPages);
   if (pg.type === "clickNext") ctx.log("This recipe pages by clicking, which needs the browser; reading the first page only.", "warn");
 
   const items: ListItem[] = [];
@@ -867,6 +876,7 @@ async function run(st: ReadState, started: number): Promise<ReadOutcome> {
 
   for (const item of items) {
     checkAbort(ctx);
+    if (st.limits && tenders.length >= st.limits.maxItems) break;
     let values: Values = { ...item.values };
     const listId = cleanText(templateValue(values.id));
     if (listId && ids.has(listId)) continue;
@@ -1022,9 +1032,20 @@ function toTender(recipe: Recipe, id: string, url: string, v: Values, refs: Docu
 }
 
 export const extractor: Extractor = {
-  async read(recipe, ctx) {
+  read(recipe, ctx) {
+    return readWith(recipe, ctx);
+  },
+};
+
+/** A dry-run read of the first page(s) and a few tenders, for checking a draft recipe cheaply. */
+export function readSample(recipe: Recipe, ctx: PortalContext, limits: SampleLimits = { maxPages: 1, maxItems: 5 }): Promise<ReadOutcome> {
+  return readWith(recipe, ctx, limits);
+}
+
+async function readWith(recipe: Recipe, ctx: PortalContext, limits?: SampleLimits): Promise<ReadOutcome> {
+  {
     const started = Date.now();
-    const st: ReadState = { recipe, ctx, requests: 0, warned: new Set() };
+    const st: ReadState = { recipe, ctx, requests: 0, warned: new Set(), ...(limits ? { limits } : {}) };
     try {
       return await run(st, started);
     } catch (e) {
@@ -1032,5 +1053,5 @@ export const extractor: Extractor = {
       if (e instanceof Cancelled || ctx.signal.aborted) return { kind: "error", reason: "The read was cancelled before it finished.", diagnostics };
       return { kind: "error", reason: `The Extractor failed: ${e instanceof Error ? e.message : String(e)}`, diagnostics };
     }
-  },
-};
+  }
+}

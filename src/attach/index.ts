@@ -2,31 +2,15 @@
  * Attach module. Owned by B.
  * The orchestrator imports exactly `extractor` and `cartographer`.
  */
-import type { AttachOutcome, Cartographer, ExtractedTender, GoldenRecord, PortalContext, ReadOutcome } from "../shared/modules.js";
+import type { AttachOutcome, Cartographer, PortalContext, ReadOutcome } from "../shared/modules.js";
 import type { Recipe } from "../shared/recipe.js";
 import { extractor } from "./extractor.js";
+import { attachWithModel } from "./cartographer.js";
+import { pickGolden } from "./golden.js";
 import { findKnownRecipe, type KnownRecipe } from "./known.js";
 
 export { extractor } from "./extractor.js";
-
-const GOLDEN_FIELDS = ["title", "buyerName", "publicationDate", "submissionDeadline", "referenceNumber", "url"] as const;
-
-/** Picks 3 to 5 tenders with the most golden fields filled. Only non-null fields are kept. */
-export function pickGolden(tenders: ExtractedTender[], max = 5): GoldenRecord[] {
-  const scored = tenders.map((t, i) => {
-    const fields: GoldenRecord["fields"] = {};
-    for (const f of GOLDEN_FIELDS) {
-      const v = t[f];
-      if (v !== null && v !== undefined && v !== "") (fields as Record<string, unknown>)[f] = v;
-    }
-    return { id: t.id, fields, score: Object.keys(fields).length, i };
-  });
-  scored.sort((a, b) => b.score - a.score || a.i - b.i);
-  return scored
-    .filter((s) => s.score > 0)
-    .slice(0, max)
-    .map(({ id, fields }) => ({ id, fields }));
-}
+export { pickGolden } from "./golden.js";
 
 /** Runs a known recipe and turns the read into an attach outcome. Never calls the model. */
 export async function attachKnown(known: KnownRecipe, ctx: PortalContext, read: (r: Recipe, c: PortalContext) => Promise<ReadOutcome> = (r, c) => extractor.read(r, c)): Promise<AttachOutcome> {
@@ -51,13 +35,11 @@ export async function attachKnown(known: KnownRecipe, ctx: PortalContext, read: 
   }
 }
 
-export const NOT_KNOWN_REASON = "Cannot attach this portal yet: it is not a known portal and the model-based Cartographer is not built yet.";
-
 export const cartographer: Cartographer = {
   async attach(ctx) {
     ctx.log("Looking at the portal for the first time.");
     const known = findKnownRecipe(ctx.url);
     if (known) return attachKnown(known, ctx);
-    return { kind: "failed", reason: NOT_KNOWN_REASON };
+    return attachWithModel(ctx);
   },
 };

@@ -1,19 +1,18 @@
 # B · Attach
 
-_Updated: Fri 17:58. Only B and B's agent write here. Keep it under 15 lines and true._
+_Updated: Fri 18:50. Only B and B's agent write here. Keep it under 15 lines and true._
 
 **Done**
-- Extractor (html, jsonApi, feed) + normalization (dates/local time, CPV, procedure/nature, 8 languages), tested. No model call.
-- Wired in `index.ts`. Attach uses bundled known recipes (TenderNed, hand-checked, 3 golden) until the LLM Cartographer exists; live run 204 tenders, ledger empty.
+- Extractor (html, jsonApi, feed) + normalization, tested; sets `documentRefsPending` when documents could not be read. No model call.
+- Known recipes: TenderNed (all open calls again, maxPages 40). Clean-clone run: serving, all contract fields valid, ledger empty.
+- Cartographer with the model (task 3): looks (HTTP + browser JSON sniffing + feeds), compressed page to the model, navigate/recipe/give up, dry-run on 1 page × 5 tenders, exact errors back, max 4 drafts; blocks named. 13 tests with a scripted model.
 
 **Doing now**
-- More tests + a clean-clone run against the manuals. Next: LLM Cartographer (task 3, by 21:00).
+- First real model run (needs `OPENAI_API_KEY`), then D's visible portals. Then families (task 5).
 
 **Needs from others**
-- A: TenderNed is filtered server-side to the last 7 days, so `sawWholeList` sees 3 of 10 pages and may close older open tenders. With your doc budget I can drop the filter (maxPages 40) — OK?
-- A: tenders over the Extractor's detail cap (300) come with empty `documentRefs`; propose a `documentRefsPending` flag in `modules.ts` so you hold them back.
-- C: golden `referenceNumber` comes from detail pages; a failed detail fetch would read as a golden mismatch. I'll pick golden fields from list fields only, unless you prefer to skip missing values.
-- D: lab portal URLs (`npm run lab`) to test the Extractor and Cartographer.
+- D: models are in DECISIONS (Fri 17:29, A): MODEL_SMART=gpt-6.2-sol, MODEL_FAST=gpt-6-luna, prices 2/10 and 0.10/0.50.
+- C: golden `referenceNumber` often comes from detail pages; skip a golden field the read is missing, or I pick golden from list fields only. Your call.
 
 **Known problems**
-- Some TenderNed `referenceNumber` values are UUIDs; checking whether they are real buyer file numbers.
+- Cartographer untested against a real model yet (no key on this machine). Browser-only portals (no JSON API, no served list) fail honestly: browser tier not built.
