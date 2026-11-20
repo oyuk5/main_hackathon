@@ -4,7 +4,7 @@
  * Traps: German date format with local time, CPV with check digits, one withdrawn tender
  * ("Aufgehoben"), list on a sub-page of the start page.
  */
-import { addDays, dotted, esc, fakeFile, fakePdf, notFound, page, sendFile, sendHtml, today, type LabPortal, type LabTender } from "./common.js";
+import { addDays, cookieBanner, dotted, esc, fakeFile, fakePdf, longDate, notFound, page, sendFile, sendHtml, today, type LabPortal, type LabTender } from "./common.js";
 
 const ZONE = "Europe/Berlin";
 const PER_PAGE = 10;
@@ -61,11 +61,60 @@ function build(): LabTender[] {
 
 const tenders = build();
 
-function layout(title: string, body: string): string {
+const VARIANTS = {
+  "renamed-classes": "CSS classes renamed (table.tenders → table.vergabeliste, dl.details → dl.angaben, ul.unterlagen → ul.dokumente, a.next → a.weiter).",
+  "moved-list": "The list moves from /ausschreibungen to /vergabe/aktuell; the old address answers 404.",
+  "new-pagination": "Next link removed; numbered pages with ?page=N and 5 tenders per page.",
+  "date-format": "Dates shown as '5. Dezember 2026, 10:00 Uhr' instead of '05.12.2026 10:00'.",
+  "cookie-banner": "A cookie consent overlay on every page. Data unchanged: must stay serving.",
+  "empty-day": "No tenders today; the list says so. Must stay serving, not broken.",
+};
+
+interface Look {
+  table: string;
+  next: string;
+  dl: string;
+  docs: string;
+  listPath: string;
+  pageParam: string;
+  perPage: number;
+  nextLink: boolean;
+  date(day: string): string;
+  deadline(t: LabTender): string;
+  banner: boolean;
+  empty: boolean;
+}
+
+function look(variant: string): Look {
+  const l: Look = {
+    table: "tenders",
+    next: "next",
+    dl: "details",
+    docs: "unterlagen",
+    listPath: "/ausschreibungen",
+    pageParam: "seite",
+    perPage: PER_PAGE,
+    nextLink: true,
+    date: dotted,
+    deadline: (t) => `${dotted(t.deadlineDate)} ${t.deadlineTime}`,
+    banner: false,
+    empty: false,
+  };
+  if (variant === "renamed-classes") Object.assign(l, { table: "vergabeliste", next: "weiter", dl: "angaben", docs: "dokumente" });
+  if (variant === "moved-list") l.listPath = "/vergabe/aktuell";
+  if (variant === "new-pagination") Object.assign(l, { pageParam: "page", perPage: 5, nextLink: false });
+  if (variant === "date-format") Object.assign(l, { date: (d: string) => longDate(d, "de"), deadline: (t: LabTender) => `${longDate(t.deadlineDate, "de")}, ${t.deadlineTime} Uhr` });
+  if (variant === "cookie-banner") l.banner = true;
+  if (variant === "empty-day") l.empty = true;
+  return l;
+}
+
+function layout(l: Look, title: string, body: string): string {
+  const banner = l.banner ? cookieBanner("Wir verwenden Cookies, um unsere Website für Sie optimal zu gestalten.", "Alle akzeptieren") : "";
   return page(
     `${title} | Stadtwerke Lindenau`,
     "de",
-    `<header><a href="/stadtwerke/">Stadtwerke Lindenau</a> · <a href="/stadtwerke/ausschreibungen">Ausschreibungen</a></header><main>${body}</main>` +
+    `${banner}<header><a href="/stadtwerke/">Stadtwerke Lindenau</a> · <a href="/stadtwerke${l.listPath}">Ausschreibungen</a></header><main>${body}</main>` +
       `<footer>Vergabestelle der Stadtwerke Lindenau GmbH · Impressum</footer>`,
   );
 }
@@ -78,47 +127,56 @@ export const stadtwerke: LabPortal = {
   kind: "html table, next-link pagination, detail pages, direct PDF links",
   notes: ["Tender 4753 is withdrawn (Status 'Aufgehoben').", "Deadlines are Europe/Berlin local time without offset."],
   tenders,
+  variants: VARIANTS,
   tenderUrl: (base, t) => `${base}/stadtwerke/ausschreibung/${t.id}`,
 
-  handle(_req, res, path, url) {
+  handle(_req, res, path, url, ctx) {
+    const l = look(ctx.variant);
+    const list = l.empty ? [] : tenders;
     if (path === "/" || path === "") {
       return sendHtml(
         res,
-        layout("Start", `<h1>Vergabeplattform der Stadtwerke Lindenau</h1><p>Hier veröffentlichen wir unsere laufenden Vergabeverfahren.</p><p><a href="/stadtwerke/ausschreibungen">Aktuelle Ausschreibungen</a></p>`),
+        layout(l, "Start", `<h1>Vergabeplattform der Stadtwerke Lindenau</h1><p>Hier veröffentlichen wir unsere laufenden Vergabeverfahren.</p><p><a href="/stadtwerke${l.listPath}">Aktuelle Ausschreibungen</a></p>`),
       );
     }
-    if (path === "/ausschreibungen") {
-      const pages = Math.ceil(tenders.length / PER_PAGE);
-      const n = Math.min(Math.max(1, Number(url.searchParams.get("seite") ?? 1) || 1), pages);
-      const rows = tenders
-        .slice((n - 1) * PER_PAGE, n * PER_PAGE)
+    if (path === l.listPath) {
+      if (list.length === 0) {
+        return sendHtml(res, layout(l, "Ausschreibungen", `<h1>Aktuelle Ausschreibungen</h1><p class="leer">Derzeit liegen keine Ausschreibungen vor.</p>`));
+      }
+      const pages = Math.ceil(list.length / l.perPage);
+      const n = Math.min(Math.max(1, Number(url.searchParams.get(l.pageParam) ?? 1) || 1), pages);
+      const rows = list
+        .slice((n - 1) * l.perPage, n * l.perPage)
         .map(
           (t) =>
             `<tr><td>${esc(t.referenceNumber)}</td><td><a href="/stadtwerke/ausschreibung/${t.id}">${esc(t.title)}</a></td><td>${esc(t.buyerName)}</td>` +
-            `<td>${dotted(t.publicationDate)}</td><td>${dotted(t.deadlineDate)} ${t.deadlineTime}</td><td>${t.withdrawn ? "Aufgehoben" : "Offen"}</td></tr>`,
+            `<td>${l.date(t.publicationDate)}</td><td>${l.deadline(t)}</td><td>${t.withdrawn ? "Aufgehoben" : "Offen"}</td></tr>`,
         )
         .join("");
-      const next = n < pages ? `<a class="next" href="/stadtwerke/ausschreibungen?seite=${n + 1}">Weiter »</a>` : "";
-      const prev = n > 1 ? `<a class="prev" href="/stadtwerke/ausschreibungen?seite=${n - 1}">« Zurück</a>` : "";
+      const self = `/stadtwerke${l.listPath}`;
+      const pager = l.nextLink
+        ? `${n > 1 ? `<a class="prev" href="${self}?${l.pageParam}=${n - 1}">« Zurück</a>` : ""} Seite ${n} von ${pages} ${n < pages ? `<a class="${l.next}" href="${self}?${l.pageParam}=${n + 1}">Weiter »</a>` : ""}`
+        : Array.from({ length: pages }, (_, i) => (i + 1 === n ? `<strong>${i + 1}</strong>` : `<a href="${self}?${l.pageParam}=${i + 1}">${i + 1}</a>`)).join(" ");
       return sendHtml(
         res,
         layout(
+          l,
           "Ausschreibungen",
-          `<h1>Aktuelle Ausschreibungen</h1><table class="tenders"><thead><tr><th>Vergabenummer</th><th>Titel</th><th>Vergabestelle</th><th>Veröffentlicht</th><th>Angebotsfrist</th><th>Status</th></tr></thead>` +
-            `<tbody>${rows}</tbody></table><nav class="pager">${prev} Seite ${n} von ${pages} ${next}</nav>`,
+          `<h1>Aktuelle Ausschreibungen</h1><table class="${l.table}"><thead><tr><th>Vergabenummer</th><th>Titel</th><th>Vergabestelle</th><th>Veröffentlicht</th><th>Angebotsfrist</th><th>Status</th></tr></thead>` +
+            `<tbody>${rows}</tbody></table><nav class="pager">${pager}</nav>`,
         ),
       );
     }
     const detail = path.match(/^\/ausschreibung\/(\d+)$/);
     if (detail) {
-      const t = tenders.find((x) => x.id === detail[1]);
+      const t = list.find((x) => x.id === detail[1]);
       if (!t) return notFound(res);
       const files = t.files.map((f) => `<li><a href="/stadtwerke/dokumente/${t.id}/${encodeURIComponent(f.name)}">${esc(f.name)}</a></li>`).join("");
       const dl: Array<[string, string]> = [
         ["Vergabenummer", t.referenceNumber],
         ["Auftraggeber", t.buyerName],
-        ["Veröffentlicht am", dotted(t.publicationDate)],
-        ["Angebotsfrist", `${dotted(t.deadlineDate)}, ${t.deadlineTime} Uhr`],
+        ["Veröffentlicht am", l.date(t.publicationDate)],
+        ["Angebotsfrist", ctx.variant === "date-format" ? l.deadline(t) : `${dotted(t.deadlineDate)}, ${t.deadlineTime} Uhr`],
         ["Verfahrensart", VERFAHREN[t.procedureType]],
         ["Art des Auftrags", ART[t.contractNature]],
         ["CPV-Code", t.cpv.join(", ")],
@@ -128,17 +186,18 @@ export const stadtwerke: LabPortal = {
       return sendHtml(
         res,
         layout(
+          l,
           t.title,
           `<h1>${esc(t.title)}</h1>${t.withdrawn ? `<p class="hinweis">Dieses Verfahren wurde aufgehoben.</p>` : ""}` +
-            `<dl class="details">${dl.map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join("")}</dl>` +
+            `<dl class="${l.dl}">${dl.map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join("")}</dl>` +
             `<h2>Beschreibung</h2><p class="beschreibung">${esc(t.description)}</p>` +
-            `<h2>Vergabeunterlagen</h2><ul class="unterlagen">${files}</ul>`,
+            `<h2>Vergabeunterlagen</h2><ul class="${l.docs}">${files}</ul>`,
         ),
       );
     }
     const file = path.match(/^\/dokumente\/(\d+)\/([^/]+)$/);
     if (file) {
-      const t = tenders.find((x) => x.id === file[1]);
+      const t = list.find((x) => x.id === file[1]);
       const f = t?.files.find((x) => x.name === decodeURIComponent(file[2]!));
       if (!f) return notFound(res);
       return sendFile(res, f.name, f.bytes);
