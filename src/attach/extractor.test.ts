@@ -299,6 +299,29 @@ test("documents: const and css hops, then file links with name hints, deduped", 
   assert.equal(hits.get("/d/t/1"), undefined, "a const first hop needs no tender page");
 });
 
+test("documentRefsPending: set when the document list cannot be read, absent when it was read (even if empty)", async () => {
+  routes.set("/p/list", () => ({ body: table(row("P-1", "/p/t/1", "Eins", "01.03.2026") + row("P-2", "/p/t/2", "Zwei", "01.03.2026")) }));
+  routes.set("/p/docs/P-1", () => ({ status: 500, body: "boom" }));
+  routes.set("/p/docs/P-2", () => ({ body: page("<p>Keine Unterlagen.</p>") }));
+  const r = recipe({
+    list: { request: { url: "/p/list", method: "GET" }, pagination: { type: "none" }, item: "tr.row", emptyText: [] },
+    listFields: { id: { css: "td.ref" }, url: { css: "a", attr: "href" } },
+    documents: { hops: [{ const: "/p/docs/{id}" }], files: { css: "a.file", all: true }, via: "http" },
+  });
+  const res = ok(await extractor.read(r, makeCtx()));
+  const byId = new Map(res.tenders.map((t) => [t.id, t]));
+  assert.equal(byId.get("P-1")!.documentRefsPending, true, "a failed document list is unknown, not empty");
+  assert.deepEqual(byId.get("P-1")!.documentRefs, []);
+  assert.equal(byId.get("P-2")!.documentRefsPending, undefined, "a document list that was read and is empty is a real 'none'");
+
+  // The failure is not cached: the next read tries again and clears the flag once it works.
+  routes.set("/p/docs/P-1", () => ({ body: page('<a class="file" href="/p/f/1.pdf">1.pdf</a>') }));
+  const again = ok(await extractor.read(r, makeCtx()));
+  const p1 = again.tenders.find((t) => t.id === "P-1")!;
+  assert.equal(p1.documentRefsPending, undefined);
+  assert.equal(p1.documentRefs.length, 1);
+});
+
 // ------------------------------------------------------------ feed
 
 test("feed: RSS read with xml mode", async () => {
@@ -557,7 +580,7 @@ test("TenderNed recipe reads the saved fixtures offline: golden 450237 and withd
   const res = ok(await extractor.read(r, makeCtx()));
   const q = listQuery as unknown as URLSearchParams;
   assert.equal(q.get("sluitingsDatumVanaf"), localDate("Europe/Amsterdam"));
-  assert.equal(q.get("publicatieDatumVanaf"), localDate("Europe/Amsterdam", 7));
+  assert.equal(q.get("publicatieDatumVanaf"), null, "no date window: A never closes tenders older than a read saw");
   assert.equal(q.get("publicatieType"), "AAO");
   assert.equal(res.diagnostics.listPages, 2, "page 1 is empty and ends the list");
   assert.deepEqual(res.tenders.map((t) => t.id), ["450237", "450165", "449873"]);

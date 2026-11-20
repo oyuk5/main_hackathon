@@ -84,3 +84,6 @@ Some live `referentieNummer` values are UUIDs (e.g. on 450074). They look like s
 
 ## Empty document lists are real (Fri 18:15)
 In the clean-clone run, 51 of 76 served tenders had no documents. Checked 449035: `…/{id}/documenten` returns `{"documenten":[]}` and the notice links to an external platform (`urlDigitaalSysteem` = s2c.mercell.com). Many buyers host files on Mercell, Negometrix or similar, which need an account; we do no logins, so those tenders are served with an empty list. Not a fetch failure.
+
+## Date window removed (Fri 18:25)
+A now never closes a tender published before the oldest one a full read saw, and holds back tenders flagged `documentRefsPending`. So the recipe reads all open calls again (`maxPages` 40, about 30 pages); A's document budget spreads the first attach over several reads.

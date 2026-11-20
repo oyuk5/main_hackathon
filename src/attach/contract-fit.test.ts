@@ -89,7 +89,7 @@ const REQUIRED = ["id", "url", "title", "buyerName", "publicationDate", "submiss
 
 /** What the platform would serve for this tender (documents not downloaded yet). */
 function toApiTender(t: ExtractedTender): unknown {
-  const { documentRefs: _refs, withdrawn, ...rest } = t;
+  const { documentRefs: _refs, documentRefsPending: _pending, withdrawn, ...rest } = t;
   return { ...rest, status: withdrawn ? "withdrawn" : "open", documents: [], lastChangedAt: nowWithOffset() };
 }
 

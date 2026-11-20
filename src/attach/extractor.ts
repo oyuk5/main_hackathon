@@ -873,6 +873,9 @@ async function run(st: ReadState, started: number): Promise<ReadOutcome> {
 
     let detailWithdrawn = false;
     let refs: DocumentRef[] = [];
+    // True when this read could not look at the tender's detail page or documents (cap or failure):
+    // empty refs then mean "unknown", not "no documents", and the platform holds the tender back.
+    let pending = false;
     const needsWork = recipe.detail !== null && recipe.detail !== undefined ? true : recipe.documents !== null && recipe.documents !== undefined;
     if (needsWork) {
       let detailUrl: string | null = null;
@@ -929,8 +932,10 @@ async function run(st: ReadState, started: number): Promise<ReadOutcome> {
             ctx.log(`Documents for ${templateValue(values.id) ?? "a tender"} could not be listed (${(e as Error).message}).`, "warn");
           }
         }
+        if (!ok) pending = true;
         if (ok) detailCache.set(cacheKey, { hash, fields: detailFields, refs: recipe.documents ? refs : null, withdrawn: detailWithdrawn });
       } else if (budget <= 0) {
+        pending = true;
         warnOnce(st, "cap", `More than ${MAX_DETAIL_FETCHES} tenders need their detail page; the rest keep list values until the next read.`);
       }
     }
@@ -944,6 +949,7 @@ async function run(st: ReadState, started: number): Promise<ReadOutcome> {
     if (ids.has(id)) continue;
     ids.add(id);
     const tender = toTender(recipe, id, url, values, refs);
+    if (pending) tender.documentRefsPending = true;
     if (values[WITHDRAWN_FIELD] === true || detailWithdrawn || hasWithdrawnText(recipe, scopeText(item.scope))) tender.withdrawn = true;
     tenders.push(tender);
     tenderValues.push({ ...values, id, url });
