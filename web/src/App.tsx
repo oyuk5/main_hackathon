@@ -415,7 +415,12 @@ function useStored<T>(key: string, initial: T): [T, (v: T) => void] {
 }
 
 function SortArrow({ active }: { active: boolean }) {
-  if (!active) return null;
+  if (!active)
+    return (
+      <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="ml-1 inline shrink-0 text-faint">
+        <path d="M5 6.5 8 3.5l3 3M5 9.5l3 3 3-3" />
+      </svg>
+    );
   return (
     <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="ml-1 inline shrink-0 text-docker">
       <path d="M8 13V3" />
@@ -540,6 +545,20 @@ function Portals({
             <path d="M10 2.5v11" />
           </svg>
         </button>
+
+        <label className="flex h-9 items-center gap-2 rounded-[4px] border border-hairline bg-paper pl-3 text-[13px] text-slate">
+          Sort
+          <select
+            value={view.sort}
+            onChange={(e) => setView({ ...view, sort: e.target.value as SortKey })}
+            className="h-full rounded-r-[4px] bg-transparent pr-2 font-medium text-ink focus:outline-none cursor-pointer"
+          >
+            <option value="urgent">Most urgent first</option>
+            <option value="stale">Longest without delivery</option>
+            <option value="tenders">Most open tenders</option>
+            <option value="name">Name</option>
+          </select>
+        </label>
 
         {(showFilterBar || view.state !== "all") && (
           <div role="group" aria-label="Show portals that are" className="flex flex-wrap items-center gap-1 sm:ml-2">

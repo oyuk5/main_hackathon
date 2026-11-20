@@ -11,6 +11,7 @@ import { ANCHOR, CHARACTER, STATE_COLOR, countryOf, host, int, type PortalRow, t
 /** Literal class names, so Tailwind finds them. Flares use the bright yellow; text uses the darker one. */
 const GLOW: Record<State, string> = { serving: "text-serving", healing: "text-healing", failed: "text-failed", integrating: "text-integrating" };
 const DOT: Record<State, string> = { serving: "fill-serving", healing: "fill-healing", failed: "fill-failed", integrating: "fill-paper" };
+const STROKE: Record<State, string> = { serving: "stroke-serving", healing: "stroke-healing", failed: "stroke-failed", integrating: "stroke-integrating" };
 const EDGE: Record<State, string> = { serving: "border-serving", healing: "border-healing", failed: "border-failed", integrating: "border-integrating" };
 
 const W = 1000;
@@ -36,6 +37,42 @@ function useProjection() {
 }
 
 type Placed = { p: PortalRow; x: number; y: number; side: "left" | "right" };
+/** A country with more portals than fit as separate lights: one numbered marker in its worst state. */
+type Cluster = { country: string; list: PortalRow[]; worst: State; x: number; y: number };
+
+/** Above this many portals in one country, they share one numbered marker. */
+const MAX_LIGHTS_PER_COUNTRY = 4;
+/** At most this many portals listed under the map as "country unknown". */
+const MAX_UNPLACED = 5;
+const WORST: State[] = ["failed", "healing", "integrating", "serving"];
+
+/**
+ * Nudges markers apart until no two overlap (neighbouring countries such as NL, BE and LU sit
+ * close together), and keeps every marker inside the frame. Deterministic: same input, same map.
+ */
+function spread(nodes: { x: number; y: number }[], min: number, W: number, H: number, margin: number) {
+  for (let pass = 0; pass < 40; pass++) {
+    let moved = false;
+    for (let i = 0; i < nodes.length; i++) {
+      for (let j = i + 1; j < nodes.length; j++) {
+        const a = nodes[i]!, b = nodes[j]!;
+        let dx = b.x - a.x, dy = b.y - a.y;
+        let d = Math.hypot(dx, dy);
+        if (d >= min) continue;
+        if (d < 0.01) { dx = Math.cos(j); dy = Math.sin(j); d = 1; } // same spot: split along a fixed angle
+        const push = (min - d) / 2;
+        a.x -= (dx / d) * push; a.y -= (dy / d) * push;
+        b.x += (dx / d) * push; b.y += (dy / d) * push;
+        moved = true;
+      }
+    }
+    for (const n of nodes) {
+      n.x = Math.min(W - margin, Math.max(margin, n.x));
+      n.y = Math.min(H - margin, Math.max(margin, n.y));
+    }
+    if (!moved) break;
+  }
+}
 
 /**
  * `compact` draws the chart as a small side panel: bigger lights, no labels or sea names, and
@@ -46,7 +83,7 @@ export function Chart({ rows, hover, setHover, compact = false }: { rows: Portal
   const { projection, H, path } = useProjection();
   const xy = (lon: number, lat: number) => projection([lon, lat]) as [number, number];
 
-  const { placed, unplaced, watched } = useMemo(() => {
+  const { placed, clusters, unplaced, watched } = useMemo(() => {
     const byCountry = new Map<string, PortalRow[]>();
     const unplaced: PortalRow[] = [];
     for (const p of rows) {
@@ -55,16 +92,24 @@ export function Chart({ rows, hover, setHover, compact = false }: { rows: Portal
       else byCountry.set(c, [...(byCountry.get(c) ?? []), p]);
     }
     const placed: Placed[] = [];
-    for (const [c, list] of byCountry) {
+    const clusters: Cluster[] = [];
+    for (const [c, list] of [...byCountry].sort(([a], [b]) => a.localeCompare(b))) {
       const [x, y] = xy(...ANCHOR[c]!);
       const side = ANCHOR[c]![0] < 7 ? "left" : "right";
-      list.forEach((p, i) => {
-        if (list.length === 1) return placed.push({ p, x, y, side });
-        const a = -Math.PI / 2 + (i / list.length) * Math.PI * 2;
-        placed.push({ p, x: x + Math.cos(a) * 28 * k, y: y + Math.sin(a) * 28 * k, side });
+      if (list.length > MAX_LIGHTS_PER_COUNTRY) {
+        const worst = WORST.find((s) => list.some((p) => p.state === s))!;
+        clusters.push({ country: c, list, worst, x, y });
+        continue;
+      }
+      // Stable order, so lights don't swap places between polls.
+      [...list].sort((a, b) => a.id.localeCompare(b.id)).forEach((p, i, all) => {
+        if (all.length === 1) return placed.push({ p, x, y, side });
+        const a = -Math.PI / 2 + (i / all.length) * Math.PI * 2;
+        placed.push({ p, x: x + Math.cos(a) * 16 * k, y: y + Math.sin(a) * 16 * k, side });
       });
     }
-    return { placed, unplaced, watched: new Set(byCountry.keys()) };
+    spread([...placed, ...clusters], 26 * k, W, H, 24 * k);
+    return { placed, clusters, unplaced, watched: new Set(byCountry.keys()) };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rows, projection]);
 
@@ -104,6 +149,9 @@ export function Chart({ rows, hover, setHover, compact = false }: { rows: Portal
           ))}
           {placed.map((pl) => (
             <Light key={pl.p.id} pl={pl} k={k} active={hover === pl.p.id} setHover={setHover} />
+          ))}
+          {clusters.map((cl) => (
+            <ClusterMark key={cl.country} cl={cl} k={k} active={cl.list.some((p) => p.id === hover)} />
           ))}
           {labels.map((l) => (
             <Label key={l.p.p.id} l={l} active={hover === l.p.p.id} />
@@ -153,6 +201,25 @@ function Light({ pl, k, active, setHover }: { pl: Placed; k: number; active: boo
   );
 }
 
+function ClusterMark({ cl, k, active }: { cl: Cluster; k: number; active: boolean }) {
+  const { x, y, worst, list } = cl;
+  const counts = WORST.map((s) => [s, list.filter((p) => p.state === s).length] as const).filter(([, n]) => n > 0);
+  const text = `${cl.country}: ${list.length} portals, ${counts.map(([s, n]) => `${n} ${CHARACTER[s].words.toLowerCase()}`).join(", ")}`;
+  return (
+    <g role="img" aria-label={text}>
+      <title>{text}</title>
+      <g className={GLOW[worst]}>
+        <circle cx={x} cy={y} r={21 * k} className="fill-current" opacity="0.13" />
+      </g>
+      <circle cx={x} cy={y} r={11 * k} className={`fill-paper ${STROKE[worst]}`} strokeWidth={2.4 * k} />
+      <text x={x} y={y} dy="0.35em" textAnchor="middle" className="fill-ink font-semibold" style={{ fontSize: `${11 * k}px` }}>
+        {list.length > 99 ? "99+" : list.length}
+      </text>
+      {active && <circle cx={x} cy={y} r={17.5 * k} className="fill-none stroke-ink" strokeWidth={1.5 * k} />}
+    </g>
+  );
+}
+
 // ------------------------------------------------------------ labels
 
 type Placement = { p: Placed; x: number; y: number; h: number; anchor: "start" | "end" };
@@ -174,7 +241,11 @@ const labelHeight = (p: PortalRow) => (shortReason(p) ? 62 : 44);
 function layoutLabels(placed: Placed[], H: number): Placement[] {
   const out: Placement[] = [];
   for (const side of ["left", "right"] as const) {
-    const group = placed.filter((p) => p.side === side).sort((a, b) => a.y - b.y);
+    let group = placed.filter((p) => p.side === side).sort((a, b) => a.y - b.y);
+    const need = (g: Placed[]) => g.reduce((s, p) => s + labelHeight(p.p) + 8, 0);
+    if (need(group) > H - 40) group = group.filter((p) => p.p.state !== "serving");
+    while (group.length && need(group) > H - 40) group = group.slice(0, -1);
+    if (!group.length) continue;
     let bottom = 20;
     const col = group.map((p) => {
       const h = labelHeight(p.p);
@@ -264,7 +335,7 @@ function Inset({ rows, hover, setHover, compact }: { rows: PortalRow[]; hover: s
       <div className={compact ? "" : "px-3 pt-2 pb-2.5"}>
         <p className="font-chart text-[15px] text-slate italic">Not on the map: country unknown</p>
         <ul className="mt-1.5 space-y-1.5">
-          {rows.map((p) => {
+          {rows.slice(0, MAX_UNPLACED).map((p) => {
             const c = CHARACTER[p.state];
             return (
               <li key={p.id}>
@@ -282,6 +353,7 @@ function Inset({ rows, hover, setHover, compact }: { rows: PortalRow[]; hover: s
             );
           })}
         </ul>
+        {rows.length > MAX_UNPLACED && <p className="mt-1.5 text-[12.5px] text-slate">and {rows.length - MAX_UNPLACED} more, listed in the table</p>}
       </div>
     </div>
   );

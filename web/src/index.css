@@ -34,12 +34,12 @@
   --color-healing: #b07b00;
   --color-healing-text: #9a6700;
   --color-failed: #cf222e;
-  --color-integrating: #6e7d8a;
+  --color-integrating: #6b4fc8;
 
   --color-serving-wash: #e6f6f2;
   --color-healing-wash: #fdf5e2;
   --color-failed-wash: #fdecee;
-  --color-integrating-wash: #eef2f6;
+  --color-integrating-wash: #f1edfc;
 }
 
 @layer base {
@@ -70,12 +70,12 @@
       --color-healing: #d29922;
       --color-healing-text: #d29922;
       --color-failed: #e5534b;
-      --color-integrating: #6e7d8a;
+      --color-integrating: #a68ef2;
 
       --color-serving-wash: rgba(0, 184, 148, 0.12);
       --color-healing-wash: rgba(210, 153, 34, 0.12);
       --color-failed-wash: rgba(229, 83, 75, 0.12);
-      --color-integrating-wash: rgba(110, 125, 138, 0.14);
+      --color-integrating-wash: rgba(166, 142, 242, 0.14);
     }
   }
 

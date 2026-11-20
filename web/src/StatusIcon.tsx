@@ -42,7 +42,17 @@ export function StatusIcon({ kind, size = 11 }: { kind: StatusIconKind; size?: n
     );
   }
 
-  // passed / integrating: crisp hollow outline ring like unused images in Docker Desktop
+  if (kind === "integrating") {
+    // Violet ring with a live centre: learning a new portal is work in progress, not idle.
+    return (
+      <svg width={size} height={size} viewBox="0 0 12 12" fill="none" aria-hidden="true" className={cls}>
+        <circle cx="6" cy="6" r="4.4" stroke="currentColor" strokeWidth="1.4" />
+        <circle cx="6" cy="6" r="2.1" fill="currentColor" />
+      </svg>
+    );
+  }
+
+  // passed: hollow outline ring
   return (
     <svg width={size} height={size} viewBox="0 0 12 12" fill="none" aria-hidden="true" className={cls}>
       <circle cx="6" cy="6" r="4.25" stroke="currentColor" strokeWidth="1.25" />

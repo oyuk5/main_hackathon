@@ -75,7 +75,12 @@ function shortWhen(iso: string, now: number): string {
 }
 
 function SortArrow({ active, dir }: { active: boolean; dir: SortDir }) {
-  if (!active) return null;
+  if (!active)
+    return (
+      <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="ml-1 inline shrink-0 text-faint">
+        <path d="M5 6.5 8 3.5l3 3M5 9.5l3 3 3-3" />
+      </svg>
+    );
   return (
     <svg
       width="12"
@@ -255,6 +260,26 @@ export function Log({ portals, now }: { portals: PortalRow[]; now: number }) {
         </div>
 
         <div className="flex w-full flex-wrap items-center gap-x-4 gap-y-2 sm:ml-auto sm:w-auto">
+          <label className="flex h-7 items-center gap-2 rounded-[4px] border border-hairline pl-2.5 text-[12.5px] text-slate">
+            Sort
+            <select
+              value={`${sortKey}:${sortDir}`}
+              onChange={(e) => {
+                const [k, d] = e.target.value.split(":") as [SortKey, SortDir];
+                setSortKey(k);
+                setSortDir(d);
+              }}
+              className="h-full bg-transparent pr-1.5 font-medium text-ink focus:outline-none cursor-pointer"
+            >
+              <option value="time:desc">Newest first</option>
+              <option value="time:asc">Oldest first</option>
+              <option value="portal:asc">Portal</option>
+              <option value="outcome:asc">Outcome, problems first</option>
+              <option value="took:desc">Took longest</option>
+              <option value="cost:desc">Highest model cost</option>
+            </select>
+          </label>
+
           <label className="flex items-center gap-2 text-[13px] text-slate cursor-pointer">
             <input
               type="checkbox"
