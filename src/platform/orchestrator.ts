@@ -27,7 +27,7 @@ import { medic, watch } from "../watch/index.js";
 import { formatWithOffset, nowWithOffset, toEpoch } from "../shared/time.js";
 import { Tender, TenderDocument as TenderDocumentSchema } from "../shared/contract.js";
 import type { Tender as TenderT, TenderDocument } from "../shared/contract.js";
-import type { ExtractedTender, PortalContext, ReadOutcome } from "../shared/modules.js";
+import type { Baseline, ExtractedTender, PortalContext, ReadOutcome, Verdict } from "../shared/modules.js";
 
 type OkRead = Extract<ReadOutcome, { kind: "ok" }>;
 
@@ -210,9 +210,19 @@ async function judgeAndDeliver(portalId: string, runId: string, ctx: PortalConte
   const verdict = watch.evaluate(read, baseline);
 
   if (verdict.kind === "healthy" && read.kind === "ok") {
-    const { summary, pendingNew } = await deliver(portalId, read, ctx);
+    const { summary, pendingNew, documentFailures, documentsFetched } = await deliver(portalId, read, ctx);
     // Deleted meanwhile: write nothing, the same address may already be a new portal with this id.
     if (ctx.signal.aborted) return;
+    const docState = classifyDocumentFailures(documentFailures, documentsFetched);
+    if (docState?.kind === "blocked") {
+      finishRun(runId, "failed", docState.reason);
+      store.setState(portalId, "failed", join(docState.reason, `Keeping the last ${count(store.countTenders(portalId), "correct tender")}`));
+      return scheduleNext(portalId, config.failedRetryMinutes);
+    }
+    if (docState?.kind === "broken") {
+      finishRun(runId, "failed", docState.reason);
+      return beginRepair(portalId, runId, ctx, { kind: "broken", reason: docState.reason, checks: [] }, baseline);
+    }
     finishRun(runId, "ok", summary);
     store.setState(portalId, "serving", summary, nowWithOffset());
     return scheduleNext(portalId, pendingNew > 0 ? config.pendingReadMinutes : config.readIntervalMinutes);
@@ -228,10 +238,15 @@ async function judgeAndDeliver(portalId: string, runId: string, ctx: PortalConte
 
   // broken: repair, keep serving the last correct tenders meanwhile
   finishRun(runId, "failed", verdict.reason);
+  return beginRepair(portalId, runId, ctx, verdict, baseline);
+}
+
+async function beginRepair(portalId: string, runId: string, ctx: PortalContext, verdict: Verdict, baseline: Baseline) {
+  const reason = verdict.reason;
   const recipe = store.currentRecipe(portalId);
-  if (!recipe) return failPortal(portalId, labelled("Could not learn this portal", verdict.reason));
-  store.setState(portalId, "healing", labelled("Repairing", verdict.reason));
-  ctx.log(join(labelled("Read looks wrong", verdict.reason), "Starting a repair"), "warn");
+  if (!recipe) return failPortal(portalId, labelled("Could not learn this portal", reason));
+  store.setState(portalId, "healing", labelled("Repairing", reason));
+  ctx.log(join(labelled("Read looks wrong", reason), "Starting a repair"), "warn");
 
   const repairId = "r_" + crypto.randomUUID().slice(0, 12);
   store.insertRun({ id: repairId, portalId, kind: "repair", startedAt: nowWithOffset() });
@@ -257,6 +272,24 @@ async function judgeAndDeliver(portalId: string, runId: string, ctx: PortalConte
   store.setState(portalId, "serving", join(labelled("Repaired", fixed.summary), summary), nowWithOffset());
   scheduleNext(portalId, pendingNew > 0 ? config.pendingReadMinutes : config.readIntervalMinutes);
 }
+
+/**
+ * What document problems in one read mean for the portal, out of the tenders whose documents were
+ * fetched in that read. Login or captcha walls on more than half: the portal is blocked (failed,
+ * a person must look). Other failures on more than half: the download path probably changed
+ * (repair). Fewer: stay serving and say so; the next read fetches them again.
+ */
+export function classifyDocumentFailures(failures: DocumentFailure[], fetched: number) {
+  if (failures.length === 0 || fetched === 0) return null;
+  const blocked = failures.filter((f) => f.blocked);
+  if (blocked.length * 2 > fetched) return { kind: "blocked" as const, reason: blocked[0]!.detail.replace(/\.$/, "") };
+  if ((failures.length - blocked.length) * 2 > fetched) {
+    return { kind: "broken" as const, reason: `Documents could not be fetched for ${failures.length} of ${count(fetched, "tender")}: ${failures.find((f) => !f.blocked)!.detail.replace(/\.$/, "")}` };
+  }
+  return null;
+}
+
+type DocumentFailure = { blocked: boolean; tenderId: string; detail: string };
 
 // ------------------------------------------------------------ delivery
 
@@ -303,7 +336,7 @@ function withStoredValues(et: ExtractedTender, last: TenderT): ExtractedTender {
 }
 
 /** Exported for tests only. */
-export async function deliver(portalId: string, read: OkRead, ctx: PortalContext): Promise<{ summary: string; pendingNew: number }> {
+export async function deliver(portalId: string, read: OkRead, ctx: PortalContext): Promise<{ summary: string; pendingNew: number; documentFailures: DocumentFailure[]; documentsFetched: number }> {
   const now = nowWithOffset();
   const seen = new Set<string>();
   let fresh = 0;
@@ -350,6 +383,8 @@ export async function deliver(portalId: string, read: OkRead, ctx: PortalContext
   );
 
   let pendingRefs = 0;
+  const documentFailures: DocumentFailure[] = [];
+  let documentsFetched = 0;
   for (let et of unique) {
     if (ctx.signal.aborted) break;
     const row = rows.get(et.id);
@@ -372,7 +407,13 @@ export async function deliver(portalId: string, read: OkRead, ctx: PortalContext
       if (ctx.signal.aborted) break;
       for (const p of got.problems) ctx.log(`Tender ${et.id}: ${p}`, "warn");
       documents = got.documents;
-      if (got.problems.length > 0) storedRefsHash = "";
+      documentsFetched++;
+      if (got.problems.length > 0) {
+        storedRefsHash = "";
+        // Only login and captcha walls are blocks; a web page instead of a file may be a moved link.
+        const wall = got.problems.find((p) => /^(Documents need a login|Blocked by a captcha)/.test(p));
+        documentFailures.push({ tenderId: et.id, detail: wall ?? got.problems[0]!, blocked: wall !== undefined });
+      }
     } else if (row) {
       // Not its turn yet: keep serving the last documents, and fetch again in a later read.
       documents = (JSON.parse(row.json) as TenderT).documents;
@@ -391,7 +432,7 @@ export async function deliver(portalId: string, read: OkRead, ctx: PortalContext
   // No longer listed => closed, but only when this read saw the whole list (see listing.ts):
   // a read capped by maxPages, or aborted halfway, did not see the older tenders.
   // Aborted (DELETE): stop before closing tenders or moving the baseline.
-  if (ctx.signal.aborted) return { summary: "Stopped.", pendingNew: 0 };
+  if (ctx.signal.aborted) return { summary: "Stopped.", pendingNew: 0, documentFailures, documentsFetched };
   const wholeList = sawWholeList(store.currentRecipe(portalId)?.list.pagination, read.diagnostics.listPages, ctx.signal.aborted);
   const oldestSeen = unique
     .map((et) => et.publicationDate)
@@ -417,5 +458,8 @@ export async function deliver(portalId: string, read: OkRead, ctx: PortalContext
   const at = formatWithOffset(new Date()).slice(11, 16);
   const pendingNew = ctx.signal.aborted ? 0 : plan.pendingNew + pendingRefs;
   const waiting = pendingNew > 0 ? `; documents for ${count(pendingNew, "more tender")} are on their way` : "";
-  return { summary: `Serving ${count(open, "open tender")} (${fresh} new, ${changed} changed)${waiting}. Last read ${at}, all checks passed.`, pendingNew };
+  const documentNote = documentFailures.length
+    ? ` Documents for ${count(documentFailures.length, "tender")} could not be fetched; retrying next read.`
+    : " All checks passed.";
+  return { summary: `Serving ${count(open, "open tender")} (${fresh} new, ${changed} changed)${waiting}. Last read ${at}.${documentNote}`, pendingNew, documentFailures, documentsFetched };
 }

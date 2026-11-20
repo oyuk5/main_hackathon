@@ -256,3 +256,15 @@ test("a tender whose refs this read did not look for is held back when new, kept
   assert.equal(byId(p).T1!.lastChangedAt, before.lastChangedAt);
   assert.equal(next.pendingNew, 0);
 });
+
+test("document problems: a few keep serving, most login walls fail, most other failures repair", async () => {
+  const { classifyDocumentFailures } = await import("./orchestrator.js");
+  const login = { blocked: true, tenderId: "t", detail: "Documents need a login: x shows a login page instead of the file." };
+  const other = { blocked: false, tenderId: "t", detail: "Could not download x: 404." };
+  assert.equal(classifyDocumentFailures([login], 100), null);
+  assert.equal(classifyDocumentFailures([login, login], 3)?.kind, "blocked");
+  assert.match(classifyDocumentFailures([login, login], 3)!.reason, /^Documents need a login/);
+  assert.equal(classifyDocumentFailures([other, other, other], 4)?.kind, "broken");
+  assert.equal(classifyDocumentFailures([other, login], 4), null);
+  assert.equal(classifyDocumentFailures([], 0), null);
+});
