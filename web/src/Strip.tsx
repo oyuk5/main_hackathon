@@ -17,7 +17,7 @@ function mark(r: RecentRun) {
   return { h: 6, cls: "fill-faint", label: "Read passed" };
 }
 
-export function Strip({ runs, now }: { runs: RecentRun[]; now: number }) {
+export function Strip({ runs, now, compact = false }: { runs: RecentRun[]; now: number; compact?: boolean }) {
   const day = 24 * 3_600_000;
   const visible = runs.filter((r) => now - new Date(r.startedAt).getTime() <= day);
   const reads = visible.filter((r) => r.kind === "read").length;
@@ -30,7 +30,7 @@ export function Strip({ runs, now }: { runs: RecentRun[]; now: number }) {
   const ordered = [...visible].sort((a, b) => mark(a).h - mark(b).h);
 
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="block h-[26px] w-full" role="img" aria-label={label}>
+    <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className={`block w-full ${compact ? "h-[14px]" : "h-[26px]"}`} role="img" aria-label={label}>
       <line x1="0" x2={W} y1={H - 0.5} y2={H - 0.5} className="stroke-hairline" strokeWidth="1" vectorEffect="non-scaling-stroke" />
       {[6, 12, 18].map((h) => (
         <line key={h} x1={h * 12} x2={h * 12} y1={H - 4} y2={H} className="stroke-hairline" strokeWidth="1" vectorEffect="non-scaling-stroke" />

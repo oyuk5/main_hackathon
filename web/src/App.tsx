@@ -9,6 +9,7 @@ import { Detail } from "./Detail";
 import { Log } from "./Log";
 import { Picker } from "./Picker";
 import { Select } from "./Select";
+import { Strip } from "./Strip";
 import { StatusIcon, stateToIconKind } from "./StatusIcon";
 import {
   CHARACTER, STATE_ORDER, countryOf, host, int, plural, usd, useNow, usePoll, when,
@@ -126,7 +127,7 @@ export function App() {
               id="panel-portals"
               role="tabpanel"
               aria-labelledby="tab-portals"
-              className={`mt-4 grid gap-5 ${showSide && rows.length > 0 ? "lg:grid-cols-[minmax(0,1fr)_300px]" : ""}`}
+              className={`mt-4 grid grid-cols-[minmax(0,1fr)] gap-5 ${showSide && rows.length > 0 ? "lg:grid-cols-[minmax(0,1fr)_300px]" : ""}`}
             >
               <Portals
                 rows={rows}
@@ -210,7 +211,7 @@ function Header({ onAdded }: { onAdded: () => void }) {
             <path d="M8.2 3.2h5.6v4.4H8.2Z" fill="currentColor" />
             <path d="M7 7.6h8M8.6 7.6 7.4 20M13.4 7.6 14.6 20M5.5 20h11M8.1 12.6h5.8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
-          <span className="text-[16px] font-semibold tracking-tight text-ink">Watchtower</span>
+          <span className="font-display text-[18px] font-bold tracking-tight text-ink">Watchtower</span>
           <span className="hidden text-[13px] text-slate md:inline">keeps tender portals delivering</span>
         </a>
         <form onSubmit={add} className="flex w-full gap-2 sm:ml-auto sm:w-auto">
@@ -250,8 +251,8 @@ function Tabs({ tab, rows, now, picker }: { tab: Tab; rows: PortalRow[]; now: nu
     { id: "log", href: "#/log", label: "Log" },
   ];
   return (
-    <div className="mt-5 flex items-end gap-4 border-b border-hairline">
-      <nav role="tablist" aria-label="Views" className="flex gap-7">
+    <div className="mt-5 flex flex-wrap items-end gap-x-4 gap-y-2 border-b border-hairline max-sm:flex-col-reverse max-sm:items-stretch">
+      <nav role="tablist" aria-label="Views" className="flex gap-6 sm:gap-7">
         {tabs.map((t) => (
           <a
             key={t.id}
@@ -277,7 +278,7 @@ function Tabs({ tab, rows, now, picker }: { tab: Tab; rows: PortalRow[]; now: nu
           </a>
         ))}
       </nav>
-      <div className="mb-2.5 ml-auto">{picker}</div>
+      <div className="mb-2.5 sm:ml-auto max-sm:mb-1">{picker}</div>
     </div>
   );
 }
@@ -326,6 +327,13 @@ function SummaryStrip({
   const servingCount = rows.filter((r) => r.state === "serving").length;
   const failedCount = rows.filter((r) => r.state === "failed").length;
   const open = rows.reduce((s, r) => s + (r.state === "serving" || r.state === "healing" ? r.tenderCount : 0), 0);
+  // What Watchtower did in the last 24 hours, across the shown portals: the "what did it do about it" line.
+  const DAY = 24 * 3_600_000;
+  const runs = rows.flatMap((r) => (r.recent ?? []).filter((x) => now - Date.parse(x.startedAt) <= DAY));
+  const reads = runs.filter((x) => x.kind === "read").length;
+  const problems = runs.filter((x) => x.kind === "read" && x.result === "failed").length;
+  const repaired = runs.filter((x) => x.kind === "repair" && x.result === "ok").length;
+  const handed = runs.filter((x) => x.kind === "repair" && x.result === "failed").length;
   const headline = failedCount === 0 ? "Nothing needs a person" : `${plural(failedCount, "portal")} ${failedCount === 1 ? "needs" : "need"} a person`;
   const refreshed = new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }).format(now);
 
@@ -333,7 +341,7 @@ function SummaryStrip({
   return (
     <section aria-label="Summary" className="flex flex-col gap-4 rounded-[6px] border border-hairline bg-paper px-5 py-4 xl:flex-row xl:items-center xl:gap-8">
       <div className="min-w-0 flex-1">
-        <h1 className={`text-[22px] leading-tight font-semibold tracking-tight ${failedCount > 0 ? "text-failed" : "text-ink"}`}>{headline}</h1>
+        <h1 className={`font-display text-[26px] leading-tight font-bold tracking-tight ${failedCount > 0 ? "text-failed" : "text-ink"}`}>{headline}</h1>
         <p className="mt-1 flex flex-wrap items-center gap-x-1 text-[13.5px] text-slate">
           <span>
             <span className="num font-semibold text-ink">{int(open)}</span> open tenders delivered from{" "}
@@ -355,6 +363,19 @@ function SummaryStrip({
             </button>
           </span>
         </p>
+        {runs.length > 0 && (
+          <p className="mt-1 text-[13.5px] text-slate">
+            Last 24 hours: <span className="num font-semibold text-ink">{int(reads)}</span> reads,{" "}
+            <span className={`num font-semibold ${problems ? "text-failed" : "text-ink"}`}>{problems}</span> {problems === 1 ? "problem" : "problems"} found,{" "}
+            <span className={`num font-semibold ${repaired ? "text-serving" : "text-ink"}`}>{repaired}</span> repaired by itself
+            {handed > 0 && (
+              <>
+                , <span className="num font-semibold text-ink">{handed}</span> handed to a person
+              </>
+            )}
+            .
+          </p>
+        )}
         {failedCount > 0 && (
           <p className="mt-1.5 text-[13.5px] text-slate">
               Needs you:{" "}
@@ -391,7 +412,7 @@ function SummaryStrip({
               }`}
             >
               <StatusIcon kind={stateToIconKind(s)} size={11} />
-              <span className="num text-[17px] leading-none font-semibold text-ink">{n}</span>
+              <span className="num font-display text-[19px] leading-none font-bold text-ink">{n}</span>
               <span className="text-[13px] font-medium text-slate">{CHARACTER[s].words}</span>
             </button>
           );
@@ -530,7 +551,7 @@ function Portals({
     <section aria-label="Portals" className="min-w-0">
       {/* Docker Search & Action Bar */}
       <div className="mb-3 flex flex-wrap items-center gap-2.5">
-        <div className="relative flex-1 sm:flex-none sm:w-[290px]">
+        <div className="relative basis-full sm:basis-auto sm:w-[290px]">
           <svg
             width="15"
             height="15"
@@ -632,7 +653,7 @@ function Portals({
       </div>
 
       {/* Docker Desktop Table */}
-      <div className="overflow-x-auto rounded-[6px] border border-hairline bg-paper">
+      <div className="relative overflow-x-auto rounded-[6px] border border-hairline bg-paper">
         {rows.length === 0 ? (
           <div className="px-5 py-10 text-center text-[13.5px] text-slate">
             No portal matches.{" "}
@@ -672,7 +693,7 @@ function Portals({
                     <SortArrow active={view.sort === "name"} />
                   </button>
                 </th>
-                <th scope="col" className="border-r border-hairline px-3 py-2.5 whitespace-nowrap">
+                <th scope="col" className="hidden border-r border-hairline px-3 py-2.5 whitespace-nowrap md:table-cell">
                   What Watchtower says
                 </th>
                 <th scope="col" className="border-r border-hairline px-3 py-2.5 text-right whitespace-nowrap">
@@ -685,7 +706,7 @@ function Portals({
                     <SortArrow active={view.sort === "tenders"} />
                   </button>
                 </th>
-                <th scope="col" className="border-r border-hairline px-3 py-2.5 whitespace-nowrap">
+                <th scope="col" className="hidden border-r border-hairline px-3 py-2.5 whitespace-nowrap sm:table-cell">
                   <button
                     type="button"
                     onClick={() => setView({ ...view, sort: "stale" })}
@@ -695,7 +716,8 @@ function Portals({
                     <SortArrow active={view.sort === "stale"} />
                   </button>
                 </th>
-                <th scope="col" className="px-3 py-2.5"><span className="sr-only">Actions</span></th>
+
+                <th scope="col" className="hidden px-3 py-2.5 sm:table-cell"><span className="sr-only">Actions</span></th>
               </tr>
             </thead>
             <tbody>
@@ -731,7 +753,7 @@ function Portals({
                         <StatusIcon kind={stateToIconKind(r.state)} size={11} />
                       </div>
                     </td>
-                    <td className="max-w-[230px] px-3 py-2.5 align-top">
+                    <td className="px-3 py-2.5 align-top md:max-w-[230px]">
                       <a
                         href={detailHref}
                         onClick={(e) => e.stopPropagation()}
@@ -744,14 +766,15 @@ function Portals({
                         {view.sort === "urgent" ? "" : CHARACTER[r.state].words}
                         {r.busy && <span className="text-faint">{view.sort === "urgent" ? "" : ", "}{r.busy.kind === "repair" ? "repairing now" : "reading now"}</span>}
                       </span>
+                      <span className={`mt-1 line-clamp-3 text-[12.5px] leading-snug md:hidden ${r.state === "serving" ? "text-faint" : "text-slate"}`}>{shortReason(r)}</span>
                     </td>
-                    <td className={`min-w-[260px] px-3 py-2.5 align-top ${r.state === "serving" ? "text-faint" : r.state === "integrating" ? "text-slate" : "text-ink"}`} title={r.reason}>
+                    <td className={`hidden min-w-[200px] px-3 py-2.5 align-top md:table-cell xl:min-w-[260px] ${r.state === "serving" ? "text-faint" : r.state === "integrating" ? "text-slate" : "text-ink"}`} title={r.reason}>
                       <span className="line-clamp-2">{shortReason(r)}</span>
                     </td>
                     <td className="num px-3 py-2.5 text-right align-top font-medium text-ink whitespace-nowrap">
                       {r.tenderCount === 0 && !r.lastSuccessAt ? <span className="text-faint" aria-label="none yet">–</span> : int(r.tenderCount)}
                     </td>
-                    <td className="px-3 py-2.5 align-top text-[13px] text-slate whitespace-nowrap">
+                    <td className="hidden px-3 py-2.5 align-top text-[13px] text-slate whitespace-nowrap sm:table-cell">
                       {r.lastSuccessAt ? (
                         r.state === "serving" && now - Date.parse(r.lastSuccessAt) > STALE_MS ? (
                           <span className="font-medium text-healing-text" title="No delivery for over 2 hours, while reads run every 30 minutes">
@@ -763,8 +786,13 @@ function Portals({
                       ) : (
                         <span className="text-faint">Not yet</span>
                       )}
+                      {(r.recent ?? []).length > 0 && (
+                        <span className="mt-1 block w-[132px]" title="Every read and repair in the last 24 hours. Tall marks are repairs; red marks are problems.">
+                          <Strip runs={r.recent ?? []} now={now} compact />
+                        </span>
+                      )}
                     </td>
-                    <td className="px-2 py-2.5 align-top">
+                    <td className="hidden px-2 py-2.5 align-top sm:table-cell">
                       <button
                         type="button"
                         onClick={(e) => void triggerRefresh(e, r.id)}
@@ -809,7 +837,7 @@ function Cost({ rows, portals }: { rows: LedgerRow[]; portals: number }) {
   return (
     <section aria-labelledby="cost" className="rounded-[6px] border border-hairline bg-paper p-3.5">
       <h2 id="cost" className="text-[13px] font-semibold text-ink">Model usage so far</h2>
-      <p className="num mt-1 text-[20px] font-semibold text-ink">{usd(total)}</p>
+      <p className="num font-display mt-1 text-[24px] font-bold text-ink">{usd(total)}</p>
       <p className="mt-0.5 text-[12.5px] text-slate">Regular reads call no model and cost $0.</p>
       {total > 0 && (
         <dl className="mt-3 grid grid-cols-2 gap-2 border-t border-hairline pt-2.5 text-[12.5px]">
