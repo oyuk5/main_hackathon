@@ -18,6 +18,7 @@ import { config } from "./config.js";
 import { store } from "./store.js";
 import { politeBrowser, politeHttp } from "./polite.js";
 import { documentFetcher } from "./documents.js";
+import { count, join, labelled, sentence } from "./reason.js";
 import { llmFor } from "../llm/client.js";
 import { cartographer, extractor } from "../attach/index.js";
 import { medic, watch } from "../watch/index.js";
@@ -140,9 +141,10 @@ function startJob(portalId: string): string {
   void runFlow(portalId, portal.url, runId, controller)
     .catch((e) => {
       if (!controller.signal.aborted) {
-        store.addEvent(portalId, runId, nowWithOffset(), "error", `Unexpected error: ${(e as Error).message}`);
-        finishRun(runId, "failed", `Unexpected error: ${(e as Error).message}`);
-        failPortal(portalId, `Internal error: ${(e as Error).message}`);
+        // Full message stays in the run log; the operator sees one plain sentence.
+        store.addEvent(portalId, runId, nowWithOffset(), "error", `Unexpected error: ${(e as Error).stack ?? (e as Error).message}`);
+        finishRun(runId, "failed", labelled("Unexpected error", (e as Error).message));
+        failPortal(portalId, "Watchtower hit an internal error while reading this portal; details are in the run log.");
       }
     })
     .finally(() => {
@@ -162,7 +164,9 @@ function scheduleNext(portalId: string, inMinutes: number) {
 function failPortal(portalId: string, reason: string) {
   if (!store.getPortal(portalId)) return;
   const kept = store.countTenders(portalId);
-  store.setState(portalId, "failed", kept ? `${reason} Keeping the last ${kept} correct tenders.` : reason);
+  // The contract needs a non-empty reason even when B or C gave none.
+  const why = sentence(reason) || "Stopped without a reason from the reader; details are in the run log.";
+  store.setState(portalId, "failed", kept ? join(why, `Keeping the last ${count(kept, "correct tender")}`) : why);
   scheduleNext(portalId, config.failedRetryMinutes);
 }
 
@@ -178,7 +182,7 @@ async function runFlow(portalId: string, url: string, runId: string, controller:
     const out = await cartographer.attach(ctx);
     if (controller.signal.aborted) return;
     if (out.kind !== "ok") {
-      const reason = out.kind === "blocked" ? `Blocked: ${out.reason}` : out.reason;
+      const reason = out.kind === "blocked" ? labelled("Blocked", out.reason) : sentence(out.reason);
       finishRun(runId, "failed", reason);
       return failPortal(portalId, reason);
     }
@@ -210,20 +214,20 @@ async function judgeAndDeliver(portalId: string, runId: string, ctx: PortalConte
     return scheduleNext(portalId, config.readIntervalMinutes);
   }
   if (verdict.kind === "blocked") {
-    finishRun(runId, "failed", verdict.reason);
-    return failPortal(portalId, `Blocked: ${verdict.reason}`);
+    finishRun(runId, "failed", sentence(verdict.reason));
+    return failPortal(portalId, labelled("Blocked", verdict.reason));
   }
   if (verdict.kind === "unreachable") {
     finishRun(runId, "failed", verdict.reason);
-    return failPortal(portalId, `Portal not reachable: ${verdict.reason} Trying again every ${config.failedRetryMinutes} min.`);
+    return failPortal(portalId, join(labelled("Portal not reachable", verdict.reason), `Trying again every ${config.failedRetryMinutes} min`));
   }
 
   // broken: repair, keep serving the last correct tenders meanwhile
   finishRun(runId, "failed", verdict.reason);
   const recipe = store.currentRecipe(portalId);
-  if (!recipe) return failPortal(portalId, `Could not learn this portal: ${verdict.reason}`);
-  store.setState(portalId, "healing", `Repairing: ${verdict.reason}`);
-  ctx.log(`Read looks wrong: ${verdict.reason} Starting a repair.`, "warn");
+  if (!recipe) return failPortal(portalId, labelled("Could not learn this portal", verdict.reason));
+  store.setState(portalId, "healing", labelled("Repairing", verdict.reason));
+  ctx.log(join(labelled("Read looks wrong", verdict.reason), "Starting a repair"), "warn");
 
   const repairId = "r_" + crypto.randomUUID().slice(0, 12);
   store.insertRun({ id: repairId, portalId, kind: "repair", startedAt: nowWithOffset() });
@@ -235,17 +239,17 @@ async function judgeAndDeliver(portalId: string, runId: string, ctx: PortalConte
   if (ctx.signal.aborted) return;
   if (fixed.kind !== "ok") {
     finishRun(repairId, "failed", fixed.reason);
-    return failPortal(portalId, `Could not repair: ${fixed.reason} A person is needed.`);
+    return failPortal(portalId, join(labelled("Could not repair", fixed.reason), "A person is needed"));
   }
   const recheck = watch.evaluate(fixed.read, baseline);
   if (recheck.kind !== "healthy") {
-    finishRun(repairId, "failed", `Repair did not pass the checks: ${recheck.reason}`);
-    return failPortal(portalId, `Could not repair: ${recheck.reason} A person is needed.`);
+    finishRun(repairId, "failed", labelled("Repair did not pass the checks", recheck.reason));
+    return failPortal(portalId, join(labelled("Could not repair", recheck.reason), "A person is needed"));
   }
   store.saveRecipe(portalId, fixed.recipe, "repair", fixed.summary, nowWithOffset());
   const summary = await deliver(portalId, fixed.read, rctx);
-  finishRun(repairId, "ok", `${fixed.summary} ${summary}`);
-  store.setState(portalId, "serving", `Repaired: ${fixed.summary} ${summary}`, nowWithOffset());
+  finishRun(repairId, "ok", join(fixed.summary, summary));
+  store.setState(portalId, "serving", join(labelled("Repaired", fixed.summary), summary), nowWithOffset());
   scheduleNext(portalId, config.readIntervalMinutes);
 }
 
@@ -335,5 +339,5 @@ async function deliver(portalId: string, read: OkRead, ctx: PortalContext): Prom
 
   const open = store.listTenders(portalId).filter((t) => t.status === "open").length;
   const at = formatWithOffset(new Date()).slice(11, 16);
-  return `Serving ${open} open tenders (${fresh} new, ${changed} changed). Last read ${at}, all checks passed.`;
+  return `Serving ${count(open, "open tender")} (${fresh} new, ${changed} changed). Last read ${at}, all checks passed.`;
 }
