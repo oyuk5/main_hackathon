@@ -3,8 +3,7 @@
 _Updated: Fri 17:01. Only A and A's agent write here. Keep it under 15 lines and true._
 
 **Done**
-- Docker amd64 build passes `test:contract`. Documents: browser `clickPath` downloads, nested ZIPs, cap, login/captcha traps, retry next read.
-- DELETE closes browser context and HTTP downloads at once (`documents.test.ts`).
+- Docker amd64 build passes `test:contract`. Documents: browser `clickPath` downloads, nested ZIPs, cap, login/captcha traps, retry next read. DELETE stops browser and downloads at once.
 
 **Doing now**
 - Task 5: review `reason` strings with C.
