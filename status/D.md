@@ -1,9 +1,10 @@
 # D · Proof and experience
 
-_Updated: Fri 22:35. Only D and D's agent write here. Keep it under 15 lines and true._
+_Updated: Fri 22:50. Only D and D's agent write here. Keep it under 15 lines and true._
 
 **Done**
 - `lab/portals.json` (8 real, 6 countries, 3 hidden; PLACSP must go). Demo portals `npm run lab` (:4100) with truth per variant. Mutator `npx tsx lab/mutate.ts`.
+- Fixed map card hover flicker in the dashboard.
 - **Eval** `npm run eval` (22:28, full table in `lab/results/latest.md`): attach accuracy 73%, 0 wrong values after attach; heal rate **85%** (11/13 breaking changes); median heal **16 s**; repair **$0.021**, attach **$0.040** per portal; false repairs **3 of 6**.
 
 **Doing now**
