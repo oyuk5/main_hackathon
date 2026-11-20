@@ -399,11 +399,6 @@ test("403 is blocked, a login form is blocked, a captcha is blocked, 503 is unre
   assert.equal(missing.kind, "error");
 });
 
-test("browser tier is reported as not supported", async () => {
-  const res = await extractor.read(simple("/x", { tier: "browser" }), makeCtx());
-  assert.deepEqual(res, { kind: "error", reason: "Browser tier not supported by the Extractor yet." });
-});
-
 test("withdrawnText marks cancelled tenders", async () => {
   routes.set("/w", () => ({ body: table(row("W-1", "/w/1", "Aktiv", "01.03.2026") + row("W-2", "/w/2", "Alt", "01.03.2026", "AUFGEHOBEN")) }));
   const res = ok(await extractor.read(simple("/w", { withdrawnText: ["Aufgehoben"] }), makeCtx()));

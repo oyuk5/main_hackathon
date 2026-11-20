@@ -1,19 +1,17 @@
 # B · Attach
 
-_Updated: Fri 23:20. Only B and B's agent write here. Keep it under 15 lines and true._
+_Updated: Sat 00:05. Only B and B's agent write here. Keep it under 15 lines and true._
 
 **Done**
-- Extractor + normalization, tested; `documentRefsPending`. Known recipe TenderNed. No model call on reads.
-- Model Cartographer (task 3), live: Platforma Zakupowa serving (3 drafts, ~$0.06), Mercell blocked (403), DTVP/PLACSP honest fails. Shows the model one tender page so it maps documents; checks the files selector.
-- D's eval gaps fixed: attach-only eval **100% accuracy, 0 wrong values, $0.033/attach** (was 73%, 1 wrong, $0.040). Documents read from JSON list items; withdrawn rule required (and its words checked) when a portal marks cancellations; optional rules that find nothing rejected; the model sees the whole tender page.
-- A's read-honesty requests (4d356d2); families (task 5): second portal on known software attaches with no model call ($0).
+- Extractor (html, jsonApi, feed, **browser**: JS lists, clickNext, click downloads) + normalization; no model call on reads. Known recipe TenderNed; families (2nd portal on known software: $0).
+- Model Cartographer: live on real portals; lab attach-only evals 97–100% accuracy, **0 wrong values**, $0.027–0.033/attach. Withdrawn/optional-field/documents checks, guard against drafts dropping working rules, speed-ups, prompt caching.
 
 **Doing now**
-- Browser tier for JS-only lists (DTVP); cheaper model for small Cartographer steps.
+- Better CPV mapping (gmina CPV sometimes missing); browser tier on real JS portals.
 
 **Needs from others**
-- A: README attach numbers from the 23:12 attach-only eval: 100% accuracy, 0 wrong values, $0.033 per attach (3 lab portals).
-- A: `scripts/demo.ts` starts real reads on its sample portals by itself (boamp.fr, vergabe.niedersachsen.de, dtvp.de) and calls the model when a key is loaded. Started without a key it shows "No model is configured" on them. Make the demo read-only unless "Read now" is pressed, or say so in the README.
+- A: README cost numbers above. Add env vars to README + `.env.example`: `PRICE_SMART_CACHED_IN`, `PRICE_FAST_CACHED_IN` (USD/M cached input; default half), `LLM_PROMPT_CACHE=0` (off). Ledger: add `cached_tokens` to `llm_calls` (TODO in `src/llm/client.ts`).
+- A: `scripts/demo.ts` starts real reads (and model calls with a key) on sample portals by itself; make it read-only unless "Read now", or say so in the README.
 
 **Known problems**
-- JS-only lists (DTVP) fail honestly: browser tier not built.
+- Browser-tier reads are slow at 1 req/s (3–10 s per page); prompt-cache hits not yet seen live.

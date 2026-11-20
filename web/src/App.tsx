@@ -59,7 +59,7 @@ export function App() {
     window.location.hash = tab === "portals" ? "" : `#/${tab}`;
   }, [tab]);
   const [hover, setHover] = useState<string | null>(null);
-  const [view, setView] = useStored<View>("wt.portals.view", { state: "all", sort: "urgent" });
+  const [view, setView] = useStored<View>("wt.portals.view", { state: "all", sort: "urgent", desc: false });
   const [query, setQuery] = useState("");
   const [picked, setPicked] = useStored<string[] | null>("wt.portals.picked", null);
   const [showSide, setShowSide] = useStored<boolean>("wt.portals.side", true);
@@ -480,7 +480,17 @@ type SortKey = "urgent" | "tenders" | "stale" | "name";
 interface View {
   state: State | "all";
   sort: SortKey;
+  /** Reverse the sort's natural direction (each key's natural direction is the first label below). */
+  desc: boolean;
 }
+
+/** What each sort shows first, in its natural and its reversed direction. */
+const SORT_WORDS: Record<SortKey, [string, string]> = {
+  urgent: ["Most urgent first", "Least urgent first"],
+  stale: ["Longest without delivery", "Most recently delivered"],
+  tenders: ["Most open tenders", "Fewest open tenders"],
+  name: ["Name A–Z", "Name Z–A"],
+};
 
 /** A serving portal with no delivery for this long is late: reads normally run every 30 minutes. */
 const STALE_MS = 2 * 60 * 60 * 1000;
@@ -517,7 +527,7 @@ function useStored<T>(key: string, initial: T): [T, (v: T) => void] {
   return [value, set];
 }
 
-function SortArrow({ active }: { active: boolean }) {
+function SortArrow({ active, desc = false }: { active: boolean; desc?: boolean }) {
   if (!active)
     return (
       <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="ml-1 inline shrink-0 text-faint">
@@ -525,7 +535,7 @@ function SortArrow({ active }: { active: boolean }) {
       </svg>
     );
   return (
-    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="ml-1 inline shrink-0 text-docker">
+    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className={`ml-1 inline shrink-0 text-docker transition-transform ${desc ? "rotate-180" : ""}`}>
       <path d="M8 13V3" />
       <path d="M4.5 6.5 8 3l3.5 3.5" />
     </svg>
@@ -576,14 +586,16 @@ function Portals({
   const rows = useMemo(() => all
     .filter((r) => view.state === "all" || r.state === view.state)
     .filter((r) => !q || host(r.url).toLowerCase().includes(q) || r.reason.toLowerCase().includes(q))
-    .sort((a, b) => SORT[view.sort](a, b) || host(a.url).localeCompare(host(b.url))), [all, q, view.sort, view.state]);
+    .sort((a, b) => (view.desc ? -1 : 1) * SORT[view.sort](a, b) || host(a.url).localeCompare(host(b.url))), [all, q, view.sort, view.desc, view.state]);
+  /** Clicking the column already sorted reverses it; another column starts in its natural direction. */
+  const sortBy = (sort: SortKey) => setView({ ...view, sort, desc: view.sort === sort ? !view.desc : false });
   const groupCounts = useMemo(() => {
     const counts: Record<State, number> = { failed: 0, healing: 0, integrating: 0, serving: 0 };
     for (const row of rows) counts[row.state]++;
     return counts;
   }, [rows]);
   const pageSize = 40;
-  const pageKey = JSON.stringify([q, view.sort, view.state]);
+  const pageKey = JSON.stringify([q, view.sort, view.desc, view.state]);
   const [paging, setPaging] = useState({ key: pageKey, index: 0 });
   const lastPage = Math.max(0, Math.ceil(rows.length / pageSize) - 1);
   const page = paging.key === pageKey ? Math.min(paging.index, lastPage) : 0;
@@ -681,14 +693,21 @@ function Portals({
         <Select<SortKey>
           label="Sort"
           value={view.sort}
-          onChange={(sort) => setView({ ...view, sort })}
-          options={[
-            { value: "urgent", label: "Most urgent first" },
-            { value: "stale", label: "Longest without delivery" },
-            { value: "tenders", label: "Most open tenders" },
-            { value: "name", label: "Name" },
-          ]}
+          onChange={(sort) => setView({ ...view, sort, desc: false })}
+          options={(Object.keys(SORT_WORDS) as SortKey[]).map((k) => ({ value: k, label: SORT_WORDS[k][k === view.sort && view.desc ? 1 : 0] }))}
         />
+        <button
+          type="button"
+          onClick={() => setView({ ...view, desc: !view.desc })}
+          title={`Reverse: ${SORT_WORDS[view.sort][view.desc ? 0 : 1]}`}
+          aria-label={`Reverse the order. Now: ${SORT_WORDS[view.sort][view.desc ? 1 : 0]}`}
+          className="-ml-1 inline-flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-[4px] border border-hairline text-slate transition-colors hover:border-docker hover:text-docker"
+        >
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d={view.desc ? "M5 3v10M2.5 10.5 5 13l2.5-2.5" : "M5 13V3M2.5 5.5 5 3l2.5 2.5"} className="text-docker" stroke="currentColor" />
+            <path d={view.desc ? "M11 13V3M8.5 5.5 11 3l2.5 2.5" : "M11 3v10M8.5 10.5 11 13l2.5-2.5"} opacity="0.45" />
+          </svg>
+        </button>
 
         {(showFilterBar || view.state !== "all") && (
           <div role="group" aria-label="Show portals that are" className="flex flex-wrap items-center gap-1 sm:ml-2">
@@ -741,8 +760,8 @@ function Portals({
                 <th scope="col" className="w-10 border-r border-hairline px-2 py-2.5 text-center">
                   <button
                     type="button"
-                    onClick={() => setView({ ...view, sort: "urgent" })}
-                    title="Most urgent first"
+                    onClick={() => sortBy("urgent")}
+                    title={view.sort === "urgent" ? `${SORT_WORDS.urgent[view.desc ? 1 : 0]}. Click to reverse.` : "Most urgent first"}
                     aria-label="Sort by urgency"
                     className={`inline-flex items-center hover:text-docker cursor-pointer ${view.sort === "urgent" ? "text-docker" : "text-faint"}`}
                   >
@@ -752,11 +771,11 @@ function Portals({
                 <th scope="col" className="border-r border-hairline px-3 py-2.5 whitespace-nowrap">
                   <button
                     type="button"
-                    onClick={() => setView({ ...view, sort: "name" })}
+                    onClick={() => sortBy("name")}
                     className="inline-flex items-center hover:text-docker cursor-pointer"
                   >
                     Portal
-                    <SortArrow active={view.sort === "name"} />
+                    <SortArrow active={view.sort === "name"} desc={view.desc} />
                   </button>
                 </th>
                 <th scope="col" className="hidden border-r border-hairline px-3 py-2.5 whitespace-nowrap lg:table-cell">
@@ -765,21 +784,21 @@ function Portals({
                 <th scope="col" className="border-r border-hairline px-3 py-2.5 text-right whitespace-nowrap">
                   <button
                     type="button"
-                    onClick={() => setView({ ...view, sort: "tenders" })}
+                    onClick={() => sortBy("tenders")}
                     className="inline-flex items-center hover:text-docker cursor-pointer"
                   >
                     Tenders
-                    <SortArrow active={view.sort === "tenders"} />
+                    <SortArrow active={view.sort === "tenders"} desc={view.desc} />
                   </button>
                 </th>
                 <th scope="col" className="hidden border-r border-hairline px-3 py-2.5 whitespace-nowrap sm:table-cell">
                   <button
                     type="button"
-                    onClick={() => setView({ ...view, sort: "stale" })}
+                    onClick={() => sortBy("stale")}
                     className="inline-flex items-center hover:text-docker cursor-pointer"
                   >
                     Last delivered
-                    <SortArrow active={view.sort === "stale"} />
+                    <SortArrow active={view.sort === "stale"} desc={view.desc} />
                   </button>
                 </th>
 

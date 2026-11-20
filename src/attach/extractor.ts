@@ -32,6 +32,7 @@ import {
   parseDate,
   parseDateTime,
 } from "./normalize.js";
+import { browserPages, type PageSource } from "./browser.js";
 
 // ------------------------------------------------------------ limits
 
@@ -67,13 +68,15 @@ type Scope =
   | { kind: "markup"; $: CheerioAPI; el: Cheerio<AnyNode>; url: string }
   | { kind: "json"; value: unknown; url: string };
 
-interface Page {
+/** One fetched page: over plain HTTP, or rendered in the browser (tier "browser"). */
+export interface FetchedPage {
   url: string;
   status: number;
   statusText: string;
   contentType: string;
   text: string;
 }
+type Page = FetchedPage;
 
 class Cancelled extends Error {
   constructor() {
@@ -100,6 +103,8 @@ interface ReadState {
   docMisses?: string[][];
   /** Tender pages the documents rule ran on. */
   docChecked?: number;
+  /** Set for tier "browser": pages come from one rendered browser page instead of ctx.http. */
+  pages?: PageSource;
 }
 
 /** Limits for a quick dry-run (the Cartographer's sample reads). Regular reads use none. */
@@ -148,19 +153,25 @@ export function decode(bytes: Uint8Array, contentType: string): string {
   }
 }
 
-/** One request through ctx.http with a 30 s limit. Throws Cancelled or FetchFailure; any HTTP status is returned. */
-async function fetchPage(st: ReadState, url: string, init: RequestInit = {}): Promise<Page> {
-  const { ctx } = st;
+/**
+ * One request through ctx.http (or one rendered page through the browser for tier "browser") with a
+ * time limit. Throws Cancelled or FetchFailure; any HTTP status is returned. `waitFor` is the list
+ * item selector, which the browser waits for before taking the page.
+ */
+async function fetchPage(st: ReadState, url: string, init: RequestInit = {}, waitFor?: string): Promise<Page> {
+  const { ctx, pages } = st;
   checkAbort(ctx);
-  const signal = AbortSignal.any([ctx.signal, AbortSignal.timeout(REQUEST_TIMEOUT_MS)]);
-  st.requests += 1;
+  const timeoutMs = pages?.timeoutMs ?? REQUEST_TIMEOUT_MS;
+  const signal = AbortSignal.any([ctx.signal, AbortSignal.timeout(timeoutMs)]);
+  // The browser counts every request its page makes itself.
+  if (!pages) st.requests += 1;
   let onAbort: (() => void) | null = null;
   const stop = new Promise<never>((_, reject) => {
     onAbort = () => reject(signal.reason ?? new Error("aborted"));
     signal.addEventListener("abort", onAbort, { once: true });
   });
   // The polite layer may replace our signal with its own; the race keeps the 30 s limit anyway.
-  const work = (async () => {
+  const work = pages ? pages.fetch(url, init, waitFor) : (async () => {
     const res = await ctx.http.fetch(url, { ...init, signal });
     const bytes = new Uint8Array(await res.arrayBuffer());
     const contentType = res.headers.get("content-type") ?? "";
@@ -179,8 +190,8 @@ async function fetchPage(st: ReadState, url: string, init: RequestInit = {}): Pr
   } catch (e) {
     if (ctx.signal.aborted) throw new Cancelled();
     const msg = e instanceof Error ? e.message : String(e);
-    if (signal.aborted || /timeout|timed out/i.test(msg)) throw new FetchFailure("The portal did not answer within 30 seconds.", "timeout");
-    if (/robots\.txt/i.test(msg)) throw new FetchFailure(msg, "robots");
+    if (signal.aborted || /timeout|timed out/i.test(msg)) throw new FetchFailure(`The portal did not answer within ${Math.round(timeoutMs / 1000)} seconds.`, "timeout");
+    if (/robots\.txt|ERR_BLOCKED_BY_CLIENT/i.test(msg)) throw new FetchFailure(/robots\.txt/i.test(msg) ? msg : `robots.txt disallows ${url}`, "robots");
     const cause = e instanceof Error && e.cause instanceof Error ? `: ${e.cause.message}` : "";
     throw new FetchFailure(`${msg}${cause}`, "network");
   } finally {
@@ -803,11 +814,21 @@ async function documentRefs(st: ReadState, start: Doc, values: Values, count = t
   };
   if (doc.kind === "markup" && files.css !== undefined && files.label === undefined && files.const === undefined) {
     const scope = rootScope(doc) as Extract<Scope, { kind: "markup" }>;
-    for (const n of findCss(scope, files.css).toArray()) {
+    for (const [index, n] of findCss(scope, files.css).toArray().entries()) {
       checkAbort(st.ctx);
       const el = doc.$(n);
       const attr = files.attr ?? "href";
       let href: string | null = el.attr(attr) ?? el.find(`[${attr}]`).first().attr(attr) ?? null;
+      // Browser tier: a file button with no real address (javascript:, "#", none) is clicked on its page.
+      if (st.pages && !files.regex && (href === null || /^\s*(#|javascript:|$)/i.test(href))) {
+        const clickPath = [`${files.css} >> nth=${index}`];
+        if (refs.some((r) => r.url === doc.url && r.clickPath?.[0] === clickPath[0])) continue;
+        const ref: DocumentRef = { url: doc.url, via: "browser", clickPath };
+        const text = cleanText(textOf(el));
+        if (text && looksLikeFileName(text)) ref.fileNameHint = text;
+        refs.push(ref);
+        continue;
+      }
       if (href !== null && files.regex) {
         const m = new RegExp(files.regex).exec(href);
         href = m ? (m[1] ?? m[0]) : null;
@@ -891,12 +912,16 @@ function isAwardNotice(scope: Scope, values: Values): boolean {
 
 async function run(st: ReadState, started: number): Promise<ReadOutcome> {
   const { recipe, ctx } = st;
-  if (recipe.tier === "browser") return { kind: "error", reason: "Browser tier not supported by the Extractor yet." };
-
   const pg = recipe.list.pagination;
-  const recipeMaxPages = pg.type === "none" ? 1 : pg.type === "clickNext" ? 1 : Math.max(1, pg.maxPages ?? 50);
+  // Clicking "next" needs the browser: other tiers read the first page only.
+  const clicks = pg.type === "clickNext" && st.pages !== undefined;
+  const recipeMaxPages = pg.type === "none" ? 1 : pg.type === "clickNext" && !clicks ? 1 : Math.max(1, pg.maxPages ?? 50);
   const maxPages = Math.min(recipeMaxPages, st.limits?.maxPages ?? recipeMaxPages);
-  if (pg.type === "clickNext") ctx.log("This recipe pages by clicking, which needs the browser; reading the first page only.", "warn");
+  if (pg.type === "clickNext" && !clicks) ctx.log("This recipe pages by clicking, which needs the browser; reading the first page only.", "warn");
+  const itemsKey = (html: string) =>
+    itemsOf(st, parseDoc({ url: "", status: 200, statusText: "", contentType: "text/html", text: html }, recipe.tier))
+      .map(rawOf)
+      .join("\n");
 
   const items: ListItem[] = [];
   const seenKeys = new Set<string>();
@@ -914,14 +939,21 @@ async function run(st: ReadState, started: number): Promise<ReadOutcome> {
       if (!nextUrl) break;
       req = { url: nextUrl, init: { method: "GET", headers: req.init.headers } };
     }
-    if (visited.has(req.url) && req.init.method === "GET") break;
-    visited.add(req.url);
+    const clicking = clicks && i > 0;
+    if (!clicking) {
+      if (visited.has(req.url) && req.init.method === "GET") break;
+      visited.add(req.url);
+    }
 
     let page: Page;
     try {
-      page = await fetchPage(st, req.url, req.init);
+      if (clicking) {
+        const next = await st.pages!.clickNext((pg as Extract<typeof pg, { type: "clickNext" }>).selector, itemsKey);
+        if (!next) break;
+        page = next;
+      } else page = await fetchPage(st, req.url, req.init, st.pages ? recipe.list.item : undefined);
     } catch (e) {
-      if (e instanceof Cancelled) throw e;
+      if (e instanceof Cancelled || ctx.signal.aborted) throw new Cancelled();
       if (i > 0) {
         // A list read halfway must not look complete: missing tenders would be closed. Retry later.
         return { kind: "unreachable", reason: `List page ${i + 1} could not be read (${(e as Error).message}), so this read is incomplete.` };
@@ -1009,7 +1041,12 @@ async function run(st: ReadState, started: number): Promise<ReadOutcome> {
     const docRule = recipe.documents;
     if (docRule && (docRule.hops ?? []).length === 0 && docRule.files.jsonPath !== undefined && item.scope.kind === "json") {
       const found = await documentRefs(st, { kind: "json", data: item.scope.value, url: item.scope.url, raw: "" }, values, false);
-      if (found.length > 0) itemRefs = found;
+      // The item lists its files when the path's first key is there, even as an empty list: then an
+      // empty result means "no files", and fetching the tender page would be a wasted request.
+      const key = /^\$\.([^.[\]]+)/.exec(docRule.files.jsonPath)?.[1];
+      const value = item.scope.value;
+      const listed = key !== undefined && value !== null && typeof value === "object" && !Array.isArray(value) && Object.hasOwn(value, key);
+      if (found.length > 0 || listed) itemRefs = found;
     }
     if (itemRefs) refs = itemRefs;
     const needsWork = recipe.detail !== null && recipe.detail !== undefined ? true : recipe.documents !== null && recipe.documents !== undefined && !itemRefs;
@@ -1169,8 +1206,17 @@ export const extractor: Extractor = {
 };
 
 /** A dry-run read of the first page(s) and a few tenders, for checking a draft recipe cheaply. */
-export function readSample(recipe: Recipe, ctx: PortalContext, limits: SampleLimits = { maxPages: 1, maxItems: 5 }): Promise<ReadOutcome> {
+export function readSample(recipe: Recipe, ctx: PortalContext, limits: SampleLimits = { maxPages: 1, maxItems: 3 }): Promise<ReadOutcome> {
   return readWith(recipe, ctx, limits);
+}
+
+/** Runs `fn` with st.pages set to one browser page when the recipe is browser tier. */
+function withPages<T>(st: ReadState, fn: () => Promise<T>): Promise<T> {
+  if (st.recipe.tier !== "browser") return fn();
+  return st.ctx.browser.withPage((page) => {
+    st.pages = browserPages(page, st.ctx, () => void (st.requests += 1));
+    return fn();
+  });
 }
 
 async function readWith(recipe: Recipe, ctx: PortalContext, limits?: SampleLimits): Promise<ReadOutcome> {
@@ -1178,7 +1224,7 @@ async function readWith(recipe: Recipe, ctx: PortalContext, limits?: SampleLimit
     const started = Date.now();
     const st: ReadState = { recipe, ctx, requests: 0, warned: new Set(), ...(limits ? { limits } : {}) };
     try {
-      return await run(st, started);
+      return await withPages(st, () => run(st, started));
     } catch (e) {
       const diagnostics = { requests: st.requests, durationMs: Date.now() - started };
       if (e instanceof Cancelled || ctx.signal.aborted) return { kind: "error", reason: "The read was cancelled before it finished.", diagnostics };
@@ -1194,7 +1240,9 @@ async function readWith(recipe: Recipe, ctx: PortalContext, limits?: SampleLimit
 export async function sampleItems(recipe: Recipe, ctx: PortalContext, n = 2): Promise<{ status: number; items: string[]; pageStart: string }> {
   const st: ReadState = { recipe, ctx, requests: 0, warned: new Set() };
   const { url, init } = listRequest(recipe, ctx, 0);
-  const page = await fetchPage(st, url, init);
-  const doc = parseDoc(page, recipe.tier);
-  return { status: page.status, items: itemsOf(st, doc).slice(0, n).map(rawOf), pageStart: page.text.slice(0, 400) };
+  return withPages(st, async () => {
+    const page = await fetchPage(st, url, init, st.pages ? recipe.list.item : undefined);
+    const doc = parseDoc(page, recipe.tier);
+    return { status: page.status, items: itemsOf(st, doc).slice(0, n).map(rawOf), pageStart: page.text.slice(0, 400) };
+  });
 }
