@@ -1,0 +1,57 @@
+{
+  "schemaVersion": 1,
+  "family": "ezamowienia",
+  "tier": "jsonApi",
+  "timeZone": "Europe/Warsaw",
+  "countryCode": "PL",
+  "list": {
+    "request": {
+      "url": "https://ezamowienia.gov.pl/mo-board/api/v1/Board/Search?publicationDateFrom=2026-10-21T15:24:26.785Z&SortingColumnName=PublicationDate&SortingDirection=DESC&PageNumber={page}&PageSize=10",
+      "method": "GET"
+    },
+    "pagination": {
+      "type": "pageParam",
+      "start": 1,
+      "maxPages": 100
+    },
+    "item": "$[*]",
+    "emptyText": []
+  },
+  "listFields": {
+    "id": {
+      "jsonPath": "$.objectId"
+    },
+    "title": {
+      "jsonPath": "$.orderObject"
+    },
+    "buyerName": {
+      "jsonPath": "$.organizationName"
+    },
+    "publicationDate": {
+      "jsonPath": "$.publicationDate",
+      "parse": "datetime"
+    },
+    "submissionDeadline": {
+      "jsonPath": "$.submittingOffersDate",
+      "parse": "datetime"
+    },
+    "referenceNumber": {
+      "jsonPath": "$.noticeNumber"
+    },
+    "procedureType": {
+      "jsonPath": "$.tenderType",
+      "parse": "procedureType"
+    },
+    "contractNature": {
+      "jsonPath": "$.orderType",
+      "parse": "contractNature"
+    },
+    "cpvCodes": {
+      "jsonPath": "$.cpvCode",
+      "parse": "cpv"
+    }
+  },
+  "detail": null,
+  "documents": null,
+  "withdrawnText": []
+}
