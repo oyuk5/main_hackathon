@@ -56,68 +56,69 @@
   /* Dark follows the system unless the viewer picked a theme (data-theme on <html>, set by the switch). */
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
-      /* Dark: desert night. Soft powdery navy, sand-coloured text, an apricot accent that mirrors the light theme. */
-      --color-paper: #222c3e;
-      --color-sea: #1b2333;
-      --color-mist: #2a354b;
-      --color-land: #2b364b;
-      --color-land-watched: #3b485f;
-      --color-shallow: #1e2738;
-      --color-shallow-deep: #232d41;
-      --color-grat: #303c52;
-      --color-ink: #ece4d8;
-      --color-slate: #bfb5a8;
-      --color-faint: #aca295;
-      --color-hairline: #344058;
+      /* Dark: powder royal. Deep royal-ink page, dusty royal cards (raised = lighter), parchment text,
+         muted state colours and a terracotta-peach accent, so nothing glows on the blue. */
+      --color-paper: #232e4a;
+      --color-sea: #151c30;
+      --color-mist: #2b3756;
+      --color-land: #27324f;
+      --color-land-watched: #36446b;
+      --color-shallow: #19213a;
+      --color-shallow-deep: #1d2642;
+      --color-grat: #2d395b;
+      --color-ink: #ddd6c8;
+      --color-slate: #b2afab;
+      --color-faint: #9a9ba6;
+      --color-hairline: #33405f;
 
-      --color-docker: #eea878;
-      --color-docker-solid: #ad5a32;
-      --color-docker-hover: #934b28;
-      --color-magenta: #eea878;
+      --color-docker: #d09a78;
+      --color-docker-solid: #a8664a;
+      --color-docker-hover: #8f553c;
+      --color-magenta: #d09a78;
 
-      --color-serving: #7fcf9b;
-      --color-calm: #4f9c8d;
-      --color-healing: #ecb850;
-      --color-healing-text: #ecb850;
-      --color-failed: #f4826a;
-      --color-integrating: #ae9df2;
+      --color-serving: #8dbb9c;
+      --color-calm: #6aa89a;
+      --color-healing: #cfa962;
+      --color-healing-text: #cfa962;
+      --color-failed: #d98b7a;
+      --color-integrating: #a99bd9;
 
-      --color-serving-wash: rgba(127, 207, 155, 0.14);
-      --color-healing-wash: rgba(236, 184, 80, 0.14);
-      --color-failed-wash: rgba(244, 130, 106, 0.15);
-      --color-integrating-wash: rgba(174, 157, 242, 0.15);
+      --color-serving-wash: rgba(141, 187, 156, 0.13);
+      --color-healing-wash: rgba(207, 169, 98, 0.13);
+      --color-failed-wash: rgba(217, 139, 122, 0.14);
+      --color-integrating-wash: rgba(169, 155, 217, 0.14);
     }
   }
   :root[data-theme="dark"] {
-    --color-paper: #222c3e;
-    --color-sea: #1b2333;
-    --color-mist: #2a354b;
-    --color-land: #2b364b;
-    --color-land-watched: #3b485f;
-    --color-shallow: #1e2738;
-    --color-shallow-deep: #232d41;
-    --color-grat: #303c52;
-    --color-ink: #ece4d8;
-    --color-slate: #bfb5a8;
-    --color-faint: #aca295;
-    --color-hairline: #344058;
+    --color-paper: #232e4a;
+    --color-sea: #151c30;
+    --color-mist: #2b3756;
+    --color-land: #27324f;
+    --color-land-watched: #36446b;
+    --color-shallow: #19213a;
+    --color-shallow-deep: #1d2642;
+    --color-grat: #2d395b;
+    --color-ink: #ddd6c8;
+    --color-slate: #b2afab;
+    --color-faint: #9a9ba6;
+    --color-hairline: #33405f;
 
-    --color-docker: #eea878;
-    --color-docker-solid: #ad5a32;
-    --color-docker-hover: #934b28;
-    --color-magenta: #eea878;
+    --color-docker: #d09a78;
+    --color-docker-solid: #a8664a;
+    --color-docker-hover: #8f553c;
+    --color-magenta: #d09a78;
 
-    --color-serving: #7fcf9b;
-    --color-calm: #4f9c8d;
-    --color-healing: #ecb850;
-    --color-healing-text: #ecb850;
-    --color-failed: #f4826a;
-    --color-integrating: #ae9df2;
+    --color-serving: #8dbb9c;
+    --color-calm: #6aa89a;
+    --color-healing: #cfa962;
+    --color-healing-text: #cfa962;
+    --color-failed: #d98b7a;
+    --color-integrating: #a99bd9;
 
-    --color-serving-wash: rgba(127, 207, 155, 0.14);
-    --color-healing-wash: rgba(236, 184, 80, 0.14);
-    --color-failed-wash: rgba(244, 130, 106, 0.15);
-    --color-integrating-wash: rgba(174, 157, 242, 0.15);
+    --color-serving-wash: rgba(141, 187, 156, 0.13);
+    --color-healing-wash: rgba(207, 169, 98, 0.13);
+    --color-failed-wash: rgba(217, 139, 122, 0.14);
+    --color-integrating-wash: rgba(169, 155, 217, 0.14);
   }
   :root[data-theme="light"] {
     color-scheme: light;
