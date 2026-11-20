@@ -345,7 +345,7 @@ Recipe rules (schemaVersion is 1):
 - Field names: id (the portal's own stable identifier, never a row number), url (the tender's OWN page, not a summary or search page), title, buyerName (the public body that buys), publicationDate, submissionDeadline, referenceNumber (the buyer's file number), description, procedureType, contractNature, cpvCodes (all:true), postalCode, city, countryCode, withdrawn (a value that is true when cancelled).
 - parse: date | datetime | cpv | url | procedureType | contractNature | postalCode | text. Dates in any European format are fine; add "format" (e.g. "dd.MM.yyyy HH:mm") only if unusual. The deadline needs a time; if the page shows only a date, still map it (it will become null, never a guess).
 - detail: { urlFrom: "url" (a field name) or a template like "https://site/api/{id}", fields: {...} } for values only on the tender's own page. Use it when the list lacks buyer, deadline, reference or CPV.
-- documents: { hops: [selectors leading to the page that lists files], files: selector with all:true for the file links, via: "http" }. It starts on the detail page if there is one, else on the tender's own page (url); the extractor follows HTTP redirects and keeps cookies. files.css matches the download links (attr defaults to "href"); pick the tender's own file list (e.g. a table of attachments), never links that every page has (help, terms, manuals). Use hops only when the files are on another page (a "documents" tab). Tenders without files are fine. After your first draft you are shown one tender's own page with the links that look like files; use it. Use null only when the tender pages list no files at all.
+- documents: { hops: [selectors leading to the page that lists files], files: selector with all:true for the file links, via: "http" }. When a JSON list item already lists its files (e.g. "pieces": [{"lien": …}]), use no hops and files.jsonPath relative to the item (e.g. "$.pieces[*].lien"). It starts on the detail page if there is one, else on the tender's own page (url); the extractor follows HTTP redirects and keeps cookies. files.css matches the download links (attr defaults to "href"); pick the tender's own file list (e.g. a table of attachments), never links that every page has (help, terms, manuals). Use hops only when the files are on another page (a "documents" tab). Tenders without files are fine. After your first draft you are shown one tender's own page with the links that look like files; use it. Use null only when the tender pages list no files at all.
 - withdrawnText: words that mean the buyer cancelled the tender.
 - A WRONG VALUE IS WORSE THAN A MISSING ONE. Leave a field out rather than guess; never map a field to something that only looks similar.
 - Only open tenders: if the portal lists awards or past notices too, use a filter in the request or a JSONPath filter like "$.items[?(@.status=='open')]". If its default list shows current tenders, use it as is: closed ones are recognised later by their deadline.
@@ -427,6 +427,16 @@ export function judgeSample(recipe: Recipe, read: ReadOutcome, listUrl: string):
           `The documents rule returns ${shared.slice(0, 2).join(" and ")} on every tender: that is a file of the site (help, terms, manual), not of one tender. Narrow documents.files to the tender's own file list so it is left out.`,
         );
     }
+  }
+  // Optional rules: one that matches nothing on any sampled tender reads null forever. It must be fixed
+  // or removed (leaving it out is fine; a rule that only looks mapped is not).
+  for (const f of new Set([...Object.keys(recipe.listFields), ...Object.keys(recipe.detail?.fields ?? {})])) {
+    if ((REQUIRED as readonly string[]).includes(f) || f === "withdrawn") continue;
+    const fill = d.fieldFill[f];
+    if (fill && fill.total > 0 && fill.filled === 0)
+      errors.push(
+        `The ${f} rule found no value on any of ${fill.total} tenders. Check its label or selector against the tender's own page${f === "procedureType" || f === "contractNature" ? " (the value must be a procedure or contract type word the portal shows)" : ""}, or remove the rule.`,
+      );
   }
   const ids = t.map((x) => x.id);
   if (new Set(ids).size < ids.length) errors.push("Some tenders share an id; the id must be the portal's own unique identifier.");
@@ -571,7 +581,7 @@ export function tenderPageView(body: string, url: string, status: number, conten
   }
   const context = compressHtml(`<html><body>${$.html(around)}</body></html>`, 3000).replace(/^<!-- title:  -->\n/, "");
   return {
-    text: `${head}\nLinks on it that look like files or downloads, grouped by where they sit (count × element path: examples, with href exactly as written in the page). Prefer the links' own classes or their container for documents.files.css; an attribute selector must match the href as written, not as resolved. A file that every tender page shows (help, terms, manual) is not a tender document:\n${lines.join("\n")}\nMarkup around the largest group (compressed):\n${context}`,
+    text: `${head}\nLinks on it that look like files or downloads, grouped by where they sit (count × element path: examples, with href exactly as written in the page). Prefer the links' own classes or their container for documents.files.css; an attribute selector must match the href as written, not as resolved. A file that every tender page shows (help, terms, manual) is not a tender document:\n${lines.join("\n")}\nMarkup around the largest group (compressed):\n${context}\nThe whole tender page (compressed), for detail.fields labels such as procedure, contract type, CPV, place, description:\n${compressHtml(body, 3500)}`,
     fileLinks: hits.length,
   };
 }
@@ -606,6 +616,48 @@ const defaultDeps: ModelAttachDeps = {
 };
 
 /** One tender's own page for the documents rule, fetched once per attach. Never throws (except on abort). */
+// ------------------------------------------------------------ evidence on the pages
+
+/** Words and keys portals use for a cancelled tender. */
+const CANCELLED = /aufgehoben|zurückgezogen|annul[ée]e?s?\b|\bannulee\b|"annul|ingetrokken|geannuleerd|vroegtijdig be[ëe]indigd|\bcancel+ed\b|"cancel|\bwithdrawn\b|uniewa[żz]nion|anulad[oa]|annullat[oa]|revocad[oa]/i;
+
+const OPTIONAL_EVIDENCE: Array<{ fields: string[]; name: string; re: RegExp }> = [
+  { fields: ["cpvCodes"], name: "CPV codes", re: /\bcpv\b|\b\d{8}-\d\b/i },
+  { fields: ["procedureType"], name: "the procedure type", re: /verfahrensart|vergabeart|type de proc[ée]dure|"procedure"|\bproc[ée]dure\b|procedimiento|tryb (udzielenia|post[ęe]powania)|procedura di|aanbestedingsprocedure|"procedura/i },
+  { fields: ["contractNature"], name: "the contract type", re: /leistungsart|auftragsart|art des auftrags|nature du march[ée]|type de march[ée]|"nature"|tipo de contrato|rodzaj zam[óo]wienia|tipo di appalto|type opdracht|"typeopdracht/i },
+  { fields: ["description"], name: "a description", re: /kurzbeschreibung|beschreibung|"objet"|objet du march[ée]|\bdescription\b|opis przedmiotu|"objeto|omschrijving|oggetto dell/i },
+  { fields: ["postalCode", "city", "placeOfPerformance.postalCode", "placeOfPerformance.city"], name: "the place of performance", re: /ort der (leistung|ausf[üu]hrung)|erf[üu]llungsort|lieu d.ex[ée]cution|lieuexecution|lugar de ejecuci[óo]n|miejsce (realizacji|wykonania)|luogo di esecuzione|plaats van uitvoering/i },
+];
+
+function hasRule(recipe: Recipe, field: string): boolean {
+  return field in recipe.listFields || field in (recipe.detail?.fields ?? {});
+}
+
+/** Optional fields the pages seem to show but the recipe does not map. A hint, never a requirement. */
+export function missingOptionalFields(recipe: Recipe, texts: string[]): string | null {
+  const text = texts.join("\n");
+  const missing = OPTIONAL_EVIDENCE.filter((e) => !e.fields.some((f) => hasRule(recipe, f)) && e.re.test(text));
+  if (missing.length === 0) return null;
+  const fields = missing.map((m) => (m.fields[0] === "postalCode" ? "postalCode/city" : m.fields[0])).join(", ");
+  return `The list or the tender's own page seems to show ${missing.map((m) => m.name).join(", ")}, but the recipe has no rule for ${fields}. Map them (detail.fields when they are only on the tender's own page); leave out any that is not clearly there.`;
+}
+
+/** A portal that marks cancelled tenders needs a withdrawn rule, or a cancelled tender is served as open. */
+export function missingWithdrawnRule(recipe: Recipe, texts: string[]): string | null {
+  const all = texts.join("\n");
+  const m = all.match(CANCELLED);
+  if (!m) return null;
+  if (hasRule(recipe, "withdrawn")) return null;
+  const words = (recipe.withdrawnText ?? []).map((w) => w.trim()).filter(Boolean);
+  if (words.length) {
+    // The words must be ones the portal really shows, or no tender is ever marked withdrawn.
+    const lower = all.toLowerCase();
+    if (words.some((w) => lower.includes(w.toLowerCase()))) return null;
+    return `withdrawnText ${JSON.stringify(words)} appears nowhere on the pages, but the portal marks cancelled tenders with "${m[0].replace(/^"/, "")}". Use the exact words the portal shows (e.g. the status cell's text).`;
+  }
+  return `The portal marks cancelled tenders (it shows "${m[0].replace(/^"/, "")}"), but the recipe has no withdrawn rule: a cancelled tender would be served as open, a wrong value. Add a "withdrawn" field that is true for cancelled tenders (e.g. a JSONPath to a boolean, or a css/regex on the status text), or withdrawnText with the exact status words.`;
+}
+
 async function showTenderPage(deps: ModelAttachDeps, recipe: Recipe, read: ReadOutcome, ctx: PortalContext): Promise<TenderPageView | null> {
   if (read.kind !== "ok" || read.tenders.length === 0) return null;
   const start = documentsStart(recipe, read.tenders[0]!);
@@ -760,7 +812,9 @@ export async function attachWithModel(ctx: PortalContext, deps: ModelAttachDeps 
     // blocks the second draft too. After that a recipe without documents is accepted.
     let docsView = "";
     drafts += 1;
-    if (judged.docs.length && !tenderPageShown && (drafts <= 2 || judged.errors.length > 0) && sample.kind === "ok" && sample.tenders.length > 0) {
+    const optionalGaps = OPTIONAL_EVIDENCE.some((e) => !e.fields.some((f) => hasRule(recipe, f)));
+    const wantPage = judged.docs.length > 0 || (drafts === 1 && optionalGaps);
+    if (wantPage && !tenderPageShown && (drafts <= 2 || judged.errors.length > 0) && sample.kind === "ok" && sample.tenders.length > 0) {
       const view = await showTenderPage(deps, recipe, sample, ctx);
       if (view) {
         tenderPageShown = true;
@@ -772,9 +826,20 @@ export async function attachWithModel(ctx: PortalContext, deps: ModelAttachDeps 
     // Later drafts: check the files selector against the page already shown, exactly, at no cost.
     const filesCheck = judged.docs.length && tenderPage ? checkFilesRule(recipe, tenderPage) : null;
     if (filesCheck) judged.docs.push(filesCheck);
+    // Evidence from what the portal shows: the list page, the JSON calls, the list items, one tender page.
+    let withdrawnBlock: string[] = [];
+    if (sample.kind === "ok" && sample.tenders.length > 0 && drafts <= 2) {
+      const items = await deps.items(recipe, ctx).catch(() => ({ items: [] as string[] }));
+      const texts = [current.raw, current.rendered ?? "", ...current.json.map((j) => JSON.stringify(j.data)), ...items.items, tenderPage?.body ?? ""];
+      // A hint for two drafts: models tend to fix the required fields first and skip it once.
+      const optional = missingOptionalFields(recipe, texts);
+      if (optional) withdrawnBlock.push(optional);
+      const withdrawn = missingWithdrawnRule(recipe, texts);
+      if (withdrawn) withdrawnBlock = [withdrawn];
+    }
     // Counted by drafts that were dry-run, so a malformed answer does not use up the hints.
     const docsBlock = drafts === 1 || (drafts === 2 && fileLinksSeen) ? judged.docs : [];
-    const blocking = drafts === 1 ? [...judged.errors, ...judged.warnings, ...docsBlock] : [...judged.errors, ...docsBlock];
+    const blocking = drafts === 1 ? [...judged.errors, ...judged.warnings, ...docsBlock, ...withdrawnBlock] : [...judged.errors, ...docsBlock, ...withdrawnBlock];
     if (blocking.length === 0) {
       if (judged.docs.length) ctx.log(`The recipe has no working documents rule: ${judged.docs[0]}`, "warn");
       ctx.log("The draft read cleanly; reading the whole list once.");
