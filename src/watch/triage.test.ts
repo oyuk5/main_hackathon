@@ -53,10 +53,19 @@ function makeMockContext(opts: {
   llmResult?: unknown;
   llmError?: Error;
   fetchResponse?: Response;
+  fetchError?: Error;
+  browserWithPage?: PortalContext["browser"]["withPage"];
   aborted?: boolean;
-} = {}): { ctx: PortalContext; llmCalls: Array<{ purpose: string; model: string }>; fetchedUrls: string[] } {
+} = {}): {
+  ctx: PortalContext;
+  controller: AbortController;
+  llmCalls: Array<{ purpose: string; model: string }>;
+  fetchedUrls: string[];
+  logs: Array<{ message: string; level?: string }>;
+} {
   const llmCalls: Array<{ purpose: string; model: string }> = [];
   const fetchedUrls: string[] = [];
+  const logs: Array<{ message: string; level?: string }> = [];
   const controller = new AbortController();
   if (opts.aborted) {
     controller.abort();
@@ -68,6 +77,9 @@ function makeMockContext(opts: {
     http: {
       async fetch(url: string) {
         fetchedUrls.push(url);
+        if (opts.fetchError) {
+          throw opts.fetchError;
+        }
         if (opts.fetchResponse) {
           return opts.fetchResponse;
         }
@@ -78,7 +90,10 @@ function makeMockContext(opts: {
       },
     },
     browser: {
-      async withPage() {
+      async withPage(fn) {
+        if (opts.browserWithPage) {
+          return opts.browserWithPage(fn);
+        }
         throw new Error("browser not mocked in this test");
       },
     },
@@ -91,11 +106,13 @@ function makeMockContext(opts: {
         return callOpts.schema.parse(opts.llmResult);
       },
     },
-    log() {},
+    log(message, level) {
+      logs.push({ message, level });
+    },
     signal: controller.signal,
   };
 
-  return { ctx, llmCalls, fetchedUrls };
+  return { ctx, controller, llmCalls, fetchedUrls, logs };
 }
 
 describe("compressHtml", () => {
@@ -192,20 +209,20 @@ describe("compressJson", () => {
 });
 
 describe("detectBlockInContent", () => {
-  it("detects HTTP 401 and 403", () => {
-    assert.match(detectBlockInContent("<html>Denied</html>", 401) ?? "", /401/);
-    assert.match(detectBlockInContent("<html>Forbidden</html>", 403) ?? "", /403/);
+  it("detects HTTP 401 and 403 with plain-English messages", () => {
+    assert.equal(detectBlockInContent("<html>Denied</html>", 401), "Portal requires a login (HTTP 401).");
+    assert.equal(detectBlockInContent("<html>Forbidden</html>", 403), "Portal blocked access (HTTP 403).");
   });
 
   it("detects password login forms and captcha widgets", () => {
     const loginHtml = '<form action="/auth"><input type="text" name="u"><input type="password" name="p"></form>';
-    assert.match(detectBlockInContent(loginHtml, 200) ?? "", /login|password/i);
+    assert.equal(detectBlockInContent(loginHtml, 200), "Portal requires a login.");
 
     const recaptchaHtml = '<div class="g-recaptcha" data-sitekey="abc"></div>';
     assert.match(detectBlockInContent(recaptchaHtml, 200) ?? "", /reCAPTCHA/i);
 
     const turnstileHtml = '<div class="cf-turnstile" data-sitekey="xyz"></div>';
-    assert.match(detectBlockInContent(turnstileHtml, 200) ?? "", /Turnstile/i);
+    assert.match(detectBlockInContent(turnstileHtml, 200) ?? "", /Cloudflare/i);
   });
 
   it("does not false-trigger on normal tender HTML with a header login link", () => {
@@ -353,6 +370,21 @@ describe("classifyWithRules", () => {
       "unknown",
     );
   });
+
+  it("joins check details cleanly without leaking internal check names or jargon", () => {
+    const okSnapshot = makeOkSnapshot();
+    const report = classifyWithRules(
+      makeRecipe("html"),
+      [
+        { name: "item-count", ok: false, detail: "No tenders found on the list." },
+        { name: "field-fill:title", ok: false, detail: "No tender has a title." },
+      ],
+      okSnapshot,
+    );
+
+    assert.equal(report.reason, "No tenders found on the list. No tender has a title.");
+    assert.equal(/item-count:|field-fill:|HTML\/DOM|JSON API|Golden record/i.test(report.reason), false);
+  });
 });
 
 describe("triageBreakage", () => {
@@ -444,10 +476,57 @@ describe("capturePortalSnapshot", () => {
     });
     const unreachable = await capturePortalSnapshot(makeRecipe("html"), serverErr.ctx);
     assert.equal(unreachable.kind, "unreachable");
+    assert.equal(unreachable.reason, "Portal returned a server error (HTTP 500).");
 
     const aborted = makeMockContext({ aborted: true });
     const abortedOutcome = await capturePortalSnapshot(makeRecipe("html"), aborted.ctx);
     assert.equal(abortedOutcome.kind, "unreachable");
+    assert.equal(abortedOutcome.reason, "Repair stopped before checking the portal.");
     assert.equal(aborted.fetchedUrls.length, 0);
+  });
+
+  it("handles ctx.browser throwing after ctx.signal.aborted cleanly without leaking raw error text", async () => {
+    let abortCtrl: AbortController | undefined;
+    const mock = makeMockContext({
+      browserWithPage: async () => {
+        abortCtrl?.abort();
+        throw new Error("Target page, context or browser has been closed at /app/node_modules/playwright/index.js:99");
+      },
+    });
+    abortCtrl = mock.controller;
+
+    const outcome = await capturePortalSnapshot(makeRecipe("browser"), mock.ctx);
+    assert.equal(outcome.kind, "unreachable");
+    assert.equal(outcome.reason, "Repair stopped because the portal was removed or cancelled.");
+    assert.equal(/Target page|playwright|Snapshot status/i.test(outcome.reason), false);
+    assert.equal(mock.logs.length, 0);
+  });
+
+  it("maps timeout, connection, and generic network errors to plain reasons and logs raw error", async () => {
+    const timeoutMock = makeMockContext({
+      fetchError: new Error("page.goto: Timeout 30000ms exceeded"),
+    });
+    const timeoutOutcome = await capturePortalSnapshot(makeRecipe("html"), timeoutMock.ctx);
+    assert.equal(timeoutOutcome.kind, "unreachable");
+    assert.equal(timeoutOutcome.reason, "The portal timed out while loading.");
+    assert.equal(/30000ms|page\.goto|Snapshot status/i.test(timeoutOutcome.reason), false);
+    assert.ok(timeoutMock.logs.some((l) => l.level === "warn" && l.message.includes("30000ms")));
+
+    const dnsErr = Object.assign(new TypeError("fetch failed"), {
+      cause: { code: "ECONNREFUSED", message: "connect ECONNREFUSED 127.0.0.1:8080" },
+    });
+    const connectMock = makeMockContext({ fetchError: dnsErr });
+    const connectOutcome = await capturePortalSnapshot(makeRecipe("html"), connectMock.ctx);
+    assert.equal(connectOutcome.kind, "unreachable");
+    assert.equal(connectOutcome.reason, "Could not connect to the portal.");
+    assert.equal(/ECONNREFUSED|127\.0\.0\.1|fetch failed/i.test(connectOutcome.reason), false);
+
+    const genericMock = makeMockContext({
+      fetchError: new Error("Unexpected TLS alert 0xDEAD"),
+    });
+    const genericOutcome = await capturePortalSnapshot(makeRecipe("html"), genericMock.ctx);
+    assert.equal(genericOutcome.kind, "unreachable");
+    assert.equal(genericOutcome.reason, "Could not reach the portal due to a network problem.");
+    assert.equal(/0xDEAD|TLS|Snapshot status|Golden mismatch/i.test(genericOutcome.reason), false);
   });
 });

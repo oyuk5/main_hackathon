@@ -88,8 +88,42 @@ describe("verifyGoldenRecords", () => {
     assert.equal(result.checked, 1);
     assert.equal(result.matched, 0);
     assert.deepEqual(result.mismatches, [
-      'Golden tender "T-1" field title changed from "A" to "B".',
-      'Golden tender "T-1" field buyerName changed from "City of Example" to null.',
+      'Known tender "T-1" title changed from "A" to "B".',
+      'Known tender "T-1" buyer name changed from "City of Example" to missing.',
+    ]);
+  });
+
+  it("skips missing referenceNumber on golden tenders but fails when present and changed", () => {
+    const golden: GoldenRecord[] = [
+      {
+        id: "T-1",
+        fields: {
+          title: "Road maintenance 2026",
+          referenceNumber: "REF-2026-01",
+        },
+      },
+    ];
+
+    const undefinedRef = verifyGoldenRecords(
+      [makeTender({ id: "T-1", referenceNumber: undefined })],
+      golden,
+    );
+    assert.deepEqual(undefinedRef, { checked: 1, matched: 1, mismatches: [] });
+
+    const nullRef = verifyGoldenRecords(
+      [makeTender({ id: "T-1", referenceNumber: null as unknown as string })],
+      golden,
+    );
+    assert.deepEqual(nullRef, { checked: 1, matched: 1, mismatches: [] });
+
+    const changedRef = verifyGoldenRecords(
+      [makeTender({ id: "T-1", referenceNumber: "REF-WRONG" })],
+      golden,
+    );
+    assert.equal(changedRef.checked, 1);
+    assert.equal(changedRef.matched, 0);
+    assert.deepEqual(changedRef.mismatches, [
+      'Known tender "T-1" reference number changed from "REF-2026-01" to "REF-WRONG".',
     ]);
   });
 });
@@ -244,7 +278,7 @@ describe("evaluateRead", () => {
     assert.equal(verdict.kind, "healthy");
     const goldenCheck = verdict.checks.find((c) => c.name === "golden-records");
     assert.equal(goldenCheck?.ok, true);
-    assert.equal(goldenCheck?.detail, "1 of 1 known tenders match.");
+    assert.equal(goldenCheck?.detail, "1 of 1 known tender matches.");
   });
 
   it("fails golden-records check when a known tender field changes", () => {
@@ -257,7 +291,7 @@ describe("evaluateRead", () => {
     assert.equal(verdict.kind, "broken");
     const goldenCheck = verdict.checks.find((c) => c.name === "golden-records");
     assert.equal(goldenCheck?.ok, false);
-    assert.match(goldenCheck?.detail ?? "", /Golden tender "T-1" field title changed/);
+    assert.match(goldenCheck?.detail ?? "", /Known tender "T-1" title changed/);
   });
 
   it("emits skeleton-drift as an early warning without marking read broken", () => {
@@ -286,8 +320,43 @@ describe("evaluateRead", () => {
 
     assert.deepEqual(
       evaluateRead({ kind: "error", reason: "Selector timed out" }, baseline),
-      { kind: "broken", reason: "Selector timed out", checks: [] },
+      { kind: "broken", reason: "Selector timed out.", checks: [] },
     );
+  });
+
+  it("sanitizes raw multi-line error reasons to a single plain sentence", () => {
+    const verdict = evaluateRead(
+      {
+        kind: "error",
+        reason:
+          "TypeError: Cannot read properties of undefined (reading 'id')\n    at extract (/app/src/attach/extractor.ts:42:5)",
+      },
+      makeBaseline(),
+    );
+
+    assert.equal(verdict.kind, "broken");
+    assert.equal(verdict.reason.includes("\n"), false);
+    assert.equal(/TypeError|Cannot read|extractor\.ts/.test(verdict.reason), false);
+    assert.match(verdict.reason, /\.$/);
+  });
+
+  it("uses plain-English field names and proper singular/plural phrasing", () => {
+    const verdict = evaluateRead(
+      makeOkRead([
+        makeTender({
+          id: " ",
+          url: "not-a-url",
+          publicationDate: "2026-02-30",
+        }),
+      ]),
+      makeBaseline(),
+    );
+
+    assert.equal(verdict.kind, "broken");
+    assert.equal(verdict.reason.includes("(s)"), false);
+    assert.match(verdict.reason, /1 tender has a blank ID\./);
+    assert.match(verdict.reason, /1 tender has an invalid web address\./);
+    assert.match(verdict.reason, /1 tender has an invalid publication date or deadline\./);
   });
 
   it("allows nullable required fields on first read when portal omits them", () => {
@@ -300,7 +369,7 @@ describe("evaluateRead", () => {
     assert.equal(verdict.kind, "healthy");
     const pubCheck = verdict.checks.find((c) => c.name === "field-fill:publicationDate");
     assert.equal(pubCheck?.ok, true);
-    assert.match(pubCheck?.detail ?? "", /not shown by portal/);
+    assert.match(pubCheck?.detail ?? "", /not shown by the portal/);
   });
 
   it("fails when a previously populated nullable field drops to 0%", () => {
@@ -318,7 +387,7 @@ describe("evaluateRead", () => {
     assert.equal(verdict.kind, "broken");
     const pubCheck = verdict.checks.find((c) => c.name === "field-fill:publicationDate");
     assert.equal(pubCheck?.ok, false);
-    assert.equal(pubCheck?.detail, "No tender has a publicationDate.");
+    assert.equal(pubCheck?.detail, "No tender has a publication date.");
   });
 
   it("ignores count drops when baseline had fewer than 6 tenders", () => {

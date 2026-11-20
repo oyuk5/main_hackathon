@@ -10,6 +10,7 @@ import type {
   Verdict,
 } from "../shared/modules.js";
 import { toEpoch } from "../shared/time.js";
+import { capitalize, plural, sanitizeOperatorReason } from "./text.js";
 import type { GoldenVerificationResult } from "./types.js";
 
 const STRICT_REQUIRED_FIELDS = ["id", "url", "title"] as const;
@@ -40,6 +41,16 @@ const CPV_CODE_PATTERN = /^\d{8}$/;
 
 type RequiredField = (typeof REQUIRED_FIELDS)[number];
 
+const FIELD_LABELS: Record<RequiredField | "referenceNumber", string> = {
+  id: "ID",
+  url: "web address",
+  title: "title",
+  buyerName: "buyer name",
+  publicationDate: "publication date",
+  submissionDeadline: "submission deadline",
+  referenceNumber: "reference number",
+};
+
 function normalizeText(value: string): string {
   return value.trim().replace(/\s+/g, " ");
 }
@@ -50,7 +61,7 @@ function normalizeComparable(value: string | null | undefined): string | null {
 }
 
 function formatGoldenValue(value: string | null): string {
-  return value === null ? "null" : `"${value}"`;
+  return value === null ? "missing" : `"${value}"`;
 }
 
 function compareGoldenFields(record: GoldenRecord, tender: ExtractedTender): string[] {
@@ -58,12 +69,19 @@ function compareGoldenFields(record: GoldenRecord, tender: ExtractedTender): str
   for (const field of GOLDEN_FIELDS) {
     const rawExpected = record.fields[field];
     if (rawExpected === undefined) continue;
+    // referenceNumber is often fetched from detail pages and can be omitted on failed/capped fetches.
+    if (
+      field === "referenceNumber" &&
+      (tender.referenceNumber === undefined || tender.referenceNumber === null)
+    ) {
+      continue;
+    }
 
     const expected = normalizeComparable(rawExpected);
     const actual = normalizeComparable(tender[field]);
     if (expected !== actual) {
       mismatches.push(
-        `Golden tender "${record.id}" field ${field} changed from ${formatGoldenValue(expected)} to ${formatGoldenValue(actual)}.`,
+        `Known tender "${record.id}" ${FIELD_LABELS[field]} changed from ${formatGoldenValue(expected)} to ${formatGoldenValue(actual)}.`,
       );
     }
   }
@@ -126,7 +144,7 @@ function detectGoldenIdDrift(
     if (!found) continue;
     checked += 1;
     mismatches.push(
-      `Golden tender "${record.id}" appears under a changed ID "${found.tender.id}" (matched by ${found.matchedBy}).`,
+      `Known tender "${record.id}" appears under a changed ID "${found.tender.id}" (matched by ${FIELD_LABELS[found.matchedBy]}).`,
     );
   }
   return { checked, matched: 0, mismatches };
@@ -233,13 +251,13 @@ function isBaselineFillCollapsed(current: FieldFill, previous: FieldFill | undef
 
 function checkItemCount(tenders: ExtractedTender[], diagnostics: ReadDiagnostics): CheckResult {
   if (tenders.length > 0) {
-    return { name: "item-count", ok: true, detail: `Found ${tenders.length} tenders.` };
+    return { name: "item-count", ok: true, detail: `Found ${plural(tenders.length, "tender")}.` };
   }
   if (diagnostics.emptyStateText) {
     return {
       name: "item-count",
       ok: true,
-      detail: `Portal says: "${diagnostics.emptyStateText}".`,
+      detail: `Portal says: "${normalizeText(diagnostics.emptyStateText)}".`,
     };
   }
   return { name: "item-count", ok: false, detail: "No tenders found on the list." };
@@ -266,7 +284,7 @@ function checkCountDrop(
   return {
     name: "count-drop",
     ok: true,
-    detail: `Tender count (${tenders.length}) is consistent with baseline (${baseline.lastGoodCount}).`,
+    detail: `Tender count (${tenders.length}) matches the usual level (${baseline.lastGoodCount}).`,
   };
 }
 
@@ -280,19 +298,21 @@ function checkFieldFill(
     const current = diagnostics.fieldFill[field] ?? computeFieldFill(tenders, field);
     if (current.total === 0) continue;
 
+    const label = FIELD_LABELS[field];
+    const article = field === "id" ? "an" : "a";
     const previous = baseline.lastGoodFieldFill?.[field];
     if (current.filled === 0) {
       if (isStrictRequiredField(field) || hadMeaningfulBaselineFill(previous)) {
         results.push({
           name: `field-fill:${field}`,
           ok: false,
-          detail: `No tender has a ${field}.`,
+          detail: `No tender has ${article} ${label}.`,
         });
       } else {
         results.push({
           name: `field-fill:${field}`,
           ok: true,
-          detail: `Field ${field} not shown by portal (0/${current.total}).`,
+          detail: `${capitalize(label)} is not shown by the portal (0 of ${plural(current.total, "tender")}).`,
         });
       }
       continue;
@@ -302,7 +322,7 @@ function checkFieldFill(
       results.push({
         name: `field-fill:${field}`,
         ok: false,
-        detail: `Field ${field} fill dropped from ${formatPercent(previous)} to ${formatPercent(current)}.`,
+        detail: `Tenders with ${article} ${label} dropped from ${formatPercent(previous)} to ${formatPercent(current)}.`,
       });
       continue;
     }
@@ -310,7 +330,7 @@ function checkFieldFill(
     results.push({
       name: `field-fill:${field}`,
       ok: true,
-      detail: `Field ${field} filled on ${current.filled}/${current.total} tenders.`,
+      detail: `${capitalize(label)} present on ${current.filled} of ${plural(current.total, "tender")}.`,
     });
   }
   return results;
@@ -338,14 +358,28 @@ function checkUniqueIds(tenders: ExtractedTender[]): CheckResult | null {
 
   if (blankCount > 0 || duplicates.size > 0) {
     const problems: string[] = [];
-    if (blankCount > 0) problems.push(`${blankCount} tender(s) have a blank id.`);
+    if (blankCount > 0) {
+      problems.push(`${plural(blankCount, "tender")} ${blankCount === 1 ? "has" : "have"} a blank ID.`);
+    }
     if (duplicates.size > 0) {
-      problems.push(`Duplicate tender IDs found: ${[...duplicates].join(", ")}.`);
+      const list = [...duplicates].join(", ");
+      problems.push(
+        duplicates.size === 1
+          ? `Duplicate tender ID found: ${list}.`
+          : `Duplicate tender IDs found: ${list}.`,
+      );
     }
     return { name: "unique-ids", ok: false, detail: problems.join(" ") };
   }
 
-  return { name: "unique-ids", ok: true, detail: `All ${tenders.length} tender IDs are unique.` };
+  return {
+    name: "unique-ids",
+    ok: true,
+    detail:
+      tenders.length === 1
+        ? "1 tender has a unique ID."
+        : `All ${tenders.length} tender IDs are unique.`,
+  };
 }
 
 function checkValidUrls(tenders: ExtractedTender[]): CheckResult | null {
@@ -363,12 +397,24 @@ function checkValidUrls(tenders: ExtractedTender[]): CheckResult | null {
 
   if (invalidTenderUrls > 0 || invalidDocUrls > 0) {
     const problems: string[] = [];
-    if (invalidTenderUrls > 0) problems.push(`${invalidTenderUrls} invalid tender URL(s).`);
-    if (invalidDocUrls > 0) problems.push(`${invalidDocUrls} invalid document URL(s).`);
+    if (invalidTenderUrls > 0) {
+      problems.push(
+        invalidTenderUrls === 1
+          ? "1 tender has an invalid web address."
+          : `${invalidTenderUrls} tenders have invalid web addresses.`,
+      );
+    }
+    if (invalidDocUrls > 0) {
+      problems.push(
+        invalidDocUrls === 1
+          ? "1 document has an invalid web address."
+          : `${invalidDocUrls} documents have invalid web addresses.`,
+      );
+    }
     return { name: "valid-urls", ok: false, detail: problems.join(" ") };
   }
 
-  return { name: "valid-urls", ok: true, detail: "All tender and document URLs are valid." };
+  return { name: "valid-urls", ok: true, detail: "All tender and document web addresses are valid." };
 }
 
 function checkDatesAndDeadlines(tenders: ExtractedTender[]): CheckResult[] {
@@ -400,14 +446,20 @@ function checkDatesAndDeadlines(tenders: ExtractedTender[]): CheckResult[] {
       ? {
           name: "dates",
           ok: false,
-          detail: `${invalidDateCount} tender(s) have invalid publication dates or deadlines.`,
+          detail:
+            invalidDateCount === 1
+              ? "1 tender has an invalid publication date or deadline."
+              : `${invalidDateCount} tenders have invalid publication dates or deadlines.`,
         }
       : { name: "dates", ok: true, detail: "All dates and deadlines are valid." },
     invertedDeadlineCount > 0
       ? {
           name: "deadline-order",
           ok: false,
-          detail: `${invertedDeadlineCount} tender(s) have a submission deadline earlier than publication date.`,
+          detail:
+            invertedDeadlineCount === 1
+              ? "1 tender has a submission deadline earlier than its publication date."
+              : `${invertedDeadlineCount} tenders have a submission deadline earlier than their publication dates.`,
         }
       : { name: "deadline-order", ok: true, detail: "All submission deadlines follow publication dates." },
   ];
@@ -431,7 +483,10 @@ function checkCpvCodes(tenders: ExtractedTender[]): CheckResult | null {
     return {
       name: "cpv-codes",
       ok: false,
-      detail: `Invalid CPV code(s): ${invalidCodes.join(", ")}.`,
+      detail:
+        invalidCodes.length === 1
+          ? `Invalid CPV code: ${invalidCodes[0]}.`
+          : `Invalid CPV codes: ${invalidCodes.join(", ")}.`,
     };
   }
   if (checkedCodes > 0) {
@@ -452,7 +507,10 @@ function checkGoldenRecords(
     return {
       name: "golden-records",
       ok: true,
-      detail: `${result.matched} of ${result.checked} known tenders match.`,
+      detail:
+        result.checked === 1
+          ? `${result.matched} of 1 known tender matches.`
+          : `${result.matched} of ${result.checked} known tenders match.`,
     };
   }
   return null;
@@ -496,9 +554,9 @@ function collectChecks(
 
 function buildHealthyReason(tenders: ExtractedTender[], diagnostics: ReadDiagnostics): string {
   if (tenders.length === 0 && diagnostics.emptyStateText) {
-    return `Portal says: "${diagnostics.emptyStateText}".`;
+    return `Portal says: "${normalizeText(diagnostics.emptyStateText)}".`;
   }
-  return `Read ${tenders.length} tenders; all checks passed.`;
+  return `Read ${plural(tenders.length, "tender")}; all checks passed.`;
 }
 
 export function evaluateRead(read: ReadOutcome, baseline: Baseline): Verdict {
@@ -509,7 +567,11 @@ export function evaluateRead(read: ReadOutcome, baseline: Baseline): Verdict {
     return { kind: "unreachable", reason: read.reason };
   }
   if (read.kind === "error") {
-    return { kind: "broken", reason: read.reason, checks: [] };
+    return {
+      kind: "broken",
+      reason: sanitizeOperatorReason(read.reason, "The portal reader hit an unexpected error."),
+      checks: [],
+    };
   }
 
   const checks = collectChecks(read.tenders, read.diagnostics, baseline);

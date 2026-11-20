@@ -14,9 +14,9 @@ const CHALLENGE_TITLE_PATTERN =
   /<title[^>]*>[^<]*(just a moment|attention required|captcha|verify you are human)[^<]*<\/title>/i;
 
 const PASSIVE_CAPTCHA_PATTERNS: ReadonlyArray<{ pattern: RegExp; reason: string }> = [
-  { pattern: /\bg-recaptcha\b|recaptcha\/api\.js/i, reason: "Portal presents a Google reCAPTCHA challenge." },
-  { pattern: /\bh-captcha\b|hcaptcha\.com\/1\/api\.js/i, reason: "Portal presents an hCaptcha challenge." },
-  { pattern: /\bcf-turnstile\b|challenges\.cloudflare\.com/i, reason: "Portal presents a Cloudflare Turnstile challenge." },
+  { pattern: /\bg-recaptcha\b|recaptcha\/api\.js/i, reason: "Portal is blocked by a reCAPTCHA check." },
+  { pattern: /\bh-captcha\b|hcaptcha\.com\/1\/api\.js/i, reason: "Portal is blocked by an hCaptcha check." },
+  { pattern: /\bcf-turnstile\b|challenges\.cloudflare\.com/i, reason: "Portal is blocked by a Cloudflare security check." },
 ];
 
 const LOGIN_URL_PATTERN = /\/(login|signin|sign-in|anmelden|connexion|inloggen|auth)(\/|\?|$)/i;
@@ -47,11 +47,8 @@ function findPassiveBlockReason(htmlOrText: string): string | null {
   for (const { pattern, reason } of PASSIVE_CAPTCHA_PATTERNS) {
     if (pattern.test(htmlOrText)) return reason;
   }
-  if (PASSWORD_INPUT_PATTERN.test(htmlOrText)) {
-    return "Portal requires login (password form detected).";
-  }
-  if (LOGIN_FORM_PATTERN.test(htmlOrText)) {
-    return "Portal requires login (authentication form detected).";
+  if (PASSWORD_INPUT_PATTERN.test(htmlOrText) || LOGIN_FORM_PATTERN.test(htmlOrText)) {
+    return "Portal requires a login.";
   }
   return null;
 }
@@ -62,13 +59,13 @@ export function detectBlockInContent(
   finalUrl?: string,
 ): string | null {
   if (status === 401) {
-    return "HTTP 401 Unauthorized: portal requires authentication.";
+    return "Portal requires a login (HTTP 401).";
   }
   if (status === 403) {
-    return "HTTP 403 Forbidden: access denied by portal.";
+    return "Portal blocked access (HTTP 403).";
   }
   if (CHALLENGE_TITLE_PATTERN.test(htmlOrText)) {
-    return "Portal presents an anti-bot or CAPTCHA challenge page.";
+    return "Portal is blocked by a captcha or anti-bot check.";
   }
 
   const candidateReason = findPassiveBlockReason(htmlOrText);
@@ -413,12 +410,47 @@ async function probeJsonEndpoints(ctx: PortalContext): Promise<string[]> {
   }
 }
 
+function extractErrorText(err: unknown): string {
+  if (!(err instanceof Error)) return String(err);
+  const parts = [err.name, err.message];
+  const withCode = err as Error & { code?: unknown; cause?: unknown };
+  if (typeof withCode.code === "string") parts.push(withCode.code);
+  if (withCode.cause && typeof withCode.cause === "object") {
+    const cause = withCode.cause as { name?: unknown; message?: unknown; code?: unknown };
+    if (typeof cause.name === "string") parts.push(cause.name);
+    if (typeof cause.code === "string") parts.push(cause.code);
+    if (typeof cause.message === "string") parts.push(cause.message);
+  }
+  return parts.join(" ");
+}
+
+function classifyNetworkErrorReason(err: unknown): string {
+  const details = extractErrorText(err);
+  if (
+    err instanceof Error &&
+    (err.name === "TimeoutError" || err.name === "AbortError")
+  ) {
+    return "The portal timed out while loading.";
+  }
+  if (/timeout|timed[\s_]*out|etimedout|und_err_.*timeout/i.test(details)) {
+    return "The portal timed out while loading.";
+  }
+  if (
+    /econnrefused|enotfound|eai_again|econnreset|ehostunreach|enetunreach|err_name_not_resolved|err_connection_|err_address_unreachable|err_internet_disconnected|getaddrinfo|connect\s+e/i.test(
+      details,
+    )
+  ) {
+    return "Could not connect to the portal.";
+  }
+  return "Could not reach the portal due to a network problem.";
+}
+
 export async function capturePortalSnapshot(
   recipe: Recipe,
   ctx: PortalContext,
 ): Promise<SnapshotOutcome> {
   if (ctx.signal.aborted) {
-    return { kind: "unreachable", reason: "Snapshot aborted before request." };
+    return { kind: "unreachable", reason: "Repair stopped before checking the portal." };
   }
 
   const targetUrl = resolvePlaceholders(recipe.list.request.url);
@@ -429,8 +461,26 @@ export async function capturePortalSnapshot(
         ? await fetchViaBrowser(targetUrl, ctx)
         : await fetchViaHttp(recipe, targetUrl, ctx);
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    return { kind: "unreachable", reason: `Network error fetching portal: ${message}` };
+    // Aborting closes the browser context mid-call; treat post-abort throws as normal cancellation.
+    if (ctx.signal.aborted) {
+      return {
+        kind: "unreachable",
+        reason: "Repair stopped because the portal was removed or cancelled.",
+      };
+    }
+    const rawMessage = (err instanceof Error ? err.message : String(err)).replace(/\s+/g, " ").trim();
+    ctx.log(
+      rawMessage ? `Could not load portal snapshot: ${rawMessage}` : "Could not load portal snapshot.",
+      "warn",
+    );
+    return { kind: "unreachable", reason: classifyNetworkErrorReason(err) };
+  }
+
+  if (ctx.signal.aborted) {
+    return {
+      kind: "unreachable",
+      reason: "Repair stopped because the portal was removed or cancelled.",
+    };
   }
 
   const classified = classifyRawSnapshot(recipe, result);
@@ -441,6 +491,12 @@ export async function capturePortalSnapshot(
     !ctx.signal.aborted
   ) {
     const capturedApiUrls = await probeJsonEndpoints(ctx);
+    if (ctx.signal.aborted) {
+      return {
+        kind: "unreachable",
+        reason: "Repair stopped because the portal was removed or cancelled.",
+      };
+    }
     if (capturedApiUrls.length > 0) {
       return { ...classified, capturedApiUrls };
     }
@@ -452,7 +508,7 @@ function classifyRawSnapshot(recipe: Recipe, result: RawFetchResult): SnapshotOu
   if (result.httpStatus >= 500) {
     return {
       kind: "unreachable",
-      reason: `Portal returned HTTP ${result.httpStatus}.`,
+      reason: `Portal returned a server error (HTTP ${result.httpStatus}).`,
       httpStatus: result.httpStatus,
     };
   }

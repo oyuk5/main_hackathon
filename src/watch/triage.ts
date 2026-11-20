@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { CheckResult, PortalContext, Verdict } from "../shared/modules.js";
 import type { Recipe } from "../shared/recipe.js";
+import { sanitizeOperatorReason } from "./text.js";
 import type { SnapshotOutcome, TriageCategory, TriageReport } from "./types.js";
 
 const TriageCategorySchema = z.enum([
@@ -31,11 +32,23 @@ export function classifyWithRules(
   const failures = failedChecks.filter((check) => !check.ok);
 
   if (snapshot.kind === "blocked") {
-    return buildReport("blocked", snapshot.reason, "Portal requires login or captcha.", failures, snapshot);
+    return buildReport(
+      "blocked",
+      sanitizeOperatorReason(snapshot.reason, "Portal requires a login or security check."),
+      "Portal requires a login or captcha check.",
+      failures,
+      snapshot,
+    );
   }
 
   if (snapshot.kind === "unreachable") {
-    return buildReport("unreachable", snapshot.reason, "Portal is temporarily unreachable.", failures, snapshot);
+    return buildReport(
+      "unreachable",
+      sanitizeOperatorReason(snapshot.reason, "Portal is temporarily unreachable."),
+      "Portal is temporarily unreachable.",
+      failures,
+      snapshot,
+    );
   }
 
   const urlMoveReport = detectUrlMove(failures, snapshot);
@@ -54,7 +67,7 @@ function detectUrlMove(
     return {
       ...buildReport(
         "url-moved",
-        `Portal list URL returned HTTP 404 (${snapshot.url}).`,
+        "The portal's tender list page was not found (HTTP 404).",
         "Update recipe.list.request.url to the portal's new tender list endpoint.",
         failures,
         snapshot,
@@ -67,7 +80,7 @@ function detectUrlMove(
     return {
       ...buildReport(
         "url-moved",
-        `Portal redirected from ${snapshot.url} to ${snapshot.finalUrl}.`,
+        `The portal moved its tender list to ${snapshot.finalUrl}.`,
         "Update recipe.list.request.url to the redirected destination.",
         failures,
         snapshot,
@@ -114,7 +127,7 @@ function classifyByFailedChecks(
   if (failedNames.has("golden-records")) {
     return buildReport(
       "golden-mismatch",
-      summarizeChecks(failures, "Golden record verification failed."),
+      summarizeChecks(failures, "Known tenders no longer match their expected values."),
       "Compare extracted fields against golden records and update mismatched field rules.",
       failures,
       snapshot,
@@ -124,7 +137,7 @@ function classifyByFailedChecks(
   if (hasFormatFailure && !hasItemsFailure) {
     return buildReport(
       "format-changed",
-      summarizeChecks(failures, "Date or code format validation failed."),
+      summarizeChecks(failures, "Dates or procurement codes on the portal changed format."),
       "Inspect date/deadline/CPV formatting in the snapshot and update field parse/format rules.",
       failures,
       snapshot,
@@ -134,7 +147,7 @@ function classifyByFailedChecks(
   if (failedNames.has("count-drop") && !hasItemsFailure && !hasFillFailure) {
     return buildReport(
       "pagination-changed",
-      summarizeChecks(failures, "Item count dropped significantly while selectors still match."),
+      summarizeChecks(failures, "Far fewer tenders were found than usual."),
       "Check pagination links, page parameters, or page size in the snapshot.",
       failures,
       snapshot,
@@ -147,7 +160,7 @@ function classifyByFailedChecks(
 
   return buildReport(
     "unknown",
-    summarizeChecks(failures, "Breakage cause could not be determined from rules."),
+    summarizeChecks(failures, "The portal stopped returning valid tenders."),
     "Inspect the portal snapshot and failed checks to diagnose the root cause.",
     failures,
     snapshot,
@@ -162,7 +175,7 @@ function classifyExtractionFailure(
   if (recipe.tier === "jsonApi") {
     return buildReport(
       "json-key-renamed",
-      summarizeChecks(failures, "JSON API extraction returned missing items or fields."),
+      summarizeChecks(failures, "The portal's data feed returned missing tenders or fields."),
       "Inspect the compressed JSON keys and update recipe.list.item or jsonPath field rules.",
       failures,
       snapshot,
@@ -171,7 +184,7 @@ function classifyExtractionFailure(
 
   return buildReport(
     "selector-broken",
-    summarizeChecks(failures, "HTML/DOM extraction returned missing items or fields."),
+    summarizeChecks(failures, "The portal page layout changed and tenders or fields are missing."),
     "Inspect the compressed HTML structure and update broken CSS/item selectors.",
     failures,
     snapshot,
@@ -179,10 +192,13 @@ function classifyExtractionFailure(
 }
 
 function summarizeChecks(failures: CheckResult[], fallback: string): string {
-  if (failures.length === 0) {
+  const details = failures
+    .map((check) => sanitizeOperatorReason(check.detail, ""))
+    .filter((detail) => detail.length > 0);
+  if (details.length === 0) {
     return fallback;
   }
-  return failures.map((check) => `${check.name}: ${check.detail}`).join("; ");
+  return details.join(" ");
 }
 
 function buildReport(
@@ -253,12 +269,11 @@ async function classifyWithLlm(
     return {
       ...fallback,
       category: classified.category,
-      reason: classified.reason,
+      reason: sanitizeOperatorReason(classified.reason, fallback.reason),
       hint: classified.hint,
     };
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    ctx.log(`Triage LLM fallback failed: ${message}`, "warn");
+  } catch {
+    ctx.log("Could not narrow down the cause automatically; continuing with repair.", "warn");
     return fallback;
   }
 }

@@ -386,7 +386,8 @@ describe("createMedic", () => {
 
     assert.equal(outcome.kind, "ok");
     assert.equal(llmCalls.length, 2);
-    assert.ok(logs.some((l) => l.level === "warn" && l.message.includes("Rate limit exceeded")));
+    assert.ok(logs.some((l) => l.level === "warn"));
+    assert.ok(logs.every((l) => !/Rate limit exceeded|Repair model error/i.test(l.message)));
   });
 
   it("stops immediately when verification detects portal is blocked", async () => {
@@ -538,7 +539,7 @@ describe("createMedic", () => {
     );
 
     assert.equal(outcome.kind, "failed");
-    assert.equal(outcome.reason, "Repair cancelled.");
+    assert.equal(outcome.reason, "Repair stopped.");
     assert.equal(snapshotCalled, false);
     assert.equal(llmCalls.length, 0);
   });
@@ -571,7 +572,7 @@ describe("createMedic", () => {
     );
 
     assert.equal(outcome.kind, "failed");
-    assert.equal(outcome.reason, "Repair cancelled.");
+    assert.equal(outcome.reason, "Repair stopped.");
     assert.equal(llmCalls.length, 1);
     assert.equal(attachCalled, false);
   });
@@ -669,5 +670,117 @@ describe("createMedic", () => {
     assert.equal(outcome.kind, "ok");
     assert.match(llmCalls[0]?.user ?? "", /Discovered JSON API URLs:/);
     assert.match(llmCalls[0]?.user ?? "", /https:\/\/portal\.example\/api\/v2\/notices/);
+  });
+
+  it("never leaks raw JS errors, golden mismatch, snapshot status, or check names into operator reason or logs", async () => {
+    const { ctx, logs } = makeContext({
+      llmHandler: async () => {
+        throw new Error("RAW_SOCKET_ERR: connect ECONNRESET 10.0.0.5:443");
+      },
+    });
+
+    const medic = createMedic(
+      makeDeps({
+        cartographer: {
+          async attach() {
+            throw new TypeError("Cannot read properties of undefined (reading 'selector')\n    at attach (/app/src/attach/index.ts:12)");
+          },
+        },
+      }),
+    );
+
+    const outcome = await medic.repair(
+      { recipe: makeRecipe(), verdict: makeBrokenVerdict(), baseline: makeBaseline() },
+      ctx,
+    );
+
+    assert.equal(outcome.kind, "failed");
+    assert.equal(outcome.reason, "Could not repair the portal after 3 attempts and a fresh reconnect.");
+    assert.equal(
+      /RAW_SOCKET_ERR|ECONNRESET|TypeError|Cannot read|attach\.ts|golden mismatch|snapshot status|repair model error|fresh attach failed/i.test(
+        outcome.reason,
+      ),
+      false,
+    );
+    assert.ok(logs.some((l) => l.message.startsWith("Diagnosed issue:")));
+    assert.ok(logs.some((l) => l.message === "Targeted fixes did not pass verification; trying a fresh reconnect."));
+    for (const entry of logs) {
+      assert.equal(
+        /RAW_SOCKET_ERR|ECONNRESET|TypeError|Cannot read|attach\.ts|golden mismatch|snapshot status|repair model error|fresh attach failed|selector-broken:/i.test(
+          entry.message,
+        ),
+        false,
+      );
+    }
+  });
+
+  it("reports plain-English reason when attached portal fails known tender verification", async () => {
+    const before = makeRecipe();
+    const { ctx, logs } = makeContext({
+      llmHandler: async () => ({ recipe: before, changeNote: "No change" }),
+    });
+
+    const medic = createMedic(
+      makeDeps({
+        evaluate: (read) =>
+          read.kind === "ok" && read.tenders.length > 0
+            ? { kind: "healthy", reason: "OK", checks: [] }
+            : { kind: "broken", reason: "No tenders found on the list.", checks: [{ name: "item-count", ok: false, detail: "No tenders found on the list." }] },
+        extractor: {
+          async read() {
+            return makeOkRead([]);
+          },
+        },
+        verifyGolden: () => ({ checked: 2, matched: 1, mismatches: ['Known tender "T-2" title changed.'] }),
+        cartographer: {
+          async attach() {
+            return {
+              kind: "ok",
+              recipe: before,
+              golden: [],
+              read: makeOkRead([makeTender("T-1")]),
+              note: "Rebuilt recipe",
+            };
+          },
+        },
+      }),
+    );
+
+    const outcome = await medic.repair(
+      { recipe: before, verdict: makeBrokenVerdict(), baseline: makeBaseline(2) },
+      ctx,
+    );
+
+    assert.equal(outcome.kind, "failed");
+    assert.equal(outcome.reason, "Only 1 of 2 known tenders matched after repair.");
+    assert.equal(/golden mismatch|snapshot status/i.test(outcome.reason), false);
+    assert.ok(logs.every((l) => !/golden mismatch|snapshot status|item-count:/i.test(l.message)));
+  });
+
+  it("uses Portal check failed instead of Snapshot status in repair prompt when snapshot is not ok", async () => {
+    const before = makeRecipe();
+    const goodPatch = makeRecipe({ list: { ...before.list, item: "div.card" } });
+    const { ctx, llmCalls } = makeContext({
+      llmHandler: async () => ({ recipe: goodPatch, changeNote: "Updated selector" }),
+    });
+
+    const medic = createMedic(
+      makeDeps({
+        triage: async () =>
+          makeTriageReport({
+            category: "unknown",
+            snapshot: { kind: "unreachable", reason: "The portal timed out while loading." },
+          }),
+      }),
+    );
+
+    const outcome = await medic.repair(
+      { recipe: before, verdict: makeBrokenVerdict(), baseline: makeBaseline(1) },
+      ctx,
+    );
+
+    assert.equal(outcome.kind, "ok");
+    assert.match(llmCalls[0]?.user ?? "", /Portal check failed: The portal timed out while loading\./);
+    assert.equal(/Snapshot status:/i.test(llmCalls[0]?.user ?? ""), false);
   });
 });

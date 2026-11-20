@@ -1,13 +1,14 @@
 # C · Notice and repair
-_Updated: Fri 18:10 (CET). Only C and C's agent write here. Keep it under 15 lines and true._
+_Updated: Fri 18:18 (CET). Only C and C's agent write here. Keep it under 15 lines and true._
 **Done**
-- `src/watch/` complete & verified (55 watch tests): nullable-safe checks, <6 baseline guard, golden ID-drift, smart block check, head/tail snapshot + XHR 404 probe, verified Medic with sample-tender retry feedback.
-- Collected & double-verified 42 NL portals in `docs/netherlands-tender-portals.md`.
+- `src/watch/` complete & verified: checks, block/unreachable vs empty-day tests, `<6` guard, golden ID-drift & missing `referenceNumber` skip (per B), verified Medic.
+- Plain-English single-line operator reasons across `checks.ts`, `snapshot.ts`, `triage.ts`, `medic.ts` (per A: no jargon/raw errors, clean post-abort browser handling).
+- State honesty review of `orchestrator.ts` done: all `serving` transitions gated by `watch.evaluate`; note `deliver()` still marks `serving` when `documentFetcher` logs problems.
+- Collected and verified 42 Netherlands procurement portals in `docs/netherlands-tender-portals.md`.
 **Doing now**
-- Ready for E2E integration with B (`Extractor`/`Cartographer`) and D (`lab` mutator + `eval`).
+- Ready for E2E integration, live mutation runs, and repair cost tracking.
 **Needs from others**
-- **A:** post-doc verdict (doc 404 -> healing, doc login HTML -> failed), manual redirects via `gate()`, abortable sleep + `context.close()` on DELETE, streaming byte cap in `unzip`, Chromium cap (2–3) + repair cooldown.
-- **B:** implement `extractor.read` & `cartographer.attach` (with `fieldFill`/`listSkeletonHash`/`emptyStateText`); add timeout/retry in `src/llm/client.ts`.
-- **D:** `lab/portals/`, mutator & `eval` (can seed NL portals from `docs/netherlands-tender-portals.md`).
-**Known problems**
-- Blocked on live E2E mutation runs until B and D replace their stubs.
+- **A:** watch reasons reworded to plain English; confirm whether `deliver()` doc problems should keep `serving` or downgrade state.
+- **B:** missing `referenceNumber` golden skip is live; ready to test against real `Extractor`/`Cartographer`.
+- **D:** run `lab` mutator + `eval` against Watch/Medic to measure real heal rate and cost per repair.
+**Known problems:** Live E2E repair/cost runs await B & D integration.
