@@ -199,3 +199,39 @@ describe("redirects over plain HTTP", () => {
     }
   });
 });
+
+describe("request cancellation over plain HTTP", () => {
+  it("does not send a request cancelled while it is waiting for the host gate", { timeout: 4_000 }, async () => {
+    const p = await fakePortal({ "/open": (_req, res) => res.end("ok") });
+    try {
+      const job = new AbortController();
+      const httpc = politeHttp(job.signal);
+      await robotsAllows(`${p.base}/open`, job.signal); // reserves the first host slot
+      const request = new AbortController();
+      const pending = httpc.fetch(`${p.base}/open`, { signal: request.signal });
+      request.abort(new Error("request cancelled"));
+      await assert.rejects(pending, /request cancelled/);
+      assert.deepEqual(p.hits, ["/robots.txt"]);
+      assert.equal(job.signal.aborted, false);
+    } finally {
+      await p.close();
+    }
+  });
+
+  it("cancels an in-flight HTTP response without cancelling the job", { timeout: 5_000 }, async () => {
+    let reached!: () => void;
+    const started = new Promise<void>((resolve) => { reached = resolve; });
+    const p = await fakePortal({ "/hang": () => reached() });
+    try {
+      const job = new AbortController();
+      const request = new AbortController();
+      const pending = politeHttp(job.signal).fetch(`${p.base}/hang`, { signal: request.signal });
+      await started;
+      request.abort(new Error("request cancelled"));
+      await assert.rejects(pending, /request cancelled/);
+      assert.equal(job.signal.aborted, false);
+    } finally {
+      await p.close();
+    }
+  });
+});

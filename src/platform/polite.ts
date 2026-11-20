@@ -4,6 +4,7 @@
  * the requests a headless browser makes.
  */
 import { chromium, type Browser } from "playwright";
+import { setTimeout as delay } from "node:timers/promises";
 import { config } from "./config.js";
 import type { PoliteBrowser, PoliteHttp } from "../shared/modules.js";
 
@@ -13,19 +14,12 @@ const nextSlot = new Map<string, number>();
 
 /** Waits until this host may be called again, then reserves the next slot. */
 export async function gate(host: string, signal?: AbortSignal): Promise<void> {
+  signal?.throwIfAborted();
   const now = Date.now();
   const slot = Math.max(now, nextSlot.get(host) ?? 0);
   nextSlot.set(host, slot + config.minRequestGapMs);
   const wait = slot - now;
-  if (wait > 0) {
-    await new Promise<void>((resolve, reject) => {
-      const t = setTimeout(resolve, wait);
-      signal?.addEventListener("abort", () => {
-        clearTimeout(t);
-        reject(new Error("aborted"));
-      }, { once: true });
-    });
-  }
+  if (wait > 0) await delay(wait, undefined, { signal });
 }
 
 // ------------------------------------------------------------ robots.txt
@@ -141,13 +135,15 @@ export function politeHttp(signal: AbortSignal, onRequest?: () => void): PoliteH
 
   return {
     async fetch(url, init) {
+      // The reader may set a shorter deadline than the job; neither may outlive the other.
+      const requestSignal = init?.signal && init.signal !== signal ? AbortSignal.any([signal, init.signal]) : signal;
       let current = url;
       let method = (init?.method ?? "GET").toUpperCase();
       let body = init?.body;
       for (let hop = 0; ; hop++) {
         const u = new URL(current);
-        if (!(await robotsAllows(current, signal))) throw new Error(`robots.txt disallows ${u.pathname}`);
-        await gate(u.host, signal);
+        if (!(await robotsAllows(current, requestSignal))) throw new Error(`robots.txt disallows ${u.pathname}`);
+        await gate(u.host, requestSignal);
         onRequest?.();
         const headers = new Headers(init?.headers);
         if (!headers.has("user-agent")) headers.set("user-agent", config.userAgent);
@@ -156,7 +152,7 @@ export function politeHttp(signal: AbortSignal, onRequest?: () => void): PoliteH
         if (cookies?.size && !headers.has("cookie")) headers.set("cookie", [...cookies].map(([k, v]) => `${k}=${v}`).join("; "));
         if (method === "GET" || method === "HEAD") headers.delete("content-type");
 
-        const res = await fetch(current, { ...init, method, body: method === "GET" || method === "HEAD" ? undefined : body, headers, signal, redirect: "manual" });
+        const res = await fetch(current, { ...init, method, body: method === "GET" || method === "HEAD" ? undefined : body, headers, signal: requestSignal, redirect: "manual" });
         remember(u.host, res);
         const location = res.headers.get("location");
         if (res.status < 300 || res.status > 399 || res.status === 304 || !location) return res;
