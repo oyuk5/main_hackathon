@@ -181,6 +181,13 @@ export const store = {
       "INSERT INTO llm_calls (portal_id, run_id, purpose, model, input_tokens, output_tokens, cost_usd, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
     ).run(c.portalId, c.runId, c.purpose, c.model, c.inputTokens, c.outputTokens, c.costUsd, c.at);
   },
+  /** Model cost per run of one portal, for the dashboard's run history. */
+  costByRun(portalId: string): Record<string, number> {
+    const rows = db
+      .prepare("SELECT run_id, SUM(cost_usd) AS cost FROM llm_calls WHERE portal_id = ? AND run_id IS NOT NULL GROUP BY run_id")
+      .all(portalId) as unknown as { run_id: string; cost: number }[];
+    return Object.fromEntries(rows.map((r) => [r.run_id, r.cost]));
+  },
   ledger(portalId?: string) {
     const where = portalId ? "WHERE portal_id = ?" : "";
     const args = portalId ? [portalId] : [];

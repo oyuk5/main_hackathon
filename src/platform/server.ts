@@ -101,8 +101,20 @@ export async function buildServer() {
         recipeVersion: p.recipe_version,
         tier: recipe?.tier ?? null,
         family: recipe?.family ?? null,
+        /** Two-letter country from the recipe, for the dashboard map; null when not national or unknown. */
+        country: recipe?.countryCode ?? null,
         costUsd: cost,
         lastRun: store.listRuns(p.id)[0] ?? null,
+        // Runs started in the last 24 hours, newest first, for the dashboard's activity strip.
+        recent: store
+          .listRuns(p.id)
+          .filter((r) => toEpoch(r.started_at) > Date.now() - 24 * 3_600_000)
+          .slice(0, 200)
+          .map((r) => ({
+            kind: r.kind, result: r.result, startedAt: r.started_at, finishedAt: r.finished_at,
+            // What a repair did or why a read failed, for the dashboard's tickets. Passing reads need none.
+            summary: r.kind === "repair" || r.result === "failed" ? r.summary.slice(0, 400) : "",
+          })),
       };
     }),
   );
@@ -117,6 +129,8 @@ export async function buildServer() {
       recipes: store.listRecipes(p.id).map((r) => ({ ...r, json: JSON.parse(r.json) })),
       baseline: store.getBaseline(p.id),
       ledger: store.ledger(p.id),
+      runCosts: store.costByRun(p.id),
+      busy: orchestrator.isBusy(p.id) ? { runId: orchestrator.isBusy(p.id)!.runId, kind: orchestrator.isBusy(p.id)!.kind } : null,
     };
   });
 

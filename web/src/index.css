@@ -1,29 +1,178 @@
 @import "tailwindcss";
+@import "@fontsource-variable/archivo/wdth.css";
+@import "@fontsource-variable/archivo/wdth-italic.css";
+@import "@fontsource/newsreader/400-italic.css";
 
-/* Design tokens. D owns the visual pass (see docs/TASKS.md, use the frontend-design skill). */
-:root {
-  --bg: #fbfbfa;
-  --panel: #ffffff;
-  --ink: #111111;
-  --muted: #6b6b6b;
-  --line: #e7e7e4;
-  --serving: #1f9d55;
-  --integrating: #2f6fdb;
-  --healing: #d98a00;
-  --failed: #d23c3c;
+/*
+ * Watchtower: a nautical chart of the portals under watch.
+ * Each portal is a light. Its light characteristic, as printed on real charts, is its state:
+ *   F.G   fixed green        serving
+ *   Fl.Y  flashing yellow    being repaired
+ *   Q.R   quick red          needs a person
+ *   Iso   isophase magenta   being attached
+ * Colours come from chart printing: buff land, blue shallows, magenta for lights and notes.
+ */
+@theme {
+  --font-sans: "Archivo Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-chart: "Newsreader", Georgia, serif;
+
+  --color-paper: #ffffff;
+  --color-sea: #f2f7f9;
+  --color-mist: #eaf2f5;
+  --color-land: #eeeae0;
+  --color-land-watched: #e2dccb;
+  --color-shallow: #d6e9f1;
+  --color-shallow-deep: #bfdbe8;
+  --color-grat: #a9c8d6;
+  --color-ink: #1b2a35;
+  --color-slate: #566874;
+  --color-faint: #8fa1ab;
+  --color-hairline: #d3e0e6;
+  --color-magenta: #b0126d;
+
+  --color-serving: #0f8a49;
+  --color-healing: #c99200;
+  --color-healing-text: #8a6100;
+  --color-failed: #d32a2a;
+  --color-integrating: #b0126d;
+
+  --color-serving-wash: #e3f3ea;
+  --color-healing-wash: #fbf2d9;
+  --color-failed-wash: #fde9e7;
+  --color-integrating-wash: #f8e4ef;
 }
-@media (prefers-color-scheme: dark) {
+
+@layer base {
   :root {
-    --bg: #0d0d0e;
-    --panel: #161618;
-    --ink: #f2f2f2;
-    --muted: #9a9aa0;
-    --line: #2a2a2e;
+    color-scheme: light dark;
+  }
+  /* Night palette, as electronic charts dim for the bridge at night. */
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --color-paper: #0b1820;
+      --color-sea: #07121a;
+      --color-mist: #0f212b;
+      --color-land: #17242b;
+      --color-land-watched: #22333b;
+      --color-shallow: #0c2230;
+      --color-shallow-deep: #0f2b3b;
+      --color-grat: #18394a;
+      --color-ink: #d9e5eb;
+      --color-slate: #91a7b2;
+      --color-faint: #5f7581;
+      --color-hairline: #1d3441;
+      --color-magenta: #ff5cb8;
+
+      --color-serving: #35d07f;
+      --color-healing: #f2bd2c;
+      --color-healing-text: #f2bd2c;
+      --color-failed: #ff5d55;
+      --color-integrating: #ff5cb8;
+
+      --color-serving-wash: #0d2a1e;
+      --color-healing-wash: #2c2410;
+      --color-failed-wash: #321515;
+      --color-integrating-wash: #301429;
+    }
+  }
+
+  html,
+  body {
+    background: var(--color-sea);
+  }
+  body {
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-variation-settings: "wdth" 100;
+    font-size: 15px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-magenta);
+    outline-offset: 2px;
+    border-radius: 3px;
+  }
+  ::selection {
+    background: var(--color-integrating-wash);
   }
 }
-body {
-  background: var(--bg);
-  color: var(--ink);
-  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-  -webkit-font-smoothing: antialiased;
+
+@layer components {
+  .num {
+    font-variant-numeric: tabular-nums;
+  }
+  .wide {
+    font-variation-settings: "wdth" 125;
+  }
+  .narrow {
+    font-variation-settings: "wdth" 72;
+  }
+
+  /* State light used in lists and the side panel. */
+  .light {
+    display: inline-block;
+    width: 9px;
+    height: 9px;
+    border-radius: 999px;
+    flex: none;
+    background: currentColor;
+    box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 20%, transparent);
+  }
+  .light[data-busy="true"] {
+    animation: iso 2s steps(1) infinite;
+  }
+
+  /* Light characteristics. Never fully dark, so a light stays findable between flashes. */
+  .ch-serving {
+    opacity: 1;
+  }
+  .ch-healing {
+    animation: flash 3s infinite;
+  }
+  .ch-failed {
+    animation: quick 1s infinite;
+  }
+  .ch-integrating {
+    animation: iso 2s steps(1) infinite;
+  }
+  .spin {
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: spin 1.4s linear infinite;
+  }
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+  @keyframes flash {
+    0%, 22% { opacity: 1; }
+    30%, 100% { opacity: 0.28; }
+  }
+  @keyframes quick {
+    0%, 35% { opacity: 1; }
+    50%, 100% { opacity: 0.28; }
+  }
+  @keyframes iso {
+    0% { opacity: 1; }
+    50% { opacity: 0.32; }
+  }
+
+  .drawer {
+    animation: slide-in 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+  .backdrop {
+    animation: fade-in 220ms ease-out;
+  }
+  @keyframes slide-in {
+    from { transform: translateX(24px); opacity: 0; }
+  }
+  @keyframes fade-in {
+    from { opacity: 0; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .ch-healing, .ch-failed, .ch-integrating, .spin, .light[data-busy="true"], .drawer, .backdrop {
+      animation: none;
+    }
+  }
 }

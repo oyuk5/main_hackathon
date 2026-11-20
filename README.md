@@ -16,6 +16,8 @@ API on http://localhost:8080, dashboard at `/`. The key is passed at run time an
 
 Local development: `npm install`, `npx playwright install chromium` (once), then `npm run dev` (API) and `npm run dev:web` (dashboard).
 
+Dashboard with sample data and no portal reads: `npm run build:web`, then `PORT=8083 DATA_DIR=/tmp/wt-demo npx tsx scripts/demo.ts` and open http://localhost:8083. It seeds seven portals in every state, including a repair with its recipe change. Pressing "Read now" there starts a real read.
+
 ## How it works
 
 **The model proposes, code decides.** A model is used to learn a portal and to repair it. Reading a portal is plain code, so the regular work costs nothing in model usage and gives the same answer every time.
