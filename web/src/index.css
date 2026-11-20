@@ -36,6 +36,8 @@
   --color-magenta: #1d5b72;
 
   --color-serving: #276f49;
+  /* "Nothing needs a person": dark teal, the colour of zelyonka. */
+  --color-calm: #1d5a52;
   --color-healing: #b8800f;
   --color-healing-text: #7f5607;
   --color-failed: #a8361d;
@@ -74,6 +76,7 @@
       --color-magenta: #eea878;
 
       --color-serving: #7fcf9b;
+      --color-calm: #4f9c8d;
       --color-healing: #ecb850;
       --color-healing-text: #ecb850;
       --color-failed: #f4826a;
@@ -105,6 +108,7 @@
     --color-magenta: #eea878;
 
     --color-serving: #7fcf9b;
+    --color-calm: #4f9c8d;
     --color-healing: #ecb850;
     --color-healing-text: #ecb850;
     --color-failed: #f4826a;
