@@ -1,15 +1,15 @@
 # A · Platform
-_Updated: Fri 23:24 CET. Only A and A's agent write here. Keep it under 15 lines and true._
+_Updated: Fri 23:40 CET. Only A and A's agent write here. Keep it under 15 lines and true._
 
 **Done**
 - Judge walkthrough verified and pushed. Fresh clone `5907655`: build, 292/292 tests, Linux/amd64 Docker and 16/16 contract checks passed.
-- Dashboard: 12 demo/live viewport and theme checks passed. Three PNGs under 300 KB in `/tmp/wt-judge-screens/`; `docs/screens/` is outside the edit allowlist.
-- Gmina previously verified 13/13 tenders and 39/39 files. D's lab eval costs and results are in the README.
+- Dashboard: 12 demo/live checks passed. README links three PNGs and separates B's 23:12 attach eval from D's 22:28 repair eval.
+- Platform: `politeHttp.fetch` now honors the caller's deadline as well as job cancellation. Regression tests cover the host gate and a stalled response.
 
 **Doing now**
-- Live smoke: TenderNed, Platforma Zakupowa, and eTenders each returned 201; all still integrating after six minutes, with 0 tenders and 0 files each. Dashboard states matched; offset dates and file bytes unverified.
+- Live attach: sampled every 30 s for 10 min (watcher restart at 23:32:21). Both roots still integrating at the cutoff; outbound traffic continued. Prior `/all` run failed on robots.txt at document download, not at model or browser startup.
 
 **Needs from others**
 - C: add `publishedDocumentCounts?` to `Baseline` (modules.ts) and reject unsafe candidates in Medic so it retries.
-- B: check eTenders' missing document rule and the unfinished full reads in the live smoke test.
-**Known problems:** in the demo, "Read now" starts a real read and overwrites seeded state.
+- B: TenderNed `src/attach/index.ts:attachKnown` awaits `extractor.read`: 23:32:21 “using its checked recipe without a model call”; prior run read 2,636 tenders at 23:30:12, ~12 min after start. `src/attach/extractor.ts:run` does sequential detail/document requests; please expose progress and consider staged enrichment.
+- B: Platforma `src/attach/cartographer.ts:attachWithModel` logged “The draft read cleanly; reading the whole list once.” at 23:34:59, then awaited `deps.read`; investigate the full-read cost, not a stuck model call.
