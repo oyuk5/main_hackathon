@@ -1,5 +1,7 @@
 /** Data from the Watchtower API, polling, and the small formatters the screens share. */
-import { useCallback, useEffect, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
+
+export const OperatorToken = createContext<(() => Promise<string | null>) | null>(null);
 
 export type State = "integrating" | "serving" | "healing" | "failed";
 
@@ -56,6 +58,7 @@ export interface PortalDetail {
 
 /** Polls a JSON endpoint. Keeps the last good answer when a poll fails. */
 export function usePoll<T>(url: string | null, everyMs = 3000) {
+  const token = useContext(OperatorToken);
   const [data, setData] = useState<T | null>(null);
   const [failing, setFailing] = useState(false);
   const urlRef = useRef(url);
@@ -65,7 +68,13 @@ export function usePoll<T>(url: string | null, everyMs = 3000) {
     const u = urlRef.current;
     if (!u) return;
     try {
-      const res = await fetch(u, { headers: { accept: "application/json" } });
+      const headers = new Headers({ accept: "application/json" });
+      if (token && u.startsWith("/internal/")) {
+        const bearer = await token();
+        if (bearer) headers.set("authorization", `Bearer ${bearer}`);
+      }
+      const res = await fetch(u, { headers });
+      if (token && (res.status === 401 || res.status === 403) && urlRef.current === u) setData(null);
       if (!res.ok) throw new Error(String(res.status));
       const body = (await res.json()) as T;
       if (urlRef.current === u) {
@@ -75,7 +84,7 @@ export function usePoll<T>(url: string | null, everyMs = 3000) {
     } catch {
       if (urlRef.current === u) setFailing(true);
     }
-  }, []);
+  }, [token]);
 
   useEffect(() => {
     setData(null);

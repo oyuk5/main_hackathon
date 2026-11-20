@@ -22,7 +22,7 @@ curl -fsS http://localhost:8080/portals \
 
 The API returns an ID immediately; the first read runs in the background and can take longer than two minutes. **Portals** shows delivery state, tender counts, and a map; open a row for its run history. **Issues** shows what needs attention, what is being repaired, and what recovered. **Log** shows what happened across portals. The theme switch offers light, dark, or system settings.
 
-**Demo without a model key:** with Node.js 22.13 or later, run the following and open http://localhost:8083. The demo seeds sample portals and repair history without starting the worker. Leave **Read now** untouched to keep the demo on sample data.
+**Demo without a model key:** with Node.js 22.13 or later, run the following and open http://localhost:8083. The demo seeds sample portals and repair history, disables new registrations, and never starts scheduled reads or model calls. Only an explicit **Read now** starts a read and may change the sample data. The hosted `SEED_DEMO=1` mode follows the same rules.
 
 ```bash
 npm ci
@@ -71,6 +71,8 @@ In company deployments, put the dashboard behind company single sign-on via a re
 | `MODEL_FAST` | yes | | Model for triage. We use `gpt-6-luna`. |
 | `OPENAI_BASE_URL` | no | OpenAI | Endpoint of an OpenAI-compatible provider. |
 | `PRICE_SMART_IN`, `PRICE_SMART_OUT`, `PRICE_FAST_IN`, `PRICE_FAST_OUT` | no | 0 | USD per million tokens, so the cost ledger shows money and not only tokens. |
+| `PRICE_SMART_CACHED_IN`, `PRICE_FAST_CACHED_IN` | no | Half the corresponding input price | USD per million cached input tokens. |
+| `LLM_PROMPT_CACHE` | no | Enabled | Set to `0` to disable prompt caching. |
 | `PORT` | no | 8080 | HTTP port. |
 | `DATA_DIR` | no | `/data` in the container | SQLite database and downloaded files. |
 | `READ_INTERVAL_MINUTES` | no | 30 | Time between regular reads of a serving portal. |
@@ -83,11 +85,24 @@ In company deployments, put the dashboard behind company single sign-on via a re
 | `TZ_DISPLAY` | no | `Europe/Berlin` | Time zone for times the system itself writes. |
 | `LOG_LEVEL` | no | `warn` | Server log level. |
 
+## Operator sign-in (optional)
+
+Leave both Clerk keys unset for evaluation. The dashboard and internal routes then remain open, and the browser does not load Clerk. For an operator deployment, create an application in the Clerk Dashboard, enable your preferred sign-in methods, and configure its instance for the dashboard's origin. Copy the publishable and secret keys from the application's API Keys page into the server environment and restart Watchtower; no rebuild is needed.
+
+| Variable | Purpose |
+|---|---|
+| `CLERK_PUBLISHABLE_KEY` | Public key returned at runtime by `/auth/config`. |
+| `CLERK_SECRET_KEY` | Server-only key. Both keys are required to enable sign-in. |
+| `CLERK_ALLOWED_EMAILS` | Optional comma-separated list of verified primary email addresses. |
+| `CLERK_ALLOWED_ORG` | Optional Clerk organization ID (`org_…`); the operator must have it active in their session. |
+
+If both restrictions are set, both must match. Only `/internal/*` is protected; the public API, including its write routes and file downloads, stays open by design. Use a reverse proxy or a private network if your deployment also needs to restrict the public API.
+
 ## Approach: scale and model cost
 
 Reads run in parallel across portals and are rate-limited to at most one request per second per portal. Portals on the same software can reuse one learned family recipe if it passes a deterministic trial, without another model call for attach.
 
-Every model call is recorded with its purpose, tokens and cost: `GET /internal/ledger` for all portals, `GET /internal/portals/{id}` for one.
+Every model call is recorded with its purpose, tokens and cost: `GET /internal/ledger` for all portals, `GET /internal/portals/{id}` for one. The ledger includes `cached_tokens` only when a nonzero count has been recorded by the model client.
 
 | Operation | Model cost |
 |---|---|

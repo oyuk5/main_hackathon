@@ -12,6 +12,7 @@ export default defineConfig({
     proxy: {
       "/portals": "http://localhost:8080",
       "/internal": "http://localhost:8080",
+      "/auth/config": "http://localhost:8080",
       "/files": "http://localhost:8080",
     },
   },

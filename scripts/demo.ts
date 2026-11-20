@@ -18,6 +18,6 @@ if (fresh) {
   seedDemo();
   console.log(`Seeded demo data in ${process.env.DATA_DIR}.`);
 }
-const app = await buildServer();
+const app = await buildServer({ demo: true });
 await app.listen({ port: config.port, host: "0.0.0.0" });
 console.log(`Demo dashboard on http://localhost:${config.port} (worker off; delete ${process.env.DATA_DIR} to reseed).`);

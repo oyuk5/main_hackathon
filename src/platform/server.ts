@@ -4,7 +4,7 @@
  */
 import fs from "node:fs";
 import path from "node:path";
-import Fastify from "fastify";
+import Fastify, { type FastifyInstance } from "fastify";
 import fastifyStatic from "@fastify/static";
 import { store, type PortalRow } from "./store.js";
 import { orchestrator } from "./orchestrator.js";
@@ -12,6 +12,7 @@ import { filePath } from "./documents.js";
 import { AddPortalBody, type PortalEntry, type Run } from "../shared/contract.js";
 import { toEpoch } from "../shared/time.js";
 import { dateTimeEpoch } from "./calendar.js";
+import { operatorConfig, protectInternalRoutes, type InstallOperatorAuth } from "./operatorAuth.js";
 
 function entry(p: PortalRow): PortalEntry {
   return {
@@ -24,12 +25,18 @@ function entry(p: PortalRow): PortalEntry {
   };
 }
 
-export async function buildServer() {
+export async function buildServer(options: { demo?: boolean; authEnv?: NodeJS.ProcessEnv; installOperatorAuth?: InstallOperatorAuth } = {}) {
   const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? "warn" } });
+  const auth = operatorConfig(options.authEnv ?? process.env);
+  app.get("/auth/config", async (_request, reply) => {
+    reply.header("cache-control", "no-store");
+    return { clerkPublishableKey: auth?.publishableKey ?? null };
+  });
 
   // ---------------------------------------------------------------- public API (contract)
 
   app.post("/portals", async (req, reply) => {
+    if (options.demo) return reply.code(403).send({ error: "Adding portals is disabled in the demo." });
     const body = AddPortalBody.safeParse(req.body);
     // zod's url() accepts any scheme (ftp:, javascript:, file:); a portal is a web address.
     if (!body.success || !/^https?:$/.test(new URL(body.data.url.trim()).protocol))
@@ -86,9 +93,27 @@ export async function buildServer() {
     return reply.send(fs.createReadStream(p));
   });
 
-  // ---------------------------------------------------------------- internal (dashboard only)
+  // Clerk is encapsulated here: even when enabled, no public API route runs its hooks.
+  await app.register(async (internal) => {
+    if (auth) await protectInternalRoutes(internal, auth, options.installOperatorAuth);
+    registerInternalRoutes(internal);
+  }, { prefix: "/internal" });
 
-  app.get("/internal/overview", async () =>
+  const webRoot = path.resolve("dist/web");
+  if (fs.existsSync(webRoot)) {
+    await app.register(fastifyStatic, { root: webRoot, prefix: "/", index: ["index.html"] });
+  } else {
+    app.get("/", async (_req, reply) =>
+      reply.type("text/html").send("<h1>Watchtower</h1><p>Dashboard not built. Run <code>npm run build:web</code>.</p>"),
+    );
+  }
+  return app;
+}
+
+function registerInternalRoutes(app: FastifyInstance) {
+  app.get("/session", async () => ({ ok: true }));
+
+  app.get("/overview", async () =>
     store.listPortals().map((p) => {
       const job = orchestrator.isBusy(p.id);
       const recipe = store.currentRecipe(p.id);
@@ -117,7 +142,7 @@ export async function buildServer() {
     }),
   );
 
-  app.get<{ Params: { id: string } }>("/internal/portals/:id", async (req, reply) => {
+  app.get<{ Params: { id: string } }>("/portals/:id", async (req, reply) => {
     const p = store.getPortal(req.params.id);
     if (!p) return reply.code(404).send({ error: "Unknown portal" });
     return {
@@ -132,24 +157,12 @@ export async function buildServer() {
     };
   });
 
-  app.get("/internal/ledger", async () => store.ledger());
+  app.get("/ledger", async () => store.ledger());
 
   // What happened, newest first: each run with its problem, what was done and the outcome.
-  app.get<{ Querystring: { all?: string; limit?: string } }>("/internal/log", async (req) => {
+  app.get<{ Querystring: { all?: string; limit?: string } }>("/log", async (req) => {
     const limit = Math.min(Math.max(Number(req.query.limit) || 300, 1), 1000);
     return store.journal(limit, req.query.all === "1");
   });
 
-  // ---------------------------------------------------------------- dashboard at GET /
-
-  const webRoot = path.resolve("dist/web");
-  if (fs.existsSync(webRoot)) {
-    await app.register(fastifyStatic, { root: webRoot, prefix: "/", index: ["index.html"] });
-  } else {
-    app.get("/", async (_req, reply) =>
-      reply.type("text/html").send("<h1>Watchtower</h1><p>Dashboard not built. Run <code>npm run build:web</code>.</p>"),
-    );
-  }
-
-  return app;
 }

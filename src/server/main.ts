@@ -4,13 +4,14 @@ import { orchestrator } from "../platform/orchestrator.js";
 import { store } from "../platform/store.js";
 import { seedDemo } from "../platform/seedDemo.js";
 
-if (process.env.SEED_DEMO === "1" && store.listPortals().length === 0) {
+const demo = process.env.SEED_DEMO === "1";
+if (demo && store.listPortals().length === 0) {
   seedDemo();
 }
 
-const app = await buildServer();
+const app = await buildServer({ demo });
 await app.listen({ port: config.port, host: "0.0.0.0" });
-orchestrator.start();
+if (!demo) orchestrator.start();
 console.log(`Watchtower on http://localhost:${config.port}`);
 
 for (const sig of ["SIGINT", "SIGTERM"] as const) {

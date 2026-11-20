@@ -39,11 +39,16 @@ CREATE TABLE IF NOT EXISTS tenders (
 CREATE TABLE IF NOT EXISTS llm_calls (
   id INTEGER PRIMARY KEY AUTOINCREMENT, portal_id TEXT, run_id TEXT, purpose TEXT NOT NULL,
   model TEXT NOT NULL, input_tokens INTEGER NOT NULL, output_tokens INTEGER NOT NULL,
-  cost_usd REAL NOT NULL, at TEXT NOT NULL
+  cost_usd REAL NOT NULL, at TEXT NOT NULL, cached_tokens INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS runs_portal ON runs (portal_id, seq);
 CREATE INDEX IF NOT EXISTS events_portal ON events (portal_id, id);
 `);
+
+// Older databases keep all usage rows; calls recorded before this migration have no cache count.
+if (!db.prepare("PRAGMA table_info(llm_calls)").all().some((column) => column.name === "cached_tokens")) {
+  db.exec("ALTER TABLE llm_calls ADD COLUMN cached_tokens INTEGER NOT NULL DEFAULT 0");
+}
 
 let seq = Number((db.prepare("SELECT COALESCE(MAX(seq), 0) AS s FROM runs").get() as { s: number }).s);
 
@@ -196,10 +201,10 @@ export const store = {
   },
 
   // ---------------------------------------------------------------- ledger
-  addLlmCall(c: { portalId: string | null; runId: string | null; purpose: string; model: string; inputTokens: number; outputTokens: number; costUsd: number; at: string }) {
+  addLlmCall(c: { portalId: string | null; runId: string | null; purpose: string; model: string; inputTokens: number; outputTokens: number; cachedTokens?: number; costUsd: number; at: string }) {
     db.prepare(
-      "INSERT INTO llm_calls (portal_id, run_id, purpose, model, input_tokens, output_tokens, cost_usd, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-    ).run(c.portalId, c.runId, c.purpose, c.model, c.inputTokens, c.outputTokens, c.costUsd, c.at);
+      "INSERT INTO llm_calls (portal_id, run_id, purpose, model, input_tokens, output_tokens, cost_usd, at, cached_tokens) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    ).run(c.portalId, c.runId, c.purpose, c.model, c.inputTokens, c.outputTokens, c.costUsd, c.at, c.cachedTokens ?? 0);
   },
   /** Model cost per run of one portal, for the dashboard's run history. */
   costByRun(portalId: string): Record<string, number> {
@@ -211,8 +216,9 @@ export const store = {
   ledger(portalId?: string) {
     const where = portalId ? "WHERE portal_id = ?" : "";
     const args = portalId ? [portalId] : [];
-    return db
-      .prepare(`SELECT purpose, COUNT(*) AS calls, SUM(input_tokens) AS input_tokens, SUM(output_tokens) AS output_tokens, SUM(cost_usd) AS cost_usd FROM llm_calls ${where} GROUP BY purpose`)
-      .all(...args) as unknown as { purpose: string; calls: number; input_tokens: number; output_tokens: number; cost_usd: number }[];
+    const rows = db
+      .prepare(`SELECT purpose, COUNT(*) AS calls, SUM(input_tokens) AS input_tokens, SUM(output_tokens) AS output_tokens, SUM(cost_usd) AS cost_usd, SUM(cached_tokens) AS cached_tokens FROM llm_calls ${where} GROUP BY purpose`)
+      .all(...args) as unknown as { purpose: string; calls: number; input_tokens: number; output_tokens: number; cost_usd: number; cached_tokens: number }[];
+    return rows.map(({ cached_tokens, ...row }) => cached_tokens > 0 ? { ...row, cached_tokens } : row);
   },
 };
