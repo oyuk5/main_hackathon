@@ -4,7 +4,7 @@
  */
 import { geoGraticule, geoMercator, geoPath } from "d3-geo";
 import type { FeatureCollection, MultiPolygon } from "geojson";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import europe from "./geo/europe.json";
 import { ANCHOR, CHARACTER, STATE_COLOR, countryOf, host, int, type PortalRow, type State } from "./lib";
 
@@ -80,6 +80,7 @@ function spread(nodes: { x: number; y: number }[], min: number, W: number, H: nu
  */
 export function Chart({ rows, hover, setHover, compact = false }: { rows: PortalRow[]; hover: string | null; setHover: (id: string | null) => void; compact?: boolean }) {
   const k = compact ? 2.3 : 1;
+  const [openCountry, setOpenCountry] = useState<string | null>(null);
   const { projection, H, path } = useProjection();
   const xy = (lon: number, lat: number) => projection([lon, lat]) as [number, number];
 
@@ -151,7 +152,13 @@ export function Chart({ rows, hover, setHover, compact = false }: { rows: Portal
             <Light key={pl.p.id} pl={pl} k={k} active={hover === pl.p.id} setHover={setHover} />
           ))}
           {clusters.map((cl) => (
-            <ClusterMark key={cl.country} cl={cl} k={k} active={cl.list.some((p) => p.id === hover)} />
+            <ClusterMark
+              key={cl.country}
+              cl={cl}
+              k={k}
+              active={openCountry === cl.country || cl.list.some((p) => p.id === hover)}
+              onOpen={() => setOpenCountry(openCountry === cl.country ? null : cl.country)}
+            />
           ))}
           {labels.map((l) => (
             <Label key={l.p.p.id} l={l} active={hover === l.p.p.id} />
@@ -159,6 +166,10 @@ export function Chart({ rows, hover, setHover, compact = false }: { rows: Portal
         </g>
         <Neatline xy={xy} H={H} labels={!compact} />
       </svg>
+      {(() => {
+        const cl = clusters.find((c) => c.country === openCountry);
+        return cl ? <ClusterList cl={cl} hover={hover} setHover={setHover} onClose={() => setOpenCountry(null)} /> : null;
+      })()}
       {unplaced.length > 0 && <Inset rows={unplaced} hover={hover} setHover={setHover} compact={compact} />}
     </div>
   );
@@ -201,13 +212,21 @@ function Light({ pl, k, active, setHover }: { pl: Placed; k: number; active: boo
   );
 }
 
-function ClusterMark({ cl, k, active }: { cl: Cluster; k: number; active: boolean }) {
+function ClusterMark({ cl, k, active, onOpen }: { cl: Cluster; k: number; active: boolean; onOpen: () => void }) {
   const { x, y, worst, list } = cl;
   const counts = WORST.map((s) => [s, list.filter((p) => p.state === s).length] as const).filter(([, n]) => n > 0);
-  const text = `${cl.country}: ${list.length} portals, ${counts.map(([s, n]) => `${n} ${CHARACTER[s].words.toLowerCase()}`).join(", ")}`;
+  const text = `${countryName(cl.country)}: ${list.length} portals, ${counts.map(([s, n]) => `${n} ${CHARACTER[s].words.toLowerCase()}`).join(", ")}`;
   return (
-    <g role="img" aria-label={text}>
-      <title>{text}</title>
+    <g
+      role="button"
+      tabIndex={0}
+      aria-label={`${text}. Show the list.`}
+      onClick={onOpen}
+      onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), onOpen())}
+      className="cursor-pointer outline-none"
+    >
+      <title>{`${text}. Click for the list.`}</title>
+      <circle cx={x} cy={y} r={24 * k} className="fill-transparent" />
       <g className={GLOW[worst]}>
         <circle cx={x} cy={y} r={21 * k} className="fill-current" opacity="0.13" />
       </g>
@@ -217,6 +236,46 @@ function ClusterMark({ cl, k, active }: { cl: Cluster; k: number; active: boolea
       </text>
       {active && <circle cx={x} cy={y} r={17.5 * k} className="fill-none stroke-ink" strokeWidth={1.5 * k} />}
     </g>
+  );
+}
+
+const countryName = (code: string) => {
+  try {
+    return new Intl.DisplayNames(["en"], { type: "region" }).of(code) ?? code;
+  } catch {
+    return code;
+  }
+};
+
+/** The portals behind a numbered marker, worst first; each opens its details. */
+function ClusterList({ cl, hover, setHover, onClose }: { cl: Cluster; hover: string | null; setHover: (id: string | null) => void; onClose: () => void }) {
+  const order: Record<State, number> = { failed: 0, healing: 1, integrating: 2, serving: 3 };
+  const list = [...cl.list].sort((a, b) => order[a.state] - order[b.state] || host(a.url).localeCompare(host(b.url)));
+  return (
+    <div className="mt-2 rounded-[4px] border border-hairline bg-paper">
+      <div className="flex items-center justify-between border-b border-hairline px-2.5 py-1.5">
+        <p className="text-[13px] font-semibold text-ink">{countryName(cl.country)}: {list.length} portals</p>
+        <button type="button" onClick={onClose} aria-label="Close the list" className="rounded-[4px] px-1.5 text-[15px] leading-none text-slate hover:bg-mist hover:text-ink cursor-pointer">
+          ×
+        </button>
+      </div>
+      <ul className="max-h-[260px] overflow-y-auto py-1">
+        {list.map((p) => (
+          <li key={p.id}>
+            <a
+              href={`#/p/${encodeURIComponent(p.id)}`}
+              onMouseEnter={() => setHover(p.id)}
+              onMouseLeave={() => setHover(null)}
+              className={`flex items-center gap-2 px-2.5 py-1 text-[13px] hover:bg-mist ${hover === p.id ? "bg-mist" : ""}`}
+            >
+              <Beacon state={p.state} />
+              <span className="min-w-0 truncate font-medium text-ink">{host(p.url)}</span>
+              <span className={`ml-auto shrink-0 text-[12px] font-semibold ${STATE_COLOR[p.state]}`}>{CHARACTER[p.state].words}</span>
+            </a>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 
