@@ -37,10 +37,10 @@ function outcome(r: LogRow): Outcome {
 }
 
 type Filter = "all" | "problems" | "repairs";
-const FILTERS: { id: Filter; label: string; keep: (r: LogRow) => boolean }[] = [
-  { id: "all", label: "Everything", keep: () => true },
-  { id: "problems", label: "Problems", keep: (r) => r.result === "failed" },
-  { id: "repairs", label: "Repairs", keep: (r) => r.kind === "repair" },
+const FILTERS: { id: Filter; label: string; empty: string; keep: (r: LogRow) => boolean }[] = [
+  { id: "all", label: "Everything", empty: "No log entries for the selected portals.", keep: () => true },
+  { id: "problems", label: "Problems", empty: "No failed reads or repairs for the selected portals.", keep: (r) => r.result === "failed" },
+  { id: "repairs", label: "Repairs", empty: "No repairs have started for the selected portals.", keep: (r) => r.kind === "repair" },
 ];
 
 type SortKey = "time" | "portal" | "outcome" | "took" | "cost";
@@ -119,6 +119,14 @@ export function Log({ portals, now }: { portals: PortalRow[]; now: number }) {
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [open, setOpen] = useState<string | null>(null);
   const { data, failing } = usePoll<LogRow[]>(`/internal/log${passing ? "?all=1" : ""}`, 5000);
+  const currentFilter = FILTERS.find((f) => f.id === filter)!;
+
+  const matching = useMemo(() => {
+    const ids = new Set(portals.map((p) => p.id));
+    const q = query.trim().toLowerCase();
+    return (data ?? []).filter((r) => ids.has(r.portal_id) && (!q || host(r.url).toLowerCase().includes(q) || r.summary.toLowerCase().includes(q)));
+  }, [data, portals, query]);
+  const problemCount = matching.filter((r) => r.result === "failed").length;
 
   const toggleSort = (key: SortKey) => {
     if (sortKey === key) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
@@ -129,14 +137,9 @@ export function Log({ portals, now }: { portals: PortalRow[]; now: number }) {
   };
 
   const rows = useMemo(() => {
-    const keep = FILTERS.find((f) => f.id === filter)!.keep;
-    const ids = new Set(portals.map((p) => p.id));
-    const q = query.trim().toLowerCase();
     const dir = sortDir === "asc" ? 1 : -1;
 
-    return (data ?? [])
-      .filter((r) => keep(r) && ids.has(r.portal_id))
-      .filter((r) => !q || host(r.url).toLowerCase().includes(q) || r.summary.toLowerCase().includes(q))
+    return matching.filter(currentFilter.keep)
       .sort((a, b) => {
         if (sortKey === "portal") {
           const cmp = host(a.url).localeCompare(host(b.url)) * dir;
@@ -156,7 +159,7 @@ export function Log({ portals, now }: { portals: PortalRow[]; now: number }) {
         }
         return (ts(a.started_at) - ts(b.started_at)) * dir;
       });
-  }, [data, filter, portals, query, sortKey, sortDir]);
+  }, [matching, currentFilter, sortKey, sortDir]);
 
   // A portal that fails the same way read after read gets one row ("5 times since …"), not five.
   // Only in time order, and only while that portal's own entries keep repeating; anything else breaks the run.
@@ -255,7 +258,7 @@ export function Log({ portals, now }: { portals: PortalRow[]; now: number }) {
                   : "border-hairline text-slate hover:border-slate/50 hover:text-ink"
               }`}
             >
-              {f.label}
+              {f.label}{f.id === "problems" && data && <span className="num"> ({problemCount})</span>}
             </button>
           ))}
         </div>
@@ -304,9 +307,8 @@ export function Log({ portals, now }: { portals: PortalRow[]; now: number }) {
       )}
       {data && rows.length === 0 && (
         <p className="px-5 py-10 text-center text-[13.5px] text-slate">
-          {passing || filter !== "all" || query
-            ? "Nothing matches these filters."
-            : "No problems or repairs yet. Tick “Include reads that passed” to see every read."}
+          {query.trim() ? `No ${filter === "all" ? "log entries" : filter} match your search.` : currentFilter.empty}
+          {filter === "all" && !passing && !query.trim() && " Turn on ‘Include reads that passed’ to see routine reads."}
         </p>
       )}
 
@@ -418,8 +420,8 @@ function Entry({
         <span className="px-3 py-2.5 text-[13.5px] leading-snug text-slate">
           {text}
           {r.times > 1 && (
-            <span className="ml-1.5 text-[12.5px] whitespace-nowrap text-faint">
-              {r.times} times since {shortWhen(r.since, now).replace(/^Today /, "").replace(/^Yest /, "yesterday ")}
+            <span className="mt-1 block text-[12.5px] text-faint">
+              {r.times} times since <time dateTime={r.since}>{shortWhen(r.since, now).replace(/^Today /, "today at ").replace(/^Yest /, "yesterday at ")}</time>
             </span>
           )}
           {r.events.length > 0 && (
