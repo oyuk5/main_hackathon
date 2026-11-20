@@ -1,17 +1,15 @@
 # D · Proof and experience
 
-_Updated: Fri 19:28. Only D and D's agent write here. Keep it under 15 lines and true._
+_Updated: Fri 22:35. Only D and D's agent write here. Keep it under 15 lines and true._
 
 **Done**
-- `lab/portals.json`: 8 real portals, 6 countries, 3 hidden, 2 login-blocked. PLACSP must go (robots.txt), replacement pending.
-- Demo portals (`npm run lab`, :4100): /stadtwerke/ (DE html), /ville/ (FR JSON app), /gmina/ (PL cards, 2-hop docs, ZIP). Truth `/_truth/<slug>.json` follows the current variant.
-- **Mutator:** `npx tsx lab/mutate.ts` lists changes; `npx tsx lab/mutate.ts <portal> <change> --refresh`; `... reset`. Changes: renamed-classes, moved-list, new-pagination, renamed-keys (ville), moved-documents (gmina), date-format; harmless: cookie-banner, empty-day.
-- **First live results (19:22):** ville renamed-keys → healing → repaired in 13 s, 1 call, $0.011, 11/11 tenders correct. stadtwerke cookie-banner → stayed serving, no repair.
+- `lab/portals.json` (8 real, 6 countries, 3 hidden; PLACSP must go). Demo portals `npm run lab` (:4100) with truth per variant. Mutator `npx tsx lab/mutate.ts`.
+- **Eval** `npm run eval` (22:28, full table in `lab/results/latest.md`): attach accuracy 73%, 0 wrong values after attach; heal rate **85%** (11/13 breaking changes); median heal **16 s**; repair **$0.021**, attach **$0.040** per portal; false repairs **3 of 6**.
 
 **Doing now**
-- Eval (`npm run eval`): every portal × every change, scoreboard into `lab/results/`.
+- Backup video (Sat 01:00); replace PLACSP; spot checks of real portals in the eval.
 
 **Needs from others**
-- **C:** gmina empty-day → a **false repair** (recipe had no emptyText; repair added it). Can the Watch accept "0 items + page has a no-results sentence" as healthy before the first repair? Also ville repair lost `withdrawn` (new key `etat: "annulée"`).
-- **A:** after gmina empty-day the portal says "Serving 0 open tenders" but `tenderCount` stays 13.
-- **B:** 0 documents on all lab portals; stadtwerke/gmina detail fields missing (see `/_truth/<slug>.json`).
+- **C:** empty-day causes a false repair on all 3 demo portals (ville even ends `failed`). gmina renamed-classes: Medic's candidate found no files → failed. ville renamed-keys repair loses `withdrawn` (`etat: "annulée"`).
+- **B:** stadtwerke: description/procedureType/contractNature/CPV/place missing, withdrawn 4753 read as open in 5 of 7 attaches. gmina: procedureType/contractNature/CPV missing. ville: 0 documents.
+- **A:** README numbers above (repair $0.021, attach $0.040, heal 85%, median 16 s).

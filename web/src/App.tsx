@@ -146,8 +146,8 @@ export function App() {
                 <aside className="grid content-start gap-4 md:max-xl:grid-cols-2">
                   <Cost rows={ledger ?? []} portals={rows.length} />
                   <section aria-labelledby="where" className="rounded-[6px] border border-hairline bg-paper p-3.5">
-                    <div className="mb-2 flex items-baseline justify-between">
-                      <h2 id="where" className="text-[13px] font-semibold text-ink">Where they are</h2>
+                    <div className="mb-2 flex h-5 items-baseline justify-between gap-2 overflow-hidden">
+                      <h2 id="where" className="shrink-0 whitespace-nowrap text-[13px] font-semibold text-ink">Where they are</h2>
                       <HoverNote rows={rows} hover={hover} />
                     </div>
                     <Chart rows={rows} hover={hover} setHover={setHover} compact />
@@ -286,8 +286,8 @@ function Tabs({ tab, rows, now, picker }: { tab: Tab; rows: PortalRow[]; now: nu
 function HoverNote({ rows, hover }: { rows: PortalRow[]; hover: string | null }) {
   const p = rows.find((r) => r.id === hover);
   const countries = new Set(rows.map(countryOf).filter(Boolean)).size;
-  if (!p) return <span className="text-[12px] text-slate">{plural(countries, "country", "countries")}</span>;
-  return <span className="truncate pl-2 text-[12px] font-semibold text-ink">{host(p.url)}</span>;
+  if (!p) return <span className="truncate text-[12px] text-slate">{plural(countries, "country", "countries")}</span>;
+  return <span className="min-w-0 truncate text-[12px] font-semibold text-ink">{host(p.url)}</span>;
 }
 
 // ------------------------------------------------------------ docker-style summary strip
