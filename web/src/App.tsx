@@ -77,14 +77,14 @@ export function App() {
     <div className="min-h-dvh bg-sea text-ink">
       <Header onAdded={reload} />
       {failing && (
-        <p role="alert" className="mx-auto max-w-[1440px] px-4 pt-3 text-[13px] text-failed sm:px-6">
+        <p role="alert" className="mx-auto max-w-[1440px] min-[1800px]:max-w-[1680px] px-4 pt-3 text-[13px] text-failed sm:px-6">
           The Watchtower API is not answering. Showing the last successful update; retrying every 3 seconds.
         </p>
       )}
       {data === null && !failing ? (
-        <p className="mx-auto max-w-[1440px] px-4 py-24 text-slate sm:px-6">Loading portals…</p>
+        <p className="mx-auto max-w-[1440px] min-[1800px]:max-w-[1680px] px-4 py-24 text-slate sm:px-6">Loading portals…</p>
       ) : (
-        <main className="mx-auto max-w-[1440px] px-4 pt-5 pb-16 sm:px-6">
+        <main className="mx-auto max-w-[1440px] min-[1800px]:max-w-[1680px] px-4 pt-5 pb-16 sm:px-6">
           <SummaryStrip
             rows={rows}
             total={all.length}
@@ -127,7 +127,7 @@ export function App() {
               id="panel-portals"
               role="tabpanel"
               aria-labelledby="tab-portals"
-              className={`mt-4 grid grid-cols-[minmax(0,1fr)] gap-5 ${showSide && rows.length > 0 ? "lg:grid-cols-[minmax(0,1fr)_300px]" : ""}`}
+              className={`mt-4 grid grid-cols-[minmax(0,1fr)] gap-5 ${showSide && rows.length > 0 ? "xl:grid-cols-[minmax(0,1fr)_300px] min-[1800px]:grid-cols-[minmax(0,1fr)_340px]" : ""}`}
             >
               <Portals
                 rows={rows}
@@ -143,7 +143,7 @@ export function App() {
                 onReload={reload}
               />
               {showSide && rows.length > 0 && (
-                <aside className="space-y-4">
+                <aside className="grid content-start gap-4 md:max-xl:grid-cols-2">
                   <Cost rows={ledger ?? []} portals={rows.length} />
                   <section aria-labelledby="where" className="rounded-[6px] border border-hairline bg-paper p-3.5">
                     <div className="mb-2 flex items-baseline justify-between">
@@ -203,7 +203,7 @@ function Header({ onAdded }: { onAdded: () => void }) {
 
   return (
     <header className="border-b border-hairline bg-paper">
-      <div className="mx-auto flex max-w-[1440px] flex-col gap-3 px-4 py-2.5 sm:flex-row sm:items-center sm:gap-5 sm:px-6">
+      <div className="mx-auto flex max-w-[1440px] min-[1800px]:max-w-[1680px] flex-col gap-3 px-4 py-2.5 sm:flex-row sm:items-center sm:gap-5 sm:px-6">
         <a href="#" className="flex items-center gap-2.5">
           <svg width="22" height="22" viewBox="0 0 22 22" fill="none" aria-hidden="true" className="shrink-0 text-docker">
             {/* A watchtower: lantern room, tapering tower, and a beam sweeping right. */}
@@ -235,7 +235,7 @@ function Header({ onAdded }: { onAdded: () => void }) {
         </form>
       </div>
       {note && (
-        <p role="status" className={`mx-auto max-w-[1440px] px-4 pb-2 text-[13px] sm:px-6 sm:text-right ${note.ok ? "text-slate" : "text-failed"}`}>
+        <p role="status" className={`mx-auto max-w-[1440px] min-[1800px]:max-w-[1680px] px-4 pb-2 text-[13px] sm:px-6 sm:text-right ${note.ok ? "text-slate" : "text-failed"}`}>
           {note.text}
         </p>
       )}
@@ -693,7 +693,7 @@ function Portals({
                     <SortArrow active={view.sort === "name"} />
                   </button>
                 </th>
-                <th scope="col" className="hidden border-r border-hairline px-3 py-2.5 whitespace-nowrap md:table-cell">
+                <th scope="col" className="hidden border-r border-hairline px-3 py-2.5 whitespace-nowrap lg:table-cell">
                   What Watchtower says
                 </th>
                 <th scope="col" className="border-r border-hairline px-3 py-2.5 text-right whitespace-nowrap">
@@ -753,12 +753,12 @@ function Portals({
                         <StatusIcon kind={stateToIconKind(r.state)} size={11} />
                       </div>
                     </td>
-                    <td className="px-3 py-2.5 align-top md:max-w-[230px]">
+                    <td className="px-3 py-2.5 align-top lg:max-w-[230px]">
                       <a
                         href={detailHref}
                         onClick={(e) => e.stopPropagation()}
                         title={r.url}
-                        className="block truncate font-semibold text-ink hover:underline"
+                        className="block font-semibold break-all text-ink hover:underline lg:truncate lg:break-normal"
                       >
                         {host(r.url)}
                       </a>
@@ -766,9 +766,9 @@ function Portals({
                         {view.sort === "urgent" ? "" : CHARACTER[r.state].words}
                         {r.busy && <span className="text-faint">{view.sort === "urgent" ? "" : ", "}{r.busy.kind === "repair" ? "repairing now" : "reading now"}</span>}
                       </span>
-                      <span className={`mt-1 line-clamp-3 text-[12.5px] leading-snug md:hidden ${r.state === "serving" ? "text-faint" : "text-slate"}`}>{shortReason(r)}</span>
+                      <span className={`mt-1 line-clamp-3 text-[12.5px] leading-snug lg:hidden ${r.state === "serving" ? "text-faint" : "text-slate"}`}>{shortReason(r)}</span>
                     </td>
-                    <td className={`hidden min-w-[200px] px-3 py-2.5 align-top md:table-cell xl:min-w-[260px] ${r.state === "serving" ? "text-faint" : r.state === "integrating" ? "text-slate" : "text-ink"}`} title={r.reason}>
+                    <td className={`hidden min-w-[200px] px-3 py-2.5 align-top lg:table-cell xl:min-w-[260px] ${r.state === "serving" ? "text-faint" : r.state === "integrating" ? "text-slate" : "text-ink"}`} title={r.reason}>
                       <span className="line-clamp-2">{shortReason(r)}</span>
                     </td>
                     <td className="num px-3 py-2.5 text-right align-top font-medium text-ink whitespace-nowrap">

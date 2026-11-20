@@ -174,28 +174,29 @@ function seed() {
     tenders: { count: 7, host: "localhost:4100", titles: ["Dredging of the inner basin", "Quay crane maintenance"], buyers: ["Harbour Board"] },
   });
 
-  // More portals across Europe, so the dashboard shows how it reads at a realistic size.
+  // More portals across Europe, so the dashboard shows how it reads at a realistic size. These are
+  // invented scenarios, so they use lab addresses (the rule above); the country comes from the recipe.
   // Germany gets enough of them that the map groups them into one numbered marker.
   const more: { key: string; url: string; country: string | null; state: "serving" | "healing" | "failed" | "integrating"; tenders: number; reason?: string; buyer: string; title: string }[] = [
-    { key: "dtvp", url: "https://www.dtvp.de/", country: "DE", state: "failed", tenders: 0, buyer: "", title: "", reason: "The tender list is drawn by JavaScript and no data address could be found, so Watchtower cannot read it yet." },
-    { key: "nrw", url: "https://www.evergabe.nrw.de/", country: "DE", state: "serving", tenders: 214, buyer: "Stadt Köln", title: "Sanierung Schulzentrum Süd" },
-    { key: "nds", url: "https://vergabe.niedersachsen.de/", country: "DE", state: "serving", tenders: 96, buyer: "Land Niedersachsen", title: "Rahmenvertrag Reinigungsleistungen" },
-    { key: "subreport", url: "https://www.subreport.de/", country: "DE", state: "healing", tenders: 133, buyer: "Stadtwerke Bochum", title: "Erneuerung Fernwärmeleitung",
+    { key: "bundesvergabe", url: "http://localhost:4100/bundesvergabe/", country: "DE", state: "failed", tenders: 0, buyer: "", title: "", reason: "The tender list is drawn by JavaScript and no data address could be found, so Watchtower cannot read it yet." },
+    { key: "rheinland_vergabe", url: "http://localhost:4100/rheinland-vergabe/", country: "DE", state: "serving", tenders: 214, buyer: "Stadt Köln", title: "Sanierung Schulzentrum Süd" },
+    { key: "heidekreis_vergabe", url: "http://localhost:4100/heidekreis-vergabe/", country: "DE", state: "serving", tenders: 96, buyer: "Land Niedersachsen", title: "Rahmenvertrag Reinigungsleistungen" },
+    { key: "ruhr_ausschreibungen", url: "http://localhost:4100/ruhr-ausschreibungen/", country: "DE", state: "healing", tenders: 133, buyer: "Stadtwerke Bochum", title: "Erneuerung Fernwärmeleitung",
       reason: "Repairing: the deadline column moved and now reads as the publication date. Serving the last 133 correct tenders meanwhile." },
-    { key: "berlin", url: "https://www.berlin.de/vergabeplattform/", country: "DE", state: "serving", tenders: 58, buyer: "Senatsverwaltung Berlin", title: "Lieferung von E-Lastenrädern" },
-    { key: "pz", url: "https://platformazakupowa.pl/", country: "PL", state: "serving", tenders: 412, buyer: "Gmina Wrocław", title: "Przebudowa ulicy Kościuszki" },
-    { key: "ezam", url: "https://ezamowienia.gov.pl/", country: "PL", state: "integrating", tenders: 0, buyer: "", title: "" },
-    { key: "placsp", url: "https://contrataciondelestado.es/", country: "ES", state: "failed", tenders: 0, buyer: "", title: "", reason: "Blocked: the search needs a session started by a person in a browser, so Watchtower does not read it." },
-    { key: "consip", url: "https://www.acquistinretepa.it/", country: "IT", state: "serving", tenders: 187, buyer: "Comune di Bologna", title: "Fornitura arredi scolastici" },
-    { key: "bosa", url: "https://www.publicprocurement.be/", country: "BE", state: "serving", tenders: 301, buyer: "Stad Gent", title: "Onderhoud groenzones" },
-    { key: "auftrag", url: "https://www.auftrag.at/", country: "AT", state: "serving", tenders: 77, buyer: "Stadt Graz", title: "Winterdienst 2027" },
-    { key: "simap", url: "https://www.simap.ch/", country: "CH", state: "serving", tenders: 142, buyer: "Kanton Zürich", title: "Neubau Werkhof" },
-    { key: "udbud", url: "https://udbud.dk/", country: "DK", state: "serving", tenders: 64, buyer: "Aarhus Kommune", title: "Levering af skolemælk" },
-    { key: "avrop", url: "https://www.e-avrop.com/", country: "SE", state: "serving", tenders: 49, buyer: "Göteborgs Stad", title: "Snöröjning centrum" },
-    { key: "etenders", url: "https://www.etenders.gov.ie/", country: "IE", state: "serving", tenders: 88, buyer: "Dublin City Council", title: "Street lighting maintenance" },
-    { key: "base", url: "https://www.base.gov.pt/", country: "PT", state: "integrating", tenders: 0, buyer: "", title: "" },
-    { key: "nen", url: "https://nen.nipez.cz/", country: "CZ", state: "serving", tenders: 120, buyer: "Statutární město Brno", title: "Rekonstrukce tramvajové trati" },
-    { key: "mercell", url: "https://www.mercell.com/", country: null, state: "failed", tenders: 0, buyer: "", title: "", reason: "Blocked: the portal answers 403 Forbidden to automated reads." },
+    { key: "spree_vergabe", url: "http://localhost:4100/spree-vergabe/", country: "DE", state: "serving", tenders: 58, buyer: "Senatsverwaltung Berlin", title: "Lieferung von E-Lastenrädern" },
+    { key: "wroclaw_przetargi", url: "http://localhost:4100/wroclaw-przetargi/", country: "PL", state: "serving", tenders: 412, buyer: "Gmina Wrocław", title: "Przebudowa ulicy Kościuszki" },
+    { key: "mazowsze_zamowienia", url: "http://localhost:4100/mazowsze-zamowienia/", country: "PL", state: "integrating", tenders: 0, buyer: "", title: "" },
+    { key: "meseta_contratos", url: "http://localhost:4100/meseta-contratos/", country: "ES", state: "failed", tenders: 0, buyer: "", title: "", reason: "Blocked: the search needs a session started by a person in a browser, so Watchtower does not read it." },
+    { key: "bologna_gare", url: "http://localhost:4100/bologna-gare/", country: "IT", state: "serving", tenders: 187, buyer: "Comune di Bologna", title: "Fornitura arredi scolastici" },
+    { key: "gent_aanbestedingen", url: "http://localhost:4100/gent-aanbestedingen/", country: "BE", state: "serving", tenders: 301, buyer: "Stad Gent", title: "Onderhoud groenzones" },
+    { key: "graz_auftraege", url: "http://localhost:4100/graz-auftraege/", country: "AT", state: "serving", tenders: 77, buyer: "Stadt Graz", title: "Winterdienst 2027" },
+    { key: "zurich_beschaffung", url: "http://localhost:4100/zurich-beschaffung/", country: "CH", state: "serving", tenders: 142, buyer: "Kanton Zürich", title: "Neubau Werkhof" },
+    { key: "aarhus_udbud", url: "http://localhost:4100/aarhus-udbud/", country: "DK", state: "serving", tenders: 64, buyer: "Aarhus Kommune", title: "Levering af skolemælk" },
+    { key: "goteborg_upphandling", url: "http://localhost:4100/goteborg-upphandling/", country: "SE", state: "serving", tenders: 49, buyer: "Göteborgs Stad", title: "Snöröjning centrum" },
+    { key: "liffey_tenders", url: "http://localhost:4100/liffey-tenders/", country: "IE", state: "serving", tenders: 88, buyer: "Dublin City Council", title: "Street lighting maintenance" },
+    { key: "lisboa_contratos", url: "http://localhost:4100/lisboa-contratos/", country: "PT", state: "integrating", tenders: 0, buyer: "", title: "" },
+    { key: "brno_zakazky", url: "http://localhost:4100/brno-zakazky/", country: "CZ", state: "serving", tenders: 120, buyer: "Statutární město Brno", title: "Rekonstrukce tramvajové trati" },
+    { key: "nordic_tender_hub", url: "http://localhost:4100/nordic-tender-hub/", country: null, state: "failed", tenders: 0, buyer: "", title: "", reason: "Blocked: the portal answers 403 Forbidden to automated reads." },
   ];
   more.forEach((m, n) => {
     const last = 3 + ((n * 7) % 25);
@@ -215,7 +216,7 @@ function seed() {
                 ]
               : []),
           ],
-      tenders: m.tenders ? { count: m.tenders, host: new URL(m.url).host, titles: [m.title], buyers: [m.buyer] } : undefined,
+      tenders: m.tenders ? { count: m.tenders, host: "localhost:4100", titles: [m.title], buyers: [m.buyer] } : undefined,
     });
   });
 
