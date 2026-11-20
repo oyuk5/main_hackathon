@@ -701,8 +701,9 @@ export function detailLabelHints(recipe: Recipe, body: string): string | null {
         hints.push(`${rule.field}: ${JSON.stringify({ label, parse: rule.field })}`);
       }
     }
-    if (!hasRule(recipe, "postalCode") && !hasRule(recipe, "city") && /^(miejsce realizacji|ort der ausführung|lieu d.exécution)$/i.test(label) && /^\d{2}-\d{3}\s+\p{L}/u.test(value)) {
-      hints.push(`postalCode: ${JSON.stringify({ label, parse: "postalCode" })}; city: ${JSON.stringify({ label, regex: "^\\d{2}-\\d{3}\\s+(.+)$" })}`);
+    if (/^(miejsce realizacji|ort der ausführung|lieu d.exécution)$/i.test(label) && /^\d{2}-\d{3}\s+\p{L}/u.test(value)) {
+      if (!hasRule(recipe, "postalCode") && !hasRule(recipe, "placeOfPerformance.postalCode")) hints.push(`postalCode: ${JSON.stringify({ label, regex: "^(\\d{2}-\\d{3})\\s+", parse: "postalCode" })}`);
+      if (!hasRule(recipe, "city") && !hasRule(recipe, "placeOfPerformance.city")) hints.push(`city: ${JSON.stringify({ label, regex: "^\\d{2}-\\d{3}\\s+(.+)$" })}`);
     }
   });
   return hints.length ? `The tender detail page shows these exact labels. Use these selectors in detail.fields, not listFields:\n${[...new Set(hints)].join("\n")}` : null;

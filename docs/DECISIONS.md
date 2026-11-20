@@ -40,3 +40,4 @@ Sat 00:31 · A · Keep exact observed optional detail-label hints through the pe
 Sat 00:33 · A · Expose stored openCount only in the internal overview and use it in dashboard counts · retained closed and withdrawn tenders are delivered but not open
 Sat 00:35 · A · Name minority document walls in the serving reason · unaffected tenders remain available without hiding the blocked attachments
 Sat 00:42 · A · Gate each attach and repair request on portal and daily ledger spend with in-flight reservations · concurrent jobs must not consume the same model headroom
+Sat 00:50 · A · Hint postal code and city independently when a detail label shows both · a city-only rule still leaves the verified place incomplete
