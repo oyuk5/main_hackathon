@@ -84,14 +84,12 @@ export function App() {
   return (
     <div className="min-h-dvh bg-sea text-ink">
       <Header onAdded={reload} />
-      <div className="mx-auto grid max-w-[1440px] min-[1800px]:max-w-[1680px] px-4 text-[13px] sm:px-6">
-        <p aria-hidden="true" className="invisible col-start-1 row-start-1 pt-3">
-          The Watchtower API is not answering. Showing the last successful update; retrying every 3 seconds.
-        </p>
-        {failing && <p role="alert" className="col-start-1 row-start-1 pt-3 text-failed">
+      {/* Pinned over the page, so it never pushes the layout down and leaves no gap when the API is fine. */}
+      {failing && (
+        <p role="alert" className="fixed bottom-4 left-1/2 z-40 w-[min(560px,calc(100%-32px))] -translate-x-1/2 rounded-[6px] border border-failed/40 bg-paper px-4 py-2.5 text-center text-[13px] text-failed shadow-[0_8px_24px_rgb(0_0_0/0.18)]">
           The Watchtower API is not answering. {data ? "Showing the last successful update; retrying every 3 seconds." : "Retrying every 3 seconds."}
-        </p>}
-      </div>
+        </p>
+      )}
       {data === null ? (
         failing ? <main className="mx-auto max-w-[1440px] min-[1800px]:max-w-[1680px] px-4 py-5 sm:px-6">
           <button type="button" onClick={() => void reload()} className="rounded-[4px] border border-hairline bg-paper px-3 py-2 font-semibold text-docker">Try again</button>
@@ -554,7 +552,7 @@ function Portals({
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const el = e.target as HTMLElement;
-      if (e.key !== "/" || e.metaKey || e.ctrlKey || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) || el.isContentEditable) return;
+      if (e.key !== "/" || e.metaKey || e.ctrlKey || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) || el.isContentEditable || el.closest('[role="dialog"]')) return;
       e.preventDefault();
       document.getElementById("portal-find")?.focus();
     };

@@ -15,18 +15,19 @@
   /* Headings, the wordmark and figures: a slightly condensed grotesque, like lettering on a chart. */
   --font-display: "Archivo Variable", "Inter", ui-sans-serif, system-ui, sans-serif;
 
-  --color-paper: #ffffff;
-  --color-sea: #f6f8fa;
-  --color-mist: #f0f4f8;
-  --color-land: #e8edf2;
-  --color-land-watched: #d8e2ec;
-  --color-shallow: #eef3f7;
-  --color-shallow-deep: #e2eaf1;
-  --color-grat: #d8e0e8;
-  --color-ink: #1b242c;
-  --color-slate: #576775;
-  --color-faint: #626f7b;
-  --color-hairline: #d8dee4;
+  /* Light theme on warm cream rather than pure white: easier on the eyes over a long shift. */
+  --color-paper: #fcfbf7;
+  --color-sea: #f4f2ea;
+  --color-mist: #eeebe1;
+  --color-land: #e8e3d6;
+  --color-land-watched: #dcd5c4;
+  --color-shallow: #efece2;
+  --color-shallow-deep: #e5e0d3;
+  --color-grat: #ddd7c9;
+  --color-ink: #24211c;
+  --color-slate: #57524a;
+  --color-faint: #6b655a;
+  --color-hairline: #dfd9cc;
 
   --color-docker: #17607f;
   --color-docker-solid: #17607f;
@@ -39,10 +40,10 @@
   --color-failed: #cf222e;
   --color-integrating: #6b4fc8;
 
-  --color-serving-wash: #e6f6f2;
-  --color-healing-wash: #fdf5e2;
-  --color-failed-wash: #fdecee;
-  --color-integrating-wash: #f1edfc;
+  --color-serving-wash: #e5f1e9;
+  --color-healing-wash: #f7eed8;
+  --color-failed-wash: #f8e7e2;
+  --color-integrating-wash: #eeeaf4;
 }
 
 @layer base {
