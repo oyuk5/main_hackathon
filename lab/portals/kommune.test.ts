@@ -150,7 +150,7 @@ test("every document downloads with the truth's hash and size; ZIP members keep 
       assert.match(e.name, /^0\d [^/]+\//, `${e.name} sits in a folder`);
       const d = x.documents.find((doc) => doc.sha256 === e.sha);
       assert.ok(d, `${e.name} is in the truth`);
-      assert.equal(d.fileName, e.name);
+      assert.equal(d.fileName, e.name.split("/").pop());
       assert.equal(d.sizeBytes, e.size);
       if (e.name.split("/").length > 2) nested++;
     }

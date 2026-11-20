@@ -190,8 +190,9 @@ export function sha256(b: Buffer): string {
   return createHash("sha256").update(b).digest("hex");
 }
 
+/** ZIP members inside folders are named by their last part, like the platform does (safeName in documents.ts). */
 function doc(f: LabFile): TruthDocument {
-  return { fileName: f.name, sizeBytes: f.bytes.length, sha256: sha256(f.bytes) };
+  return { fileName: f.name.split("/").pop()!, sizeBytes: f.bytes.length, sha256: sha256(f.bytes) };
 }
 
 /** Bytes of the ZIP for a tender (built once and cached so its hash is stable). */
