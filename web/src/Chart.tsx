@@ -90,7 +90,11 @@ export function Chart({ rows, hover, setHover, compact = false }: { rows: Portal
     for (const p of rows) {
       const c = countryOf(p);
       if (!c) unplaced.push(p);
-      else byCountry.set(c, [...(byCountry.get(c) ?? []), p]);
+      else {
+        const group = byCountry.get(c);
+        if (group) group.push(p);
+        else byCountry.set(c, [p]);
+      }
     }
     const placed: Placed[] = [];
     const clusters: Cluster[] = [];
@@ -117,6 +121,7 @@ export function Chart({ rows, hover, setHover, compact = false }: { rows: Portal
   const labels = useMemo(() => (compact ? [] : layoutLabels(placed, H)), [placed, H, compact]);
   const graticule = useMemo(() => path(geoGraticule().step([5, 5]).extent([[VIEW.w - 5, VIEW.s - 5], [VIEW.e + 5, VIEW.n + 5]])()) ?? "", [path]);
   const land = useMemo(() => path(geo) ?? "", [path]);
+  const countries = useMemo(() => geo.features.map((f) => ({ id: String(f.id), d: path(f) ?? "" })), [path]);
 
   return (
     <div className="relative">
@@ -140,8 +145,8 @@ export function Chart({ rows, hover, setHover, compact = false }: { rows: Portal
           {/* Shallow water: a wide pale band and a narrow deeper band along every coast. */}
           <path d={land} className="fill-none stroke-shallow" strokeWidth="18" strokeLinejoin="round" />
           <path d={land} className="fill-none stroke-shallow-deep" strokeWidth="7" strokeLinejoin="round" />
-          {geo.features.map((f) => (
-            <path key={String(f.id)} d={path(f) ?? ""} className={watched.has(String(f.id)) ? "fill-land-watched" : "fill-land"} />
+          {countries.map(({ id, d }) => (
+            <path key={id} d={d} className={watched.has(id) ? "fill-land-watched" : "fill-land"} />
           ))}
           <path d={land} className="fill-none stroke-ink/35" strokeWidth="0.6" strokeLinejoin="round" />
 

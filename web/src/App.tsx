@@ -68,7 +68,11 @@ export function App() {
     [data],
   );
   // Every tab shows only the portals picked in the tab bar. Ids of deleted portals are ignored.
-  const rows = useMemo(() => (picked ? all.filter((p) => picked.includes(p.id)) : all), [all, picked]);
+  const rows = useMemo(() => {
+    if (!picked) return all;
+    const ids = new Set(picked);
+    return all.filter((p) => ids.has(p.id));
+  }, [all, picked]);
   const totalCost = useMemo(() => (ledger ?? []).reduce((s, r) => s + r.cost_usd, 0), [ledger]);
 
   // The browser tab says how many portals need a person, so a glance at the tab bar is enough.
@@ -560,10 +564,22 @@ function Portals({
   const [refreshing, setRefreshing] = useState<Record<string, boolean>>({});
 
   const q = query.trim().toLowerCase();
-  const rows = all
+  const rows = useMemo(() => all
     .filter((r) => view.state === "all" || r.state === view.state)
     .filter((r) => !q || host(r.url).toLowerCase().includes(q) || r.reason.toLowerCase().includes(q))
-    .sort((a, b) => SORT[view.sort](a, b) || host(a.url).localeCompare(host(b.url)));
+    .sort((a, b) => SORT[view.sort](a, b) || host(a.url).localeCompare(host(b.url))), [all, q, view.sort, view.state]);
+  const groupCounts = useMemo(() => {
+    const counts: Record<State, number> = { failed: 0, healing: 0, integrating: 0, serving: 0 };
+    for (const row of rows) counts[row.state]++;
+    return counts;
+  }, [rows]);
+  const pageSize = 40;
+  const pageKey = JSON.stringify([q, view.sort, view.state]);
+  const [paging, setPaging] = useState({ key: pageKey, index: 0 });
+  const lastPage = Math.max(0, Math.ceil(rows.length / pageSize) - 1);
+  const page = paging.key === pageKey ? Math.min(paging.index, lastPage) : 0;
+  const offset = page * pageSize;
+  const visible = rows.slice(offset, offset + pageSize);
 
   if (all.length === 0) return <div />;
 
@@ -762,11 +778,11 @@ function Portals({
               </tr>
             </thead>
             <tbody>
-              {rows.map((r, i) => {
+              {visible.map((r, i) => {
                 const isSelectedRow = hover === r.id;
-                const groupStart = view.sort === "urgent" && (i === 0 || rows[i - 1]!.state !== r.state);
-                const groupSize = groupStart ? rows.filter((x) => x.state === r.state).length : 0;
-                                const isBusy = Boolean(r.busy || refreshing[r.id]);
+                const groupStart = view.sort === "urgent" && (i === 0 || visible[i - 1]!.state !== r.state);
+                const groupSize = groupCounts[r.state];
+                const isBusy = Boolean(r.busy || refreshing[r.id]);
                 const detailHref = `#/p/${encodeURIComponent(r.id)}`;
 
                 return (
@@ -853,6 +869,15 @@ function Portals({
           </table>
         )}
       </div>
+      {lastPage > 0 && (
+        <nav aria-label="Portal table pages" className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[13px]">
+          <span className="num text-slate" role="status">{int(offset + 1)}–{int(offset + visible.length)} of {int(rows.length)} portals</span>
+          <div className="flex gap-2">
+            <button type="button" disabled={page === 0} onClick={() => setPaging({ key: pageKey, index: page - 1 })} className="rounded-[4px] border border-hairline bg-paper px-2 py-1 text-docker disabled:text-faint">Previous page</button>
+            <button type="button" disabled={page === lastPage} onClick={() => setPaging({ key: pageKey, index: page + 1 })} className="rounded-[4px] border border-hairline bg-paper px-2 py-1 text-docker disabled:text-faint">Next page</button>
+          </div>
+        </nav>
+      )}
     </section>
   );
 }

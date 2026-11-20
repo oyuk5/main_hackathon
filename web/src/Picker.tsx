@@ -2,7 +2,7 @@
  * Choose which portals the dashboard shows. One choice for every tab: the summary, the list,
  * the map, the issues and the log. `picked` null means all portals.
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { StatusIcon, stateToIconKind } from "./StatusIcon";
 import { STATE_ORDER, host, type PortalRow } from "./lib";
 
@@ -25,13 +25,13 @@ export function Picker({ all, picked, setPicked }: { all: PortalRow[]; picked: s
     return () => (document.removeEventListener("mousedown", outside), document.removeEventListener("keydown", esc));
   }, [open]);
 
-  const chosen = new Set(picked ?? all.map((p) => p.id));
+  const chosen = useMemo(() => new Set(picked ?? all.map((p) => p.id)), [picked, all]);
   const count = all.filter((p) => chosen.has(p.id)).length;
   const label = picked === null || count === all.length ? "All portals" : count === 1 ? host(all.find((p) => chosen.has(p.id))!.url) : `${count} of ${all.length} portals`;
   const q = find.trim().toLowerCase();
-  const list = [...all]
-    .sort((a, b) => STATE_ORDER[a.state] - STATE_ORDER[b.state] || host(a.url).localeCompare(host(b.url)))
-    .filter((p) => !q || host(p.url).toLowerCase().includes(q));
+  const sorted = useMemo(() => all.map((p) => ({ ...p, name: host(p.url) }))
+    .sort((a, b) => STATE_ORDER[a.state] - STATE_ORDER[b.state] || a.name.localeCompare(b.name)), [all]);
+  const list = useMemo(() => q ? sorted.filter((p) => p.name.toLowerCase().includes(q)) : sorted, [q, sorted]);
 
   const toggle = (id: string) => {
     const next = new Set(chosen);
@@ -77,17 +77,18 @@ export function Picker({ all, picked, setPicked }: { all: PortalRow[]; picked: s
             </span>
           </div>
           <ul className="max-h-[320px] overflow-y-auto py-1">
+            {list.length === 0 && <li className="px-3 py-2 text-[13px] text-slate">No portals match your search.</li>}
             {list.map((p) => (
               <li key={p.id}>
                 <div className="flex items-center gap-2.5 px-3 py-1.5 hover:bg-mist">
                   <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2.5">
                   <input type="checkbox" checked={chosen.has(p.id)} onChange={() => toggle(p.id)} className="size-4 shrink-0 accent-[var(--color-docker)]" />
                   <StatusIcon kind={stateToIconKind(p.state)} size={10} />
-                  <span className="min-w-0 truncate text-[13.5px] font-medium text-ink">{host(p.url)}</span>
+                  <span className="min-w-0 truncate text-[13.5px] font-medium text-ink">{p.name}</span>
                   </label>
                   <button
                     type="button"
-                    aria-label={`Show only ${host(p.url)}`}
+                    aria-label={`Show only ${p.name}`}
                     onClick={() => (setPicked([p.id]), setOpen(false), trigger.current?.focus())}
                     className="ml-auto shrink-0 text-[12px] text-docker hover:underline cursor-pointer"
                   >
