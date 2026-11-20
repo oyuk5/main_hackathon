@@ -316,3 +316,10 @@ test("a minority of partial document failures cannot publish incomplete new or u
   assert.equal(mock.mock.callCount(), 7);
   assert.equal(byId(p).T4, undefined);
 });
+
+test("robots.txt on document downloads counts as a block, not a repair", async () => {
+  const { classifyDocumentFailures } = await import("./orchestrator.js");
+  const robots = { blocked: true, tenderId: "t", detail: "Could not download https://p.example/file/get_new/1: robots.txt disallows /file/get_new/1." };
+  assert.equal(classifyDocumentFailures([robots, robots], 3)?.kind, "blocked");
+  assert.match(classifyDocumentFailures([robots, robots], 3)!.reason, /robots\.txt disallows/);
+});

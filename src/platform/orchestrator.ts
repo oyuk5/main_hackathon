@@ -197,7 +197,10 @@ async function runFlow(portalId: string, url: string, runId: string, controller:
       finishRun(runId, "failed", reason);
       return failPortal(portalId, reason);
     }
-    store.saveRecipe(portalId, out.recipe, out.recipe.family ? "family" : "attach", out.note, nowWithOffset());
+    // "family": learned from a recognised software's template with no model call; a model-learned
+    // recipe on recognised software (which becomes the template) is still an "attach".
+    const usedModel = runId in store.costByRun(portalId);
+    store.saveRecipe(portalId, out.recipe, out.recipe.family && !usedModel ? "family" : "attach", out.note, nowWithOffset());
     store.setGolden(portalId, out.golden);
     return judgeAndDeliver(portalId, runId, ctx, out.read);
   }
@@ -456,8 +459,9 @@ export async function deliver(portalId: string, read: OkRead, ctx: PortalContext
       if (et.documentRefs.length > 0) documentsFetched++;
       const failures = got.problems.filter((problem) => !/^Left out .+: it is over \d+ MB\.$/.test(problem));
       if (failures.length > 0) {
-        // Only login and captcha walls are blocks; a web page instead of a file may be a moved link.
-        const wall = failures.find((p) => /^(Documents need a login|Blocked by a captcha)/.test(p));
+        // Login and captcha walls and robots.txt are blocks (a repair cannot get past them);
+        // a web page instead of a file may be a moved link.
+        const wall = failures.find((p) => /^(Documents need a login|Blocked by a captcha)|robots\.txt disallows/.test(p));
         documentFailures.push({ tenderId: et.id, detail: wall ?? failures[0]!, blocked: wall !== undefined });
         // A partial download is not a new snapshot. The old refs hash (or absent row) also
         // ensures we retry these refs instead of caching an incomplete attachment list.
