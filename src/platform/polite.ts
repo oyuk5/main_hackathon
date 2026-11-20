@@ -30,31 +30,91 @@ export async function gate(host: string, signal?: AbortSignal): Promise<void> {
 
 // ------------------------------------------------------------ robots.txt
 
-const robotsCache = new Map<string, string[]>();
+export type RobotsRules = { allow: string[]; disallow: string[] };
 
-async function disallowedPaths(origin: string, signal?: AbortSignal): Promise<string[]> {
+/** Our product token for robots.txt groups, e.g. "watchtowerbot" from "WatchtowerBot/0.1 (...)". */
+const botToken = () => (config.userAgent.split(/[/\s]/)[0] ?? "").toLowerCase();
+
+/**
+ * Parses robots.txt (RFC 9309): consecutive User-agent lines share one group, the group naming
+ * our bot wins over "*", and Allow/Disallow support "*" and a trailing "$".
+ */
+export function parseRobots(text: string, token = botToken()): RobotsRules {
+  type Group = { agents: string[]; rules: RobotsRules };
+  const groups: Group[] = [];
+  let current: Group | null = null;
+  let lastWasAgent = false;
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.split("#")[0]!.trim();
+    const colon = line.indexOf(":");
+    if (colon < 0) continue;
+    const key = line.slice(0, colon).trim().toLowerCase();
+    const value = line.slice(colon + 1).trim();
+    if (key === "user-agent") {
+      if (!lastWasAgent || !current) groups.push((current = { agents: [], rules: { allow: [], disallow: [] } }));
+      current.agents.push(value.toLowerCase());
+      lastWasAgent = true;
+      continue;
+    }
+    lastWasAgent = false;
+    if (!current) continue;
+    if (key === "allow" && value) current.rules.allow.push(value);
+    else if (key === "disallow" && value) current.rules.disallow.push(value);
+  }
+  const mine = groups.filter((g) => g.agents.some((a) => a !== "*" && token.includes(a)));
+  const chosen = mine.length ? mine : groups.filter((g) => g.agents.includes("*"));
+  return {
+    allow: chosen.flatMap((g) => g.rules.allow),
+    disallow: chosen.flatMap((g) => g.rules.disallow),
+  };
+}
+
+function patternMatch(pattern: string, pathAndQuery: string): number {
+  const anchored = pattern.endsWith("$");
+  const body = anchored ? pattern.slice(0, -1) : pattern;
+  const re = new RegExp("^" + body.split("*").map((s) => s.replace(/[.+?^${}()|[\]\\]/g, "\\$&")).join(".*") + (anchored ? "$" : ""));
+  return re.test(pathAndQuery) ? pattern.length : -1;
+}
+
+/** Longest matching rule wins; on a tie Allow wins. No rule matching means allowed. */
+export function robotsAllow(rules: RobotsRules, pathAndQuery: string): boolean {
+  const best = (patterns: string[]) => Math.max(-1, ...patterns.map((p) => patternMatch(p, pathAndQuery)));
+  const allow = best(rules.allow);
+  const disallow = best(rules.disallow);
+  return disallow < 0 || allow >= disallow;
+}
+
+const robotsCache = new Map<string, Promise<RobotsRules>>();
+
+/** Rules for one origin, fetched once (through the gate) and shared by HTTP and the browser. */
+function rulesFor(origin: string, signal?: AbortSignal): Promise<RobotsRules> {
   const cached = robotsCache.get(origin);
   if (cached) return cached;
-  let rules: string[] = [];
-  try {
+  const loading = (async () => {
     await gate(new URL(origin).host, signal);
     const res = await fetch(`${origin}/robots.txt`, { headers: { "user-agent": config.userAgent }, signal });
-    if (res.ok) {
-      let applies = false;
-      for (const raw of (await res.text()).split("\n")) {
-        const line = raw.split("#")[0]!.trim();
-        const [k, ...rest] = line.split(":");
-        const key = k?.trim().toLowerCase();
-        const value = rest.join(":").trim();
-        if (key === "user-agent") applies = value === "*" || config.userAgent.toLowerCase().includes(value.toLowerCase());
-        else if (applies && key === "disallow" && value) rules.push(value);
-      }
-    }
-  } catch {
-    rules = [];
+    // Missing or broken robots.txt means no rules (RFC 9309 treats 4xx as "allow all").
+    return res.ok ? parseRobots(await res.text()) : { allow: [], disallow: [] };
+  })();
+  robotsCache.set(origin, loading);
+  // Don't cache a failure (abort, network error): the next request asks again.
+  loading.catch(() => {
+    if (robotsCache.get(origin) === loading) robotsCache.delete(origin);
+  });
+  return loading;
+}
+
+/** True when robots.txt lets us fetch this URL. Network errors fetching robots.txt count as allowed. */
+export async function robotsAllows(url: string, signal?: AbortSignal): Promise<boolean> {
+  const u = new URL(url);
+  if (u.protocol !== "http:" && u.protocol !== "https:") return true;
+  if (u.pathname === "/robots.txt") return true;
+  try {
+    return robotsAllow(await rulesFor(u.origin, signal), u.pathname + u.search);
+  } catch (e) {
+    if (signal?.aborted) throw e;
+    return true;
   }
-  robotsCache.set(origin, rules);
-  return rules;
 }
 
 // ------------------------------------------------------------ HTTP
@@ -63,8 +123,7 @@ export function politeHttp(signal: AbortSignal, onRequest?: () => void): PoliteH
   return {
     async fetch(url, init) {
       const u = new URL(url);
-      const rules = await disallowedPaths(u.origin, signal);
-      if (rules.some((r) => u.pathname.startsWith(r))) throw new Error(`robots.txt disallows ${u.pathname}`);
+      if (!(await robotsAllows(url, signal))) throw new Error(`robots.txt disallows ${u.pathname}`);
       await gate(u.host, signal);
       onRequest?.();
       const headers = new Headers(init?.headers);
@@ -112,6 +171,8 @@ export function politeBrowser(signal: AbortSignal, onRequest?: () => void): Poli
           const req = route.request();
           if (["image", "font", "media"].includes(req.resourceType())) return route.abort();
           try {
+            // Same robots.txt rules as plain HTTP, for every request the page makes.
+            if (!(await robotsAllows(req.url(), signal))) return route.abort("blockedbyclient");
             await gate(new URL(req.url()).host, signal);
           } catch {
             return route.abort();
