@@ -413,13 +413,21 @@ export async function deliver(portalId: string, read: OkRead, ctx: PortalContext
   // Older rows with an empty refs hash are also retried. The budget decides which get a turn.
   const rows = new Map(unique.map((et) => [et.id, store.getTenderRow(portalId, et.id)]));
   const refsHashOf = new Map(unique.map((et) => [et.id, sha(JSON.stringify(et.documentRefs))]));
+  const previousFileCounts = new Map<string, number>();
+  if (repairRecipe) {
+    for (const [id, row] of rows) {
+      if (!row) continue;
+      const files = (JSON.parse(row.json) as TenderT).documents.length;
+      if (files > 0) previousFileCounts.set(id, files);
+    }
+  }
   const plan = planDocuments(
     unique.map((et) => {
       const row = rows.get(et.id);
       // Refs not looked for in this read (documentRefsPending) say nothing new: no fetch planned.
       const need: Need = et.documentRefsPending
         ? "none"
-        : !row ? "new" : row.refs_hash === refsHashOf.get(et.id) ? "none" : row.refs_hash === "" ? "retry" : "changed";
+        : !row ? "new" : previousFileCounts.has(et.id) ? "changed" : row.refs_hash === refsHashOf.get(et.id) ? "none" : row.refs_hash === "" ? "retry" : "changed";
       return { id: et.id, need, refs: et.documentRefs.length, open: statusOf(et) === "open", publicationDate: et.publicationDate ?? null };
     }),
     config.docRefsPerRead,
@@ -433,12 +441,17 @@ export async function deliver(portalId: string, read: OkRead, ctx: PortalContext
     if (ctx.signal.aborted) break;
     const row = rows.get(et.id);
     const refsHash = refsHashOf.get(et.id)!;
+    const previousFiles = previousFileCounts.get(et.id) ?? 0;
+    if (previousFiles > 0 && (et.documentRefsPending || !plan.fetch.has(et.id))) {
+      documentFailures.push({ tenderId: et.id, blocked: false, detail: "A previously delivered tender's files could not be checked within this repair." });
+      continue;
+    }
     let documents: TenderDocument[];
     if (et.documentRefsPending) {
       // Do not combine a new listing with attachments from a different snapshot.
       pendingRefs += 1;
       continue;
-    } else if (row && row.refs_hash === refsHash) {
+    } else if (row && row.refs_hash === refsHash && previousFiles === 0) {
       documents = (JSON.parse(row.json) as TenderT).documents;
     } else if (plan.fetch.has(et.id)) {
       const got = await documentFetcher.fetchAll(et.documentRefs, ctx);
@@ -454,6 +467,10 @@ export async function deliver(portalId: string, read: OkRead, ctx: PortalContext
         documentFailures.push({ tenderId: et.id, detail: wall ?? failures[0]!, blocked: wall !== undefined });
         // A partial download is not a new snapshot. The old refs hash (or absent row) also
         // ensures we retry these refs instead of caching an incomplete attachment list.
+        continue;
+      }
+      if (documents.length < previousFiles) {
+        documentFailures.push({ tenderId: et.id, blocked: false, detail: `A previously delivered tender now has ${count(documents.length, "verified file")} instead of ${previousFiles}.` });
         continue;
       }
     } else {
