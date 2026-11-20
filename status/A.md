@@ -1,5 +1,5 @@
 # A · Platform
-_Updated: Fri 23:40 CET. Only A and A's agent write here. Keep it under 15 lines and true._
+_Updated: Fri 23:41 CET. Only A and A's agent write here. Keep it under 15 lines and true._
 
 **Done**
 - Judge walkthrough verified and pushed. Fresh clone `5907655`: build, 292/292 tests, Linux/amd64 Docker and 16/16 contract checks passed.
@@ -7,7 +7,7 @@ _Updated: Fri 23:40 CET. Only A and A's agent write here. Keep it under 15 lines
 - Platform: `politeHttp.fetch` now honors the caller's deadline as well as job cancellation. Regression tests cover the host gate and a stalled response.
 
 **Doing now**
-- Live attach: sampled every 30 s for 10 min (watcher restart at 23:32:21). Both roots still integrating at the cutoff; outbound traffic continued. Prior `/all` run failed on robots.txt at document download, not at model or browser startup.
+- Live attach: 21 samples over 10 min (watcher restart at 23:32:21); both still integrating at cutoff. Platforma extracted 1,200 tenders at 23:41:13, then failed at 23:41:14 because robots.txt disallows `/file/get_new/…`; 0 tenders served.
 
 **Needs from others**
 - C: add `publishedDocumentCounts?` to `Baseline` (modules.ts) and reject unsafe candidates in Medic so it retries.
