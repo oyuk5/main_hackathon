@@ -54,66 +54,66 @@
   /* Dark follows the system unless the viewer picked a theme (data-theme on <html>, set by the switch). */
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
-      /* Dark: desert night. Deep navy sky, sand-coloured text, an apricot accent that mirrors the light theme. */
-      --color-paper: #18233a;
-      --color-sea: #111a2d;
-      --color-mist: #1f2c46;
-      --color-land: #22304a;
-      --color-land-watched: #33455f;
-      --color-shallow: #14203a;
-      --color-shallow-deep: #182640;
-      --color-grat: #253552;
-      --color-ink: #f3e8d8;
-      --color-slate: #c0b2a0;
-      --color-faint: #a9998a;
-      --color-hairline: #2a3a57;
+      /* Dark: desert night. Soft powdery navy, sand-coloured text, an apricot accent that mirrors the light theme. */
+      --color-paper: #222c3e;
+      --color-sea: #1b2333;
+      --color-mist: #2a354b;
+      --color-land: #2b364b;
+      --color-land-watched: #3b485f;
+      --color-shallow: #1e2738;
+      --color-shallow-deep: #232d41;
+      --color-grat: #303c52;
+      --color-ink: #ece4d8;
+      --color-slate: #bfb5a8;
+      --color-faint: #aca295;
+      --color-hairline: #344058;
 
-      --color-docker: #f2a874;
-      --color-docker-solid: #b0532a;
-      --color-docker-hover: #963f1d;
-      --color-magenta: #f2a874;
+      --color-docker: #e2b393;
+      --color-docker-solid: #985c3d;
+      --color-docker-hover: #824c31;
+      --color-magenta: #e2b393;
 
-      --color-serving: #7fc79a;
-      --color-healing: #e8b45a;
-      --color-healing-text: #e8b45a;
-      --color-failed: #f08a73;
-      --color-integrating: #b9a4f0;
+      --color-serving: #9cc4a8;
+      --color-healing: #dbb978;
+      --color-healing-text: #dbb978;
+      --color-failed: #e49e8c;
+      --color-integrating: #bcb0de;
 
-      --color-serving-wash: rgba(127, 199, 154, 0.13);
-      --color-healing-wash: rgba(232, 180, 90, 0.13);
-      --color-failed-wash: rgba(240, 138, 115, 0.14);
-      --color-integrating-wash: rgba(185, 164, 240, 0.14);
+      --color-serving-wash: rgba(156, 196, 168, 0.12);
+      --color-healing-wash: rgba(219, 185, 120, 0.12);
+      --color-failed-wash: rgba(228, 158, 140, 0.13);
+      --color-integrating-wash: rgba(188, 176, 222, 0.13);
     }
   }
   :root[data-theme="dark"] {
-    --color-paper: #18233a;
-    --color-sea: #111a2d;
-    --color-mist: #1f2c46;
-    --color-land: #22304a;
-    --color-land-watched: #33455f;
-    --color-shallow: #14203a;
-    --color-shallow-deep: #182640;
-    --color-grat: #253552;
-    --color-ink: #f3e8d8;
-    --color-slate: #c0b2a0;
-    --color-faint: #a9998a;
-    --color-hairline: #2a3a57;
+    --color-paper: #222c3e;
+    --color-sea: #1b2333;
+    --color-mist: #2a354b;
+    --color-land: #2b364b;
+    --color-land-watched: #3b485f;
+    --color-shallow: #1e2738;
+    --color-shallow-deep: #232d41;
+    --color-grat: #303c52;
+    --color-ink: #ece4d8;
+    --color-slate: #bfb5a8;
+    --color-faint: #aca295;
+    --color-hairline: #344058;
 
-    --color-docker: #f2a874;
-    --color-docker-solid: #b0532a;
-    --color-docker-hover: #963f1d;
-    --color-magenta: #f2a874;
+    --color-docker: #e2b393;
+    --color-docker-solid: #985c3d;
+    --color-docker-hover: #824c31;
+    --color-magenta: #e2b393;
 
-    --color-serving: #7fc79a;
-    --color-healing: #e8b45a;
-    --color-healing-text: #e8b45a;
-    --color-failed: #f08a73;
-    --color-integrating: #b9a4f0;
+    --color-serving: #9cc4a8;
+    --color-healing: #dbb978;
+    --color-healing-text: #dbb978;
+    --color-failed: #e49e8c;
+    --color-integrating: #bcb0de;
 
-    --color-serving-wash: rgba(127, 199, 154, 0.13);
-    --color-healing-wash: rgba(232, 180, 90, 0.13);
-    --color-failed-wash: rgba(240, 138, 115, 0.14);
-    --color-integrating-wash: rgba(185, 164, 240, 0.14);
+    --color-serving-wash: rgba(156, 196, 168, 0.12);
+    --color-healing-wash: rgba(219, 185, 120, 0.12);
+    --color-failed-wash: rgba(228, 158, 140, 0.13);
+    --color-integrating-wash: rgba(188, 176, 222, 0.13);
   }
   :root[data-theme="light"] {
     color-scheme: light;
