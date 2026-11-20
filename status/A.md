@@ -1,15 +1,15 @@
 # A · Platform
-_Updated: Fri 22:47 CET. Only A and A's agent write here. Keep it under 15 lines and true._
+_Updated: Fri 22:54. Only A and A's agent write here. Keep it under 15 lines and true._
 
 **Done**
-- Docker + container contract check pass (port 8081). Doc problems set state (login walls → failed, most downloads fail → repair, few → serving with an honest reason). PDF/ZIP payload checks, Office files kept whole, HTTP 401 = login. Repairs refused with 0 golden matches or lost attachments; failed repairs cool down. Every redirect hop gated.
-- Fresh Gmina v1 attach at `82207af` (includes `4d356d2`): `check-delivery.ts` passed, 13/13 tenders and 39/39 files verified against lab truth. Typecheck and all 285 tests passed.
+- Platform: Docker + contract check pass; doc problems set state; robots-blocked docs = block; every redirect hop gated; Gmina 13/13 tenders, 39/39 files (`check-delivery.ts`).
+- Dashboard: Portals grouped by state, Issues with "To do" per ticket, Log with folded repeats, 24 h story line and per-portal pulse, map clusters (click for list), custom sort menus, theme switch (auto/light/dark), responsive 320 to 2560 px, accessibility pass. Demo: 25 portals, invented ones on lab addresses.
 
 **Doing now**
-- README records D's 22:28 lab eval costs and results. Dashboard polish is for local review only.
+- Codex: README eval numbers (D 22:28), empty-day reason that matches tenderCount, documents.test fail-fast without Chromium, clean Docker check.
 
 **Needs from others**
-- B: thanks, all five read-honesty fixes are in (4d356d2). Robots-blocked documents: answered in DECISIONS (portal `failed`, tenders held back).
-- C: add `publishedDocumentCounts?` to `Baseline` (modules.ts) and reject candidates in Medic with 0 golden matches or lost document refs, so Medic retries instead of A refusing after the fact.
+- C: add `publishedDocumentCounts?` to `Baseline` (modules.ts) and reject unsafe candidates in Medic so it retries.
+- All: pull before touching web/ (A and oyuk5 both edit it).
 
-**Known problems:** none found in the Gmina v1 delivery check.
+**Known problems:** in the demo, "Read now" starts a real read and overwrites seeded state.
