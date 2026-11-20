@@ -752,7 +752,7 @@ function looksLikeFileName(s: string): boolean {
   return s.length <= 200 && /\.[a-z0-9]{2,5}$/i.test(s);
 }
 
-async function documentRefs(st: ReadState, start: Doc, values: Values): Promise<DocumentRef[]> {
+async function documentRefs(st: ReadState, start: Doc, values: Values, count = true): Promise<DocumentRef[]> {
   const rule = st.recipe.documents!;
   const via = rule.via ?? "http";
   let doc = start;
@@ -792,6 +792,7 @@ async function documentRefs(st: ReadState, start: Doc, values: Values): Promise<
   } else {
     for (const v of resolveSelector(st, files, rootScope(doc), values, { defaultAttr: "href", all: true })) add(v);
   }
+  if (!count) return refs;
   st.docChecked = (st.docChecked ?? 0) + 1;
   if (refs.length === 0 && doc.kind === "markup") (st.docMisses ??= []).push(fileLikeLinks(doc));
   return refs;
@@ -975,7 +976,16 @@ async function run(st: ReadState, started: number): Promise<ReadOutcome> {
     // True when this read could not look at the tender's detail page or documents (cap or failure):
     // empty refs then mean "unknown", not "no documents", and the platform holds the tender back.
     let pending = false;
-    const needsWork = recipe.detail !== null && recipe.detail !== undefined ? true : recipe.documents !== null && recipe.documents !== undefined;
+    // JSON lists often carry each tender's files in the item itself ("pieces": [{ "lien": … }]). A
+    // documents rule with no hops and a JSONPath is tried on the item first: no request at all.
+    let itemRefs: DocumentRef[] | null = null;
+    const docRule = recipe.documents;
+    if (docRule && (docRule.hops ?? []).length === 0 && docRule.files.jsonPath !== undefined && item.scope.kind === "json") {
+      const found = await documentRefs(st, { kind: "json", data: item.scope.value, url: item.scope.url, raw: "" }, values, false);
+      if (found.length > 0) itemRefs = found;
+    }
+    if (itemRefs) refs = itemRefs;
+    const needsWork = recipe.detail !== null && recipe.detail !== undefined ? true : recipe.documents !== null && recipe.documents !== undefined && !itemRefs;
     if (needsWork) {
       let detailUrl: string | null = null;
       if (recipe.detail) {
@@ -1010,7 +1020,7 @@ async function run(st: ReadState, started: number): Promise<ReadOutcome> {
             ctx.log(`Detail page ${detailUrl} could not be read (${(e as Error).message}); keeping the list values.`, "warn");
           }
         }
-        if (recipe.documents) {
+        if (recipe.documents && !itemRefs) {
           try {
             let start = detailDoc;
             const url = typeof values.url === "string" ? values.url : null;

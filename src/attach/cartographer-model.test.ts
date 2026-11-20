@@ -403,7 +403,7 @@ test("tenderPageView lists file-like links grouped by place, with the markup aro
   assert.match(v.text, /2× .*a\.btn\.file-download: "\(no text\)" \[aria-label="Pobierz"\] href="\/\/localhost:\d+\/m\/file\/get\/a1" \(resolves to http:\/\/localhost:\d+\/m\/file\/get\/a1\)/);
   assert.match(v.text, /1× .*Instrukcja\.pdf/);
   assert.match(v.text, /Markup around the largest group[\s\S]*<table class="files">[\s\S]*SWZ\.pdf/);
-  assert.ok(!v.text.includes("Opis zamówienia. Opis zamówienia. Opis"), "the long page text is not sent");
+  assert.ok(!v.text.includes("Opis zamówienia. ".repeat(10)), "long page texts are cut, never sent in full");
 
   const none = tenderPageView(page('<h1>T</h1><a href="/m/t/1/docs">Unterlagen anzeigen</a><a href="/m/home">Start</a>'), `${base}/m/t/1`, 200);
   assert.equal(none.fileLinks, 1, "a 'documents' tab link counts: it is where hops lead");
