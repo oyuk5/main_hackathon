@@ -137,6 +137,8 @@ The skeleton already runs end to end. The stubs in `src/attach/index.ts` and `sr
 - Push at least every hour. If something is half-done, keep it behind the stub so `main` always runs.
 
 ## Prompt for your AI agent
-Paste this into Claude Code (or any agent) at the start of a session, with your letter:
+In Claude Code type `/start A` (or B, C, D). For Codex or any other agent, paste this at the start of a session, with your letter:
 
-> You are working on Watchtower for the Patterno hackathon track. I am person **[A/B/C/D]**. Read `CLAUDE.md`, `docs/BRIEF.md`, `docs/ARCHITECTURE.md` and my section of `docs/TASKS.md`. Work only in the folders my role owns. Do not change `src/shared/contract.ts`. Start with my first unfinished task, keep `npm run typecheck && npm test` green, and commit small steps without attribution lines.
+> You are working on Watchtower for the Patterno hackathon track. I am person **[A/B/C/D]**. Read `AGENTS.md`, then `docs/BRIEF.md`, my area's `AGENTS.md`, my section of `docs/TASKS.md`, all of `status/` and `docs/DECISIONS.md`. Work only in the folders my role owns. Do not change `src/shared/contract.ts`. Start with my first unfinished task, keep `npm run typecheck && npm test` green, update `status/<my letter>.md` when a task is done, and commit small steps without attribution lines.
+
+How we work together day to day: `docs/ONBOARDING.md`.

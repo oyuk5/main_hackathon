@@ -89,3 +89,14 @@ The winning system goes into production. The winning team is fast-tracked to an 
 
 ## Answers from Patterno
 _Write answers from mentoring here, with the date and who said it._
+
+- Fri kickoff (team notes): they call our API from their own setup and grade it against portals they built, plus real ones. They will help the winning team run it in production; the visit to Hamburg is covered.
+
+### Open questions (ask at mentoring, then move the answer above)
+1. How often will they call `refresh`, and how long is the test run? (Sets our read interval and how many detail pages we can afford at 1 req/s.)
+2. Do their private portals change **during** the test run, or are the changed versions separate portals?
+3. Will our container reach their portals over the public internet, or a local network? Any proxy?
+4. Does `closed` need to stay in `/tenders` once the portal stops listing it, and for how long?
+5. Do they judge document **completeness** (every file) or a sample? How do they treat files we skipped over 250 MB?
+6. Which model do they expect us to use at hand-in, and are event credits enough, or should we give our own key?
+7. For the internship/job track: do engineering roles need German, or only go-to-market?
