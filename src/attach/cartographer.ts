@@ -683,6 +683,31 @@ export function missingOptionalFields(recipe: Recipe, texts: string[]): string |
   return `The list or the tender's own page seems to show ${missing.map((m) => m.name).join(", ")}, but the recipe has no rule for ${fields}. Map them (detail.fields when they are only on the tender's own page); leave out any that is not clearly there.`;
 }
 
+/** Suggest a selector only when the sampled detail page shows a label beside a value. */
+export function detailLabelHints(recipe: Recipe, body: string): string | null {
+  const $ = cheerio.load(body);
+  const hints: string[] = [];
+  const labels = [
+    { field: "procedureType", label: /^(tryb postępowania|verfahrensart|vergabeart|type de procédure)$/i },
+    { field: "contractNature", label: /^(rodzaj zamówienia|leistungsart|auftragsart|nature du marché|type de marché)$/i },
+  ];
+  $("tr, dt").each((_i, el) => {
+    const node = $(el);
+    const label = (node.is("dt") ? node.text() : node.children("th, td").first().text()).trim().replace(/:$/, "");
+    const value = (node.is("dt") ? node.next("dd").text() : node.children("th, td").eq(1).text()).trim();
+    if (!value) return;
+    for (const rule of labels) {
+      if (rule.label.test(label) && !hasRule(recipe, rule.field)) {
+        hints.push(`${rule.field}: ${JSON.stringify({ label, parse: rule.field })}`);
+      }
+    }
+    if (!hasRule(recipe, "postalCode") && !hasRule(recipe, "city") && /^(miejsce realizacji|ort der ausführung|lieu d.exécution)$/i.test(label) && /^\d{2}-\d{3}\s+\p{L}/u.test(value)) {
+      hints.push(`postalCode: ${JSON.stringify({ label, parse: "postalCode" })}; city: ${JSON.stringify({ label, regex: "^\\d{2}-\\d{3}\\s+(.+)$" })}`);
+    }
+  });
+  return hints.length ? `The tender detail page shows these exact labels. Use these selectors in detail.fields, not listFields:\n${[...new Set(hints)].join("\n")}` : null;
+}
+
 /** A portal that marks cancelled tenders needs a withdrawn rule, or a cancelled tender is served as open. */
 export function missingWithdrawnRule(recipe: Recipe, texts: string[]): string | null {
   const all = texts.join("\n");
