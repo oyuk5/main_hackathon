@@ -605,6 +605,15 @@ export interface ModelAttachDeps {
   items: (recipe: Recipe, ctx: PortalContext) => Promise<{ status: number; items: string[]; pageStart: string }>;
   /** One page as served (the tender's own page, for documents). Defaults to one `ctx.http` request. */
   page?: (ctx: PortalContext, url: string) => Promise<{ url: string; status: number; text: string; contentType: string }>;
+  /** The content type a document link answers with, without reading the body. Optional: no probe when absent. */
+  fileType?: (ctx: PortalContext, url: string) => Promise<{ status: number; type: string }>;
+}
+
+async function fileType(ctx: PortalContext, url: string): Promise<{ status: number; type: string }> {
+  const signal = AbortSignal.any([ctx.signal, AbortSignal.timeout(REQUEST_TIMEOUT_MS)]);
+  const res = await ctx.http.fetch(url, { signal });
+  await res.body?.cancel().catch(() => {});
+  return { status: res.status, type: res.headers.get("content-type") ?? "" };
 }
 
 const defaultDeps: ModelAttachDeps = {
@@ -613,6 +622,7 @@ const defaultDeps: ModelAttachDeps = {
   read: (r, c) => extractor.read(r, c),
   items: (r, c) => sampleItems(r, c),
   page: fetchText,
+  fileType,
 };
 
 /** One tender's own page for the documents rule, fetched once per attach. Never throws (except on abort). */
@@ -826,6 +836,24 @@ export async function attachWithModel(ctx: PortalContext, deps: ModelAttachDeps 
     // Later drafts: check the files selector against the page already shown, exactly, at no cost.
     const filesCheck = judged.docs.length && tenderPage ? checkFilesRule(recipe, tenderPage) : null;
     if (filesCheck) judged.docs.push(filesCheck);
+    // A documents rule can find links that lead to a page listing the files rather than to a file:
+    // every download would then fail. Probe one link (headers only) and show the model that page.
+    if (!judged.docs.length && sample.kind === "ok" && deps.fileType) {
+      const ref = sample.tenders.find((x) => x.documentRefs.length > 0)?.documentRefs[0];
+      // Only links without a file extension: "/przetarg/1/dokumentacja", not "/files/a.pdf".
+      const probe = ref && ref.via !== "browser" && !FILE_EXT.test(ref.url) ? await deps.fileType(ctx, ref.url).catch(() => null) : null;
+      const type = probe && probe.status >= 200 && probe.status < 300 ? probe.type : "";
+      if (ref && /text\/html|application\/xhtml/i.test(type)) {
+        const got = deps.page ? await deps.page(ctx, ref.url).catch(() => null) : null;
+        const view = got ? tenderPageView(got.text, got.url, got.status, got.contentType).text.slice(0, 4000) : "";
+        const problem = `documents.files gives ${ref.url}, which answers with a web page (${type.split(";")[0]}), not a file. It is a page that lists the files: add it as a hop (documents.hops, the selector of that link on the tender page) and point documents.files at the file links on that page.${view ? `\nThat page:\n${view}` : ""}`;
+        if (rounds < MAX_RECIPE_ROUNDS) judged.errors.push(problem);
+        else {
+          ctx.log("The documents rule leads to web pages, not files; serving the tenders without documents rather than failing every download.", "warn");
+          delete (recipe as { documents?: unknown }).documents;
+        }
+      }
+    }
     // Evidence from what the portal shows: the list page, the JSON calls, the list items, one tender page.
     let withdrawnBlock: string[] = [];
     if (sample.kind === "ok" && sample.tenders.length > 0 && drafts <= 2) {
