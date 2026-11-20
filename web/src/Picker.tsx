@@ -10,11 +10,16 @@ export function Picker({ all, picked, setPicked }: { all: PortalRow[]; picked: s
   const [open, setOpen] = useState(false);
   const [find, setFind] = useState("");
   const box = useRef<HTMLDivElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     if (!open) return;
     const outside = (e: MouseEvent) => !box.current?.contains(e.target as Node) && setOpen(false);
-    const esc = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
+    const esc = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || !box.current?.contains(document.activeElement)) return;
+      setOpen(false);
+      trigger.current?.focus();
+    };
     document.addEventListener("mousedown", outside);
     document.addEventListener("keydown", esc);
     return () => (document.removeEventListener("mousedown", outside), document.removeEventListener("keydown", esc));
@@ -38,8 +43,8 @@ export function Picker({ all, picked, setPicked }: { all: PortalRow[]; picked: s
   return (
     <div ref={box} className="relative">
       <button
+        ref={trigger}
         type="button"
-        aria-haspopup="true"
         aria-expanded={open}
         onClick={() => setOpen(!open)}
         className={`flex h-8 max-w-[260px] items-center gap-2 rounded-[4px] border px-2.5 text-[13px] font-medium cursor-pointer ${picked ? "border-docker bg-docker/15 text-ink" : "border-hairline bg-paper text-ink hover:border-slate/50"}`}
@@ -50,7 +55,7 @@ export function Picker({ all, picked, setPicked }: { all: PortalRow[]; picked: s
         </svg>
       </button>
       {open && (
-        <div className="absolute right-0 z-30 mt-1.5 w-[300px] rounded-[6px] border border-hairline bg-paper shadow-[0_8px_24px_rgb(0_0_0/0.25)]">
+        <div className="absolute left-0 z-30 mt-1.5 w-[min(300px,calc(100vw-2rem))] rounded-[6px] border border-hairline bg-paper shadow-[0_8px_24px_rgb(0_0_0/0.25)] sm:right-0 sm:left-auto">
           {all.length > 8 && (
             <div className="border-b border-hairline p-2">
               <label htmlFor="picker-find" className="sr-only">Find a portal</label>
@@ -60,7 +65,7 @@ export function Picker({ all, picked, setPicked }: { all: PortalRow[]; picked: s
                 value={find}
                 onChange={(e) => setFind(e.target.value)}
                 placeholder="Find a portal"
-                className="h-8 w-full rounded-[4px] border border-hairline bg-sea px-2.5 text-[13px] text-ink placeholder:text-faint focus:border-docker focus:bg-paper focus:outline-none"
+                className="h-8 w-full rounded-[4px] border border-hairline bg-sea px-2.5 text-[13px] text-ink placeholder:text-faint focus:border-docker focus:bg-paper"
               />
             </div>
           )}
@@ -74,18 +79,21 @@ export function Picker({ all, picked, setPicked }: { all: PortalRow[]; picked: s
           <ul className="max-h-[320px] overflow-y-auto py-1">
             {list.map((p) => (
               <li key={p.id}>
-                <label className="flex cursor-pointer items-center gap-2.5 px-3 py-1.5 hover:bg-mist">
+                <div className="flex items-center gap-2.5 px-3 py-1.5 hover:bg-mist">
+                  <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2.5">
                   <input type="checkbox" checked={chosen.has(p.id)} onChange={() => toggle(p.id)} className="size-4 shrink-0 accent-[var(--color-docker)]" />
                   <StatusIcon kind={stateToIconKind(p.state)} size={10} />
                   <span className="min-w-0 truncate text-[13.5px] font-medium text-ink">{host(p.url)}</span>
+                  </label>
                   <button
                     type="button"
-                    onClick={(e) => (e.preventDefault(), setPicked([p.id]), setOpen(false))}
+                    aria-label={`Show only ${host(p.url)}`}
+                    onClick={() => (setPicked([p.id]), setOpen(false), trigger.current?.focus())}
                     className="ml-auto shrink-0 text-[12px] text-docker hover:underline cursor-pointer"
                   >
                     Only
                   </button>
-                </label>
+                </div>
               </li>
             ))}
           </ul>

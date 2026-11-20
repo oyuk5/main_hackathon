@@ -238,7 +238,7 @@ export function Log({ portals, now }: { portals: PortalRow[]; now: number }) {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Filter portal or text"
-            className="h-7 w-full rounded-[4px] border border-hairline bg-sea pr-2.5 pl-8 text-[12.5px] text-ink placeholder:text-faint focus:border-docker focus:bg-paper focus:outline-none"
+            className="h-7 w-full rounded-[4px] border border-hairline bg-sea pr-2.5 pl-8 text-[12.5px] text-ink placeholder:text-faint focus:border-docker focus:bg-paper"
           />
         </div>
 

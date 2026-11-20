@@ -224,7 +224,7 @@ function Header({ onAdded }: { onAdded: () => void }) {
             value={url}
             onChange={(e) => (setUrl(e.target.value), setNote(null))}
             placeholder="https://portal-address"
-            className="h-8 min-w-0 flex-1 rounded-[4px] border border-hairline bg-sea px-3 text-[13px] text-ink placeholder:text-faint focus:border-docker focus:bg-paper focus:outline-none sm:w-[290px]"
+            className="h-8 min-w-0 flex-1 rounded-[4px] border border-hairline bg-sea px-3 text-[13px] text-ink placeholder:text-faint focus:border-docker focus:bg-paper sm:w-[290px]"
           />
           <button
             disabled={sending}
@@ -575,7 +575,7 @@ function Portals({
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search portals and reasons"
-            className="h-9 w-full rounded-[4px] border border-hairline bg-paper pr-8 pl-9 text-[13.5px] text-ink placeholder:text-faint focus:border-docker focus:outline-none"
+            className="h-9 w-full rounded-[4px] border border-hairline bg-paper pr-8 pl-9 text-[13.5px] text-ink placeholder:text-faint focus:border-docker"
           />
         </div>
 

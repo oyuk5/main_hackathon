@@ -25,7 +25,7 @@
   --color-grat: #d8e0e8;
   --color-ink: #1b242c;
   --color-slate: #576775;
-  --color-faint: #7c8b99;
+  --color-faint: #626f7b;
   --color-hairline: #d8dee4;
 
   --color-docker: #17607f;
@@ -61,7 +61,7 @@
       --color-grat: #1c2630;
       --color-ink: #e6edf3;
       --color-slate: #8b9aa7;
-      --color-faint: #63727e;
+      --color-faint: #84939f;
       --color-hairline: #252e37;
 
       --color-docker: #5eb3d6;
@@ -97,6 +97,9 @@
     outline: 2px solid var(--color-docker);
     outline-offset: 2px;
     border-radius: 4px;
+  }
+  svg .map-control:focus-visible > .map-focus {
+    stroke: var(--color-docker);
   }
   ::selection {
     background: var(--color-integrating-wash);
@@ -178,8 +181,10 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .ch-healing, .ch-failed, .ch-integrating, .spin, .light[data-busy="true"], .drawer, .backdrop {
-      animation: none;
+    *, *::before, *::after {
+      animation: none !important;
+      transition: none !important;
+      scroll-behavior: auto !important;
     }
   }
 }

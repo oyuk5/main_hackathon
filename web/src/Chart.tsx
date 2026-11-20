@@ -120,7 +120,7 @@ export function Chart({ rows, hover, setHover, compact = false }: { rows: Portal
 
   return (
     <div className="relative">
-      <svg viewBox={`0 0 ${W} ${H}`} className="block h-auto w-full select-none" role="img" aria-label={`Chart of ${rows.length} portals: ${summary(rows)}`}>
+      <svg viewBox={`0 0 ${W} ${H}`} className="block h-auto w-full select-none" role="group" aria-label={`Chart of ${rows.length} portals: ${summary(rows)}`}>
         <defs>
           <clipPath id="sea">
             <rect x="10" y="10" width={W - 20} height={H - 20} />
@@ -196,9 +196,10 @@ function Light({ pl, k, active, setHover }: { pl: Placed; k: number; active: boo
       onMouseLeave={() => setHover(null)}
       onFocus={() => setHover(p.id)}
       onBlur={() => setHover(null)}
-      className="cursor-pointer outline-none"
+      className="map-control cursor-pointer"
     >
       <circle cx={x} cy={y} r={24 * k} className="fill-transparent" />
+      <circle cx={x} cy={y} r={22 * k} className="map-focus fill-none" strokeWidth={2 * k} />
       <g className={`${c.cls} ${GLOW[p.state]}`}>
         <circle cx={x} cy={y} r={21 * k} className="fill-current" opacity="0.13" />
         <circle cx={x} cy={y} r={13 * k} className="fill-current" opacity="0.2" />
@@ -223,10 +224,11 @@ function ClusterMark({ cl, k, active, onOpen }: { cl: Cluster; k: number; active
       aria-label={`${text}. Show the list.`}
       onClick={onOpen}
       onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), onOpen())}
-      className="cursor-pointer outline-none"
+      className="map-control cursor-pointer"
     >
       <title>{`${text}. Click for the list.`}</title>
       <circle cx={x} cy={y} r={24 * k} className="fill-transparent" />
+      <circle cx={x} cy={y} r={22 * k} className="map-focus fill-none" strokeWidth={2 * k} />
       <g className={GLOW[worst]}>
         <circle cx={x} cy={y} r={21 * k} className="fill-current" opacity="0.13" />
       </g>
