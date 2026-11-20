@@ -12,8 +12,9 @@ import * as cheerio from "cheerio";
 import type { AnyNode, Element } from "domhandler";
 import { z } from "zod";
 import type { AttachOutcome, ExtractedTender, ModelTier, PortalContext, ReadOutcome } from "../shared/modules.js";
-import { Recipe } from "../shared/recipe.js";
+import { type FieldRule, Recipe } from "../shared/recipe.js";
 import { decode, extractor, readSample, sampleItems } from "./extractor.js";
+import { normalizeCpvList } from "./normalize.js";
 import { pickGolden } from "./golden.js";
 
 /** First draft plus at most 3 correction rounds, as the area rules say. */
@@ -372,11 +373,13 @@ Recipe rules (schemaVersion is 1):
 - listFields and detail.fields map field names to a selector, evaluated INSIDE one item (CSS relative to the item; JSONPath relative to the item, "$.x" means item.x). A selector uses one of: css (+ attr to read an attribute, e.g. "href"), jsonPath, label (the label text next to the value, e.g. "Vergabestelle"), const (a template like "https://site/t/{id}"). regex refines the text (first capture group wins). all:true collects every match.
 - Field names: id (the portal's own stable identifier, never a row number), url (the tender's OWN page, not a summary or search page), title, buyerName (the public body that buys), publicationDate, submissionDeadline, referenceNumber (the buyer's file number), description, procedureType, contractNature, cpvCodes (all:true), postalCode, city, countryCode, withdrawn (a value that is true when cancelled).
 - parse: date | datetime | cpv | url | procedureType | contractNature | postalCode | text. Dates in any European format are fine; add "format" (e.g. "dd.MM.yyyy HH:mm") only if unusual. The deadline needs a time; if the page shows only a date, still map it (it will become null, never a guess).
+- cpvCodes: point the rule at the element that holds the codes, e.g. { "label": "<the CPV label exactly as shown>", "all": true, "parse": "cpv" } in detail.fields; parse "cpv" reads every code in that text (with or without check digit). Never take codes from navigation, footers or lists of other tenders.
 - detail: { urlFrom: "url" (a field name) or a template like "https://site/api/{id}", fields: {...} } for values only on the tender's own page. Use it when the list lacks buyer, deadline, reference or CPV.
 - documents: { hops: [selectors leading to the page that lists files], files: selector with all:true for the file links, via: "http" }. When a JSON list item already lists its files (e.g. "pieces": [{"lien": …}]), use no hops and files.jsonPath relative to the item (e.g. "$.pieces[*].lien"). It starts on the detail page if there is one, else on the tender's own page (url); the extractor follows HTTP redirects and keeps cookies. files.css matches the download links (attr defaults to "href"); pick the tender's own file list (e.g. a table of attachments), never links that every page has (help, terms, manuals). Use hops only when the files are on another page (a "documents" tab). Tenders without files are fine. After your first draft you are shown one tender's own page with the links that look like files; use it. Use null only when the tender pages list no files at all.
 - withdrawnText: words that mean the buyer cancelled the tender.
 - A WRONG VALUE IS WORSE THAN A MISSING ONE. Leave a field out rather than guess; never map a field to something that only looks similar.
 - Only open tenders: if the portal lists awards or past notices too, use a filter in the request or a JSONPath filter like "$.items[?(@.status=='open')]". If its default list shows current tenders, use it as is: closed ones are recognised later by their deadline.
+- Browser tier only, list.before: when the list appears only after a search form is used, add "list": { ..., "before": [steps] }. Each step is exactly one of { "click": "<css>" }, { "fill": { "selector": "<css>", "value": "<text>" } } or { "select": { "selector": "<css>", "value": "<option value or label>" } }; at most 10, run in order each time the list address is opened; values may use {today} and {daysAgo:N}. Use stable selectors (id, name, type=submit), never positional ones. Prefer a JSON call, then a list address that encodes the search in its query or #hash (no steps), and only then steps. Never use steps to log in, accept terms or get past a captcha: that portal is blocked.
 - Do not give up because the page view is cut: the repeated list is shown first, with its location. Write the best recipe you can; the dry-run will tell you exactly what to fix.`;
 
 function describeLook(l: Look): string {
@@ -696,6 +699,188 @@ export function missingWithdrawnRule(recipe: Recipe, texts: string[]): string | 
   return `The portal marks cancelled tenders (it shows "${m[0].replace(/^"/, "")}"), but the recipe has no withdrawn rule: a cancelled tender would be served as open, a wrong value. Add a "withdrawn" field that is true for cancelled tenders (e.g. a JSONPath to a boolean, or a css/regex on the status text), or withdrawnText with the exact status words.`;
 }
 
+// ------------------------------------------------------------ CPV codes: where they are, and a rule that reads them
+
+/** Containers whose codes belong to other tenders or to the site, never to this tender. */
+const OFFSIDE_TAGS = new Set(["nav", "footer", "aside"]);
+const OFFSIDE_NAMES = /related|similar|teaser|sidebar|footer|navig|breadcrumb|recommend|weitere|andere|podobne|inne-|autres|other/i;
+const STRONG_CPV = /(?<![\d.,])\d{8}\s?-\s?\d(?![\d.,]?\d)/;
+/** Every CPV code in one run of codes ("45233140-2, 45000000-7; 71000000"): the first such run in the text. */
+const CPV_RUN_REGEX = "((?:\\d{8}(?:\\s?-\\s?\\d)?[\\s,;/]*)+)";
+
+export interface CpvLocation {
+  /** Compressed markup of the label and the value element. */
+  markup: string;
+  /** Where it sits: a short element path. */
+  path: string;
+  /** The label's text as shown, or null when none was found. */
+  label: string | null;
+  /** The codes the value element holds (normalized). */
+  codes: string[];
+  /** A unique CSS selector for the value element, when there is one. */
+  css: string | null;
+  /** True when every CPV-like code on the page is in this one element. */
+  oneBlock: boolean;
+}
+
+function clean(s: string): string {
+  return s.replace(/\s+/g, " ").trim();
+}
+
+/** Text with a space between elements, so "<li>45000000-7</li><li>45210000-2</li>" stays two codes. */
+function spaced(nodes: AnyNode[]): string {
+  const parts: string[] = [];
+  const walk = (n: AnyNode) => {
+    if (n.type === "text") parts.push((n as unknown as { data: string }).data);
+    const kids = (n as unknown as { children?: AnyNode[] }).children;
+    if (kids && n.type === "tag") {
+      parts.push(" ");
+      for (const c of kids) walk(c);
+      parts.push(" ");
+    } else if (kids) for (const c of kids) walk(c);
+  };
+  for (const n of nodes) walk(n);
+  return clean(parts.join(""));
+}
+
+function offside($: cheerio.CheerioAPI, el: Element): boolean {
+  return [el, ...($(el).parents().toArray() as Element[])].some(
+    (e) => OFFSIDE_TAGS.has(e.tagName) || OFFSIDE_NAMES.test(`${$(e).attr("class") ?? ""} ${$(e).attr("id") ?? ""}`),
+  );
+}
+
+/**
+ * Finds the first CPV codes a page (or one list item) shows for its tender, outside navigation, footers
+ * and lists of other tenders: the value element, its label and their markup. Pure. Null when none.
+ */
+export function locateCpv(body: string): CpvLocation | null {
+  const $ = cheerio.load(body);
+  $("script,style,noscript,svg,template").remove();
+  const own = (el: Element) => clean(el.children.filter((c) => c.type === "text").map((c) => (c as unknown as { data: string }).data).join(" "));
+  let found: Element | null = null;
+  for (const n of $("body *").toArray()) {
+    const el = n as Element;
+    const text = own(el);
+    if (!text || normalizeCpvList(text).length === 0) continue;
+    // Plain 8 digits only count with the word CPV close by (in the element, its parent or the previous one).
+    const near = `${text} ${clean($(el).parent().text()).slice(0, 300)} ${clean($(el).prev().text()).slice(0, 100)} ${clean($(el).parent().prev().text()).slice(0, 100)}`;
+    if (!STRONG_CPV.test(text) && !/cpv/i.test(near)) continue;
+    if (offside($, el)) continue;
+    found = el;
+    break;
+  }
+  if (!found) return null;
+  // The value element: the cell that holds the code, or the list around a single item.
+  let cell: Element = ($(found).closest("dd, td, th").get(0) as Element | undefined) ?? found;
+  if (cell === found && found.tagName === "li" && found.parent?.type === "tag") cell = found.parent as Element;
+  let labelEl: Element | null = null;
+  if (cell.tagName === "dd") labelEl = ($(cell).prevAll("dt").first().get(0) as Element | undefined) ?? null;
+  else if (cell.tagName === "td" || cell.tagName === "th") labelEl = ($(cell).prevAll("th, td").first().get(0) as Element | undefined) ?? null;
+  else {
+    const prev = $(cell).prev().get(0) as Element | undefined;
+    if (prev && clean($(prev).text()).length <= 60 && normalizeCpvList($(prev).text()).length === 0) labelEl = prev;
+  }
+  let label = labelEl ? spaced([labelEl]).replace(/\s*[:：]\s*$/, "") : null;
+  if (!label || label.length > 60 || /\d{8}/.test(label)) {
+    label = null;
+    labelEl = null;
+    // Inline: "Kody CPV: 45233140-2, …" inside one element.
+    const text = spaced([cell]);
+    const at = text.search(/\d{8}/);
+    const before = text.slice(0, at).replace(/\s*[:：\-–]?\s*$/, "").trim();
+    if (before && before.length <= 60 && !/\d/.test(before)) label = before;
+  }
+  const codes = normalizeCpvList(spaced([cell]));
+  const all = normalizeCpvList(spaced($("body").toArray()));
+  const oneBlock = all.length === codes.length && all.every((c) => codes.includes(c));
+  let css: string | null = null;
+  const id = $(cell).attr("id");
+  const classes = ($(cell).attr("class") ?? "").trim().split(/\s+/).filter((c) => /^[A-Za-z_][\w-]*$/.test(c));
+  for (const c of [id && /^[A-Za-z_][\w-]*$/.test(id) ? `#${id}` : "", ...classes.map((k) => `${cell.tagName}.${k}`)].filter(Boolean)) {
+    if ($(c).length === 1) {
+      css = c;
+      break;
+    }
+  }
+  const row = cell.parent?.type === "tag" && (cell.parent as Element).tagName === "tr" ? (cell.parent as Element) : null;
+  const pair = `${labelEl ? $.html(labelEl) : ""}${$.html(cell)}`;
+  const fragment = row ? `<table>${$.html(row)}</table>` : cell.tagName === "dd" ? `<dl>${pair}</dl>` : pair;
+  const markup = compressHtml(`<html><body>${fragment}</body></html>`, 700).replace(/^<!-- title:  -->\n/, "").trim();
+  const path = [...($(row ?? cell).parents().toArray().slice(0, 3).reverse() as Element[]).map((e) => describe($, e)), describe($, row ?? cell)].join(" > ");
+  return { markup, path, label, codes, css, oneBlock };
+}
+
+/**
+ * What a cpvCodes rule reads on one page, resolved by the Extractor itself (same label, css and regex
+ * logic as a real read) against the page already fetched: no request to the portal, no model call.
+ */
+export async function readCpvRule(rule: FieldRule, page: { url: string; body: string }, ctx: PortalContext): Promise<string[]> {
+  const recipe = Recipe.parse({
+    schemaVersion: 1,
+    tier: "html",
+    timeZone: "Europe/Berlin",
+    list: { request: { url: page.url }, pagination: { type: "none" }, item: "body" },
+    listFields: { id: { const: "cpv-check" }, url: { const: page.url.replace(/[{}]/g, "") }, cpvCodes: rule },
+  });
+  const local: PortalContext = {
+    portalId: `${ctx.portalId}#cpv-check`,
+    url: page.url,
+    http: { fetch: async () => new Response(page.body, { status: 200, headers: { "content-type": "text/html; charset=utf-8" } }) },
+    browser: {
+      withPage() {
+        throw new Error("no browser for a CPV check");
+      },
+    },
+    llm: ctx.llm,
+    log: () => {},
+    signal: ctx.signal,
+  };
+  const out = await readSample(recipe, local, { maxPages: 1, maxItems: 1 });
+  return out.kind === "ok" ? (out.tenders[0]?.cpvCodes ?? []) : [];
+}
+
+/**
+ * Where the CPV codes are and a rule that reads exactly them, for a draft whose cpvCodes rule found
+ * nothing (or that has none). Every suggested rule is checked against the page first. Null when the
+ * page shows no CPV codes for its tender.
+ */
+export async function cpvHint(
+  page: { url: string; body: string },
+  where: "listFields" | "detail.fields",
+  ctx: PortalContext,
+  failing: FieldRule | null,
+): Promise<string | null> {
+  const t = page.body.trimStart();
+  if (t.startsWith("{") || t.startsWith("[")) return null;
+  const loc = locateCpv(page.body);
+  if (!loc || loc.codes.length === 0) return null;
+  const candidates: FieldRule[] = [];
+  if (loc.label) candidates.push({ label: loc.label, all: true, parse: "cpv" });
+  if (loc.css) candidates.push({ css: loc.css, all: true, parse: "cpv" });
+  if (loc.oneBlock) candidates.push({ regex: CPV_RUN_REGEX, all: true, parse: "cpv" });
+  const same = (a: string[]) => a.length === loc.codes.length && a.every((c) => loc.codes.includes(c));
+  const working: FieldRule[] = [];
+  for (const c of candidates) {
+    if (ctx.signal.aborted) return null;
+    const got = await readCpvRule(c, page, ctx).catch(() => [] as string[]);
+    if (same(got)) working.push(c);
+  }
+  const place = where === "listFields" ? "The first list item" : `The tender's own page (${page.url})`;
+  const lines = [
+    `${place} shows CPV codes (${loc.codes.slice(0, 4).join(", ")}${loc.codes.length > 4 ? ", …" : ""}) here, at ${loc.path}:\n${loc.markup}`,
+  ];
+  const home = where === "detail.fields" ? 'detail.fields (add detail: { "urlFrom": "url", … } if the recipe has none)' : "listFields";
+  if (working.length) {
+    lines.push(
+      `Checked on that page, this rule reads exactly those codes: "cpvCodes": ${JSON.stringify(working[0])} in ${home}.` +
+        (working.length > 1 ? ` Also works: ${working.slice(1).map((w) => JSON.stringify(w)).join(" or ")}.` : ""),
+    );
+  } else lines.push(`Write a cpvCodes rule in ${home} that reads this element (label or css, all: true, parse "cpv").`);
+  if (failing) lines.unshift(`The cpvCodes rule ${JSON.stringify(failing)} found no value on any sampled tender, but the portal does show CPV codes. Fix it; do not remove it.`);
+  else lines.unshift("For cpvCodes (no rule yet):");
+  return lines.join("\n");
+}
+
 async function showTenderPage(deps: ModelAttachDeps, recipe: Recipe, read: ReadOutcome, ctx: PortalContext): Promise<TenderPageView | null> {
   if (read.kind !== "ok" || read.tenders.length === 0) return null;
   const start = documentsStart(recipe, read.tenders[0]!);
@@ -899,14 +1084,48 @@ export async function attachWithModel(ctx: PortalContext, deps: ModelAttachDeps 
     }
     // Evidence from what the portal shows: the list page, the JSON calls, the list items, one tender page.
     let withdrawnBlock: string[] = [];
+    let listItems: string[] | null = null;
     if (sample.kind === "ok" && sample.tenders.length > 0 && drafts <= 2) {
       const items = await deps.items(recipe, ctx).catch(() => ({ items: [] as string[] }));
+      listItems = items.items;
       const texts = [current.raw, current.rendered ?? "", ...current.json.map((j) => JSON.stringify(j.data)), ...items.items, tenderPage?.body ?? ""];
       // A hint for two drafts: models tend to fix the required fields first and skip it once.
       const optional = missingOptionalFields(recipe, texts);
       if (optional) withdrawnBlock.push(optional);
       const withdrawn = missingWithdrawnRule(recipe, texts);
       if (withdrawn) withdrawnBlock = [withdrawn];
+    }
+    // CPV codes: a rule that reads nothing (or no rule) while the portal shows codes gets their exact
+    // place and a rule checked on that page, so the model fixes the rule instead of dropping it.
+    if (sample.kind === "ok" && sample.tenders.length > 0) {
+      const cpvRule = recipe.listFields.cpvCodes ?? recipe.detail?.fields.cpvCodes ?? null;
+      const fill = sample.diagnostics.fieldFill.cpvCodes;
+      const fails = cpvRule !== null && !!fill && fill.total > 0 && fill.filled === 0;
+      if (fails || (cpvRule === null && drafts <= 2)) {
+        let hint: string | null = null;
+        if (recipe.tier === "html") {
+          listItems ??= (await deps.items(recipe, ctx).catch(() => ({ items: [] as string[] }))).items;
+          const first = listItems[0];
+          if (first) hint = await cpvHint({ url: current.url, body: `<html><body>${first}</body></html>` }, "listFields", ctx, fails ? cpvRule : null);
+        }
+        if (!hint) {
+          const start = documentsStart(recipe, sample.tenders[0]!);
+          if (!tenderPage && start) {
+            const got = await (deps.page ?? fetchText)(ctx, start).catch((e) => {
+              if (ctx.signal.aborted) throw e;
+              return null;
+            });
+            if (got && got.status >= 200 && got.status < 300) tenderPage = { url: got.url, body: got.text };
+          }
+          if (tenderPage) hint = await cpvHint(tenderPage, "detail.fields", ctx, fails ? cpvRule : null);
+        }
+        if (hint) {
+          const at = judged.errors.findIndex((e) => e.startsWith("The cpvCodes rule found no value"));
+          if (at >= 0) judged.errors[at] = hint;
+          else if (fails) judged.errors.push(hint);
+          else withdrawnBlock.push(hint);
+        }
+      }
     }
     // Counted by drafts that were dry-run, so a malformed answer does not use up the hints.
     const docsBlock = drafts === 1 || (drafts === 2 && fileLinksSeen) ? judged.docs : [];

@@ -20,7 +20,7 @@ import * as cheerio from "cheerio";
 import type { Cheerio, CheerioAPI } from "cheerio";
 import type { AnyNode, Element } from "domhandler";
 import { JSONPath } from "jsonpath-plus";
-import type { Recipe, Selector, FieldRule } from "../shared/recipe.js";
+import type { BrowserStep, Recipe, Selector, FieldRule } from "../shared/recipe.js";
 import type { DocumentRef, ExtractedTender, Extractor, FieldFill, PortalContext, ReadOutcome } from "../shared/modules.js";
 import {
   absoluteUrl,
@@ -37,8 +37,22 @@ import { browserPages, type PageSource } from "./browser.js";
 // ------------------------------------------------------------ limits
 
 const REQUEST_TIMEOUT_MS = 30_000;
-/** Detail and document work per read, so one read stays bounded at 1 request per second. */
-export const MAX_DETAIL_FETCHES = 300;
+/**
+ * Staged enrichment: detail and document work per read is bounded, so a first read of a big portal
+ * returns in a few minutes and the platform starts serving; later reads (A schedules them 1 min
+ * apart while anything is pending) enrich the next batch, and the detail cache makes the ones
+ * already done cost nothing. A tender needs 1 to 2 requests (detail page, document list) at 1
+ * request per second, so a read stops starting new detail work after 120 tenders or 2 minutes,
+ * whichever comes first: the detail part of a read stays at about 2 minutes. Newest tenders (by list publicationDate) go first.
+ * Tenders past the budget keep their list values and get `documentRefsPending`.
+ */
+export const MAX_DETAIL_FETCHES = 120;
+export const DETAIL_TIME_BUDGET_MS = 120_000;
+/** The live budget; tests lower it. Dry-runs (readSample) are bounded by their own maxItems. */
+export const detailBudget = { tenders: MAX_DETAIL_FETCHES, ms: DETAIL_TIME_BUDGET_MS };
+/** A progress line every this many tenders of detail work. */
+const PROGRESS_EVERY = 25;
+const fmt = (n: number) => n.toLocaleString("en-US");
 const REQUIRED_FIELDS = ["id", "url", "title", "buyerName", "publicationDate", "submissionDeadline"] as const;
 
 // ------------------------------------------------------------ detail cache
@@ -959,6 +973,8 @@ async function run(st: ReadState, started: number): Promise<ReadOutcome> {
         return { kind: "unreachable", reason: `List page ${i + 1} could not be read (${(e as Error).message}), so this read is incomplete.` };
       }
       const f = e as FetchFailure;
+      // A recipe step that no longer fits the page is a broken recipe (repair), not a portal that is down.
+      if (/list\.before step \d+/.test(f.message ?? "")) return { kind: "error", reason: `The recipe's search steps no longer fit the page: ${f.message}.` };
       if (f.cause === "robots") return { kind: "blocked", reason: "The portal's robots.txt does not allow reading the list page." };
       if (f.cause === "timeout") return { kind: "unreachable", reason: f.message };
       return { kind: "unreachable", reason: `The portal could not be reached: ${f.message}.` };
@@ -1009,18 +1025,36 @@ async function run(st: ReadState, started: number): Promise<ReadOutcome> {
     }
   }
 
-  // Detail pages and documents.
-  const tenders: ExtractedTender[] = [];
-  const tenderValues: Values[] = [];
+  // Detail pages and documents, newest first within the per-read budget (see detailBudget).
+  const done: { index: number; tender: ExtractedTender; values: Values; deferred: boolean }[] = [];
   const ids = new Set<string>();
   let dropped = 0;
   let awards = 0;
-  let budget = MAX_DETAIL_FETCHES;
   const recipeKey = sha256(JSON.stringify([recipe.detail, recipe.documents, recipe.timeZone, recipe.withdrawnText, recipe.listFields[WITHDRAWN_FIELD] ?? null]));
+  const detailStart = Date.now();
+  let fetched = 0; // tenders whose detail work ran in this read
+  let enriched = 0; // ... plus those served from the detail cache
+  let deferredCount = 0;
+  // At least one tender per read gets its detail work, so every read makes progress.
+  const budgetLeft = () => st.limits !== undefined || (fetched < detailBudget.tenders && (fetched === 0 || Date.now() - detailStart < detailBudget.ms));
+  // Tenders in the list, award notices left out (no request; counted once, for progress lines).
+  let listedCount: number | null = null;
+  const listed = () => (listedCount ??= items.filter((it) => !isAwardNotice(it.scope, it.values)).length);
+  // A dry-run keeps the list order (it stops after maxItems). A regular read spends its budget on
+  // the newest tenders first; undated ones keep list order after the dated ones.
+  const order = items.map((_, i) => i);
+  if (!st.limits) {
+    const dateOf = (i: number) => {
+      const d = templateValue(items[i]!.values.publicationDate);
+      return d && /^\d{4}-\d{2}-\d{2}/.test(d) ? d.slice(0, 10) : "";
+    };
+    order.sort((a, b) => dateOf(b).localeCompare(dateOf(a)) || a - b);
+  }
 
-  for (const item of items) {
+  for (const index of order) {
+    const item = items[index]!;
     checkAbort(ctx);
-    if (st.limits && tenders.length >= st.limits.maxItems) break;
+    if (st.limits && done.length >= st.limits.maxItems) break;
     let values: Values = { ...item.values };
     const listId = cleanText(templateValue(values.id));
     if (listId && ids.has(listId)) continue;
@@ -1035,6 +1069,8 @@ async function run(st: ReadState, started: number): Promise<ReadOutcome> {
     // True when this read could not look at the tender's detail page or documents (cap or failure):
     // empty refs then mean "unknown", not "no documents", and the platform holds the tender back.
     let pending = false;
+    // True when only the per-read budget left the tender pending (not a failed page).
+    let deferred = false;
     // JSON lists often carry each tender's files in the item itself ("pieces": [{ "lien": … }]). A
     // documents rule with no hops and a JSONPath is tried on the item first: no request at all.
     let itemRefs: DocumentRef[] | null = null;
@@ -1065,8 +1101,11 @@ async function run(st: ReadState, started: number): Promise<ReadOutcome> {
         values = merge(values, cached.fields);
         refs = cached.refs ?? [];
         detailWithdrawn = cached.withdrawn;
-      } else if ((detailUrl || tenderUrl) && budget > 0) {
-        budget -= 1;
+        enriched += 1;
+      } else if ((detailUrl || tenderUrl) && budgetLeft()) {
+        fetched += 1;
+        enriched += 1;
+        if (!st.limits && fetched % PROGRESS_EVERY === 0) ctx.log(`Read the pages of ${fmt(enriched)} of ${fmt(listed())} tenders so far.`);
         let ok = true;
         let detailDoc: Doc | null = null;
         let detailFields: Values = {};
@@ -1098,6 +1137,9 @@ async function run(st: ReadState, started: number): Promise<ReadOutcome> {
               start = parseDoc(page, recipe.tier);
             }
             if (start) refs = await documentRefs(st, start, values);
+            // The tender's own page is a login form and shows no files: hand that page on as the
+            // document, so the platform reports "documents need a login" instead of "no documents".
+            if (start && refs.length === 0 && start.kind === "markup" && start.$('input[type="password" i]').length > 0) refs = [{ url: start.url, via: "http" }];
           } catch (e) {
             if (e instanceof Cancelled) throw e;
             ok = false;
@@ -1107,9 +1149,10 @@ async function run(st: ReadState, started: number): Promise<ReadOutcome> {
         }
         if (!ok) pending = true;
         if (ok) detailCache.set(cacheKey, { hash, fields: detailFields, refs: recipe.documents ? refs : null, withdrawn: detailWithdrawn });
-      } else if (budget <= 0) {
+      } else if (detailUrl || tenderUrl) {
+        // Over this read's budget: list values now, details in a later read.
         pending = true;
-        warnOnce(st, "cap", `More than ${MAX_DETAIL_FETCHES} tenders need their detail page; the rest keep list values until the next read.`);
+        deferred = true;
       }
     }
 
@@ -1124,8 +1167,19 @@ async function run(st: ReadState, started: number): Promise<ReadOutcome> {
     const tender = toTender(recipe, id, url, values, refs);
     if (pending) tender.documentRefsPending = true;
     if (values[WITHDRAWN_FIELD] === true || detailWithdrawn || hasWithdrawnText(recipe, scopeText(item.scope))) tender.withdrawn = true;
-    tenders.push(tender);
-    tenderValues.push({ ...values, id, url });
+    if (deferred) deferredCount += 1;
+    done.push({ index, tender, values: { ...values, id, url }, deferred });
+  }
+  // Back to list order: the order the portal shows is the order we hand on.
+  done.sort((a, b) => a.index - b.index);
+  const tenders = done.map((d) => d.tender);
+  if (!st.limits && (fetched > 0 || deferredCount > 0)) {
+    const thisRead = `${fmt(fetched)} in this read`;
+    ctx.log(
+      deferredCount > 0
+        ? `Read the pages of ${fmt(enriched)} of ${fmt(tenders.length)} tenders (${thisRead}); the other ${fmt(deferredCount)} follow in the next reads.`
+        : `Read the pages of all ${fmt(tenders.length)} tenders (${thisRead}).`,
+    );
   }
   if (dropped > 0) ctx.log(`${dropped} list entries had no id or address and were left out.`, "warn");
   if (awards > 0) ctx.log(`Left out ${awards} award notices: results of finished procedures, not open tenders.`);
@@ -1134,11 +1188,16 @@ async function run(st: ReadState, started: number): Promise<ReadOutcome> {
   const docsProblem = st.limits ? null : documentsRuleProblem(st);
   if (docsProblem) return { kind: "error", reason: docsProblem, diagnostics: { requests: st.requests, listPages, itemsSeen } };
 
+  // fieldFill counts only tenders whose detail work is done (this read or cached) or not needed:
+  // tenders deferred by the per-read budget lack their detail-only fields by design, and counting
+  // them would look like a fill collapse to C's checks. Tenders whose detail page failed still
+  // count, so a broken detail rule shows. If every tender was deferred, all are counted.
+  const counted = done.some((d) => !d.deferred) ? done.filter((d) => !d.deferred) : done;
   const fieldNames = new Set<string>([...REQUIRED_FIELDS, ...Object.keys(recipe.listFields), ...Object.keys(recipe.detail?.fields ?? {})]);
   const fieldFill: Record<string, FieldFill> = {};
   fieldNames.delete(WITHDRAWN_FIELD);
   for (const f of fieldNames) {
-    fieldFill[f] = { filled: tenderValues.filter((v) => hasValue(v[f])).length, total: tenders.length };
+    fieldFill[f] = { filled: counted.filter((d) => hasValue(d.values[f])).length, total: counted.length };
   }
 
   return {
@@ -1213,8 +1272,13 @@ export function readSample(recipe: Recipe, ctx: PortalContext, limits: SampleLim
 /** Runs `fn` with st.pages set to one browser page when the recipe is browser tier. */
 function withPages<T>(st: ReadState, fn: () => Promise<T>): Promise<T> {
   if (st.recipe.tier !== "browser") return fn();
+  const zone = st.recipe.timeZone;
+  const dates = (v: string) => v.replace(/\{(today|daysAgo:\d{1,4})\}/g, (_, k: string) => datePlaceholder(k, zone) ?? "");
+  const before = (st.recipe.list.before ?? []).map((step): BrowserStep =>
+    "fill" in step ? { fill: { ...step.fill, value: dates(step.fill.value) } } : "select" in step ? { select: { ...step.select, value: dates(step.select.value) } } : step,
+  );
   return st.ctx.browser.withPage((page) => {
-    st.pages = browserPages(page, st.ctx, () => void (st.requests += 1));
+    st.pages = browserPages(page, st.ctx, () => void (st.requests += 1), before);
     return fn();
   });
 }

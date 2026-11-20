@@ -54,6 +54,18 @@ export const Pagination = z.discriminatedUnion("type", [
   z.object({ type: z.literal("clickNext"), selector: z.string(), maxPages: z.number().int().default(50) }),
 ]);
 
+/**
+ * One action on a rendered list page, browser tier only: click a control, type into a field, or pick
+ * a dropdown option. Selectors are CSS. `value` may contain {today} and {daysAgo:N} (dates as
+ * YYYY-MM-DD in the recipe's timeZone). Data only: no script.
+ */
+export const BrowserStep = z.union([
+  z.object({ click: z.string().min(1) }).strict(),
+  z.object({ fill: z.object({ selector: z.string().min(1), value: z.string() }).strict() }).strict(),
+  z.object({ select: z.object({ selector: z.string().min(1), value: z.string() }).strict() }).strict(),
+]);
+export type BrowserStep = z.infer<typeof BrowserStep>;
+
 export const DocumentsRule = z.object({
   /** Optional hops from the tender page to the page that lists the files ("Vergabeunterlagen"). */
   hops: z.array(Selector).default([]),
@@ -79,6 +91,14 @@ export const Recipe = z.object({
     item: z.string(),
     /** Text that means "no tenders right now", so empty is not mistaken for broken. */
     emptyText: z.array(z.string()).default([]),
+    /**
+     * Browser tier only. Steps run in order each time a list address is opened (not after a
+     * clickNext), for portals whose list appears only after a search form is filled and submitted,
+     * e.g. [{ fill: { selector: "#q", value: "" } }, { click: "#searchButton" }]. After the last
+     * step the reader waits for `item` to appear (or the page to go quiet). Prefer a plain list URL
+     * when one exists: steps cost time and break when the form changes.
+     */
+    before: z.array(BrowserStep).max(10).optional(),
   }),
   /**
    * Field rules applied to each list item. A rule named `withdrawn` (here or in detail.fields) is a flag,
