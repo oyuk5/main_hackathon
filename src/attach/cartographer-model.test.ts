@@ -188,12 +188,32 @@ test("a malformed answer gets another round; a provider error does not", async (
   assert.match((out as { reason: string }).reason, /^The model call failed: 503/);
 });
 
-test("a browser-tier recipe is refused with a reason and counts as a draft", async () => {
+test("a browser-tier recipe is refused when the page loads its data as JSON (use the JSON call)", async () => {
   portal(6);
   const browserRecipe = { ...goodRecipe(), tier: "browser" as const };
   const ctx = scripted(`${base}/m/list`, [step("recipe", { recipe: browserRecipe }), step("recipe", { recipe: goodRecipe() })]);
-  assert.equal((await attachWithModel(ctx)).kind, "ok");
-  assert.match(ctx.prompts[1]!, /tier "browser" is not supported/);
+  const realLook = (c: PortalContext, u: string) => look(c, u);
+  const out = await attachWithModel(ctx, {
+    look: async (c, u) => ({ ...(await realLook(c, u)), json: [{ url: `${base}/m/api`, method: "GET", data: { items: [{ id: 1 }, { id: 2 }, { id: 3 }] } }] }),
+    sample: (r, c) => import("./extractor.js").then((m) => m.readSample(r, c)),
+    read: (r, c) => extractor.read(r, c),
+    items: (r, c) => import("./extractor.js").then((m) => m.sampleItems(r, c)),
+  });
+  assert.equal(out.kind, "ok");
+  assert.match(ctx.prompts[1]!, /Use tier "jsonApi" with that call instead of "browser"/);
+});
+
+test("a later draft may not drop a rule that already found values", async () => {
+  portal(6);
+  const noDocs = { ...goodRecipe(), documents: null };
+  const lostBuyer = goodRecipe();
+  delete lostBuyer.listFields.buyerName;
+  // Draft 1 lacks documents (blocked by the hint); draft 2 fixes documents but drops buyerName.
+  const ctx = scripted(`${base}/m/list`, [step("recipe", { recipe: noDocs }), step("recipe", { recipe: lostBuyer }), step("recipe", { recipe: goodRecipe() })]);
+  const out = await attachWithModel(ctx);
+  assert.equal(out.kind, "ok");
+  assert.equal(ctx.prompts.length, 3);
+  assert.match(ctx.prompts[2]!, /drops rules that found values before: buyerName/);
 });
 
 test("cartographer.attach goes to the model for an unknown portal", async () => {

@@ -11,7 +11,7 @@
 import * as cheerio from "cheerio";
 import type { AnyNode, Element } from "domhandler";
 import { z } from "zod";
-import type { AttachOutcome, ExtractedTender, PortalContext, ReadOutcome } from "../shared/modules.js";
+import type { AttachOutcome, ExtractedTender, ModelTier, PortalContext, ReadOutcome } from "../shared/modules.js";
 import { Recipe } from "../shared/recipe.js";
 import { decode, extractor, readSample, sampleItems } from "./extractor.js";
 import { pickGolden } from "./golden.js";
@@ -106,8 +106,36 @@ export async function look(ctx: PortalContext, url: string): Promise<Look> {
   const first = await fetchText(ctx, url);
   const feeds = findFeeds(first.text, first.url);
   const blockedHard = first.status === 401 || first.status === 403;
-  const { rendered, json } = blockedHard ? { rendered: null, json: [] } : await sniff(ctx, first.url);
+  // The browser is slow at 1 request per second (every script waits its turn). Only JavaScript apps
+  // need it: when the served page already shows a list of linked items, the extractor can read that.
+  const served = servedListSize(first.text);
+  if (!blockedHard && served >= SERVED_LIST_MIN) ctx.log(`The page as served already lists ${served} linked items; reading it without the browser.`);
+  const skipBrowser = blockedHard || served >= SERVED_LIST_MIN;
+  const { rendered, json } = skipBrowser ? { rendered: null, json: [] } : await sniff(ctx, first.url);
   return { url: first.url, status: first.status, raw: first.text, rendered, json: rankJson(json), feeds };
+}
+
+/** Similar linked items the served page needs to count as "already shows the list". */
+export const SERVED_LIST_MIN = 5;
+
+/** Length of the longest run of similar sibling elements that each carry a link and some text. */
+export function servedListSize(html: string): number {
+  const $ = cheerio.load(html);
+  $("script,style,noscript,template,nav,header,footer").remove();
+  let best = 0;
+  for (const p of $("body *").toArray() as Element[]) {
+    const kids = $(p).children().toArray() as Element[];
+    let i = 0;
+    while (i < kids.length) {
+      const sig = signature($, kids[i]!);
+      let j = i + 1;
+      while (j < kids.length && signature($, kids[j]!) === sig) j++;
+      const run = kids.slice(i, j).filter((k) => $(k).find("a[href]").length > 0 && $(k).text().trim().length > 15).length;
+      best = Math.max(best, run);
+      i = j;
+    }
+  }
+  return best;
 }
 
 function findFeeds(html: string, base: string): string[] {
@@ -336,7 +364,7 @@ Answer with one step:
 - "give_up": the list cannot be read without a login, a captcha, or a browser click flow. Say why in "reason".
 
 Recipe rules (schemaVersion is 1):
-- tier: prefer "jsonApi" when a JSON call the page made lists the tenders (use its exact url, method and POST body), then "feed" (RSS/Atom), then "html". Never "browser": it is not supported.
+- tier: prefer "jsonApi" when a JSON call the page made lists the tenders (use its exact url, method and POST body), then "feed" (RSS/Atom), then "html". Use "browser" only as the last resort, for a list that appears only after JavaScript runs and that no JSON call or feed covers: the extractor then renders every page in a real browser (slow at 1 request per second). A browser recipe must use GET with no body, list.item as plain CSS (no :contains), and pagination "clickNext" with the CSS selector of the "next" control when pages change by clicking.
 - timeZone: the IANA zone of the portal's country (times on pages are local). countryCode: two letters or null.
 - list.request.url may contain {page}, {offset}, {pageSize}, {today} (YYYY-MM-DD in timeZone) and {daysAgo:N}. Pagination: none | pageParam (start, maxPages) | offsetParam (pageSize, maxPages) | nextLink (selector to the next page link). maxPages at most 40.
 - list.item: CSS selector (html/feed) or JSONPath (jsonApi, e.g. "$.content[*]") that matches ONE element per tender.
@@ -728,13 +756,17 @@ export async function attachWithModel(ctx: PortalContext, deps: ModelAttachDeps 
   /** Drafts that were dry-run (rounds also count malformed answers and refused navigations). */
   let drafts = 0;
   let lastProblem = "the model did not propose a usable recipe";
+  /** The fast model answers in seconds and costs a fraction: it tries a correction; if it fails, the smart one takes over. */
+  let tier: ModelTier = "smart";
+  /** Field rules that found a value in some earlier dry-run. */
+  const workingFields = new Set<string>();
 
   while (rounds < MAX_RECIPE_ROUNDS) {
     if (ctx.signal.aborted) return { kind: "failed", reason: "The attach was cancelled." };
     const user = [describeLook(current), ...history].join("\n\n---\n\n");
     let step: CartographerStep;
     try {
-      step = await ctx.llm.json({ purpose: "attach", model: "smart", system: SYSTEM_PROMPT, user, schema: CartographerStep });
+      step = await ctx.llm.json({ purpose: "attach", model: tier, system: SYSTEM_PROMPT, user, schema: CartographerStep });
     } catch (e) {
       if (ctx.signal.aborted) return { kind: "failed", reason: "The attach was cancelled." };
       const msg = modelFailure(e);
@@ -782,6 +814,8 @@ export async function attachWithModel(ctx: PortalContext, deps: ModelAttachDeps 
       hint = blockHint(current.raw, current.status) ?? hint;
       if (current.status === 401 || current.status === 403) return { kind: "blocked", reason: `${capital(blockHint(current.raw, current.status)!)}.` };
       history.length = 0; // a new page: earlier feedback was about the old one
+      workingFields.clear();
+      tier = "smart";
       tenderPageShown = false;
       fileLinksSeen = false;
       tenderPage = null;
@@ -796,17 +830,26 @@ export async function attachWithModel(ctx: PortalContext, deps: ModelAttachDeps 
       continue;
     }
     const recipe = Recipe.parse(step.recipe);
-    if (recipe.tier === "browser") {
-      lastProblem = "the portal seems to need the browser tier, which the extractor does not support yet";
-      ctx.log(`The model proposed a browser-tier recipe, which is not supported (round ${rounds} of ${MAX_RECIPE_ROUNDS}).`, "warn");
-      history.push(`Round ${rounds}: tier "browser" is not supported. Use the JSON call the page makes, a feed, or the served HTML.`);
+    if (recipe.tier === "browser" && current.json.length > 0) {
+      // A JSON call is faster and more stable than rendering every page: use it when the page made one.
+      lastProblem = "a browser recipe was proposed although the page fetches its data as JSON";
+      ctx.log(`The model proposed a browser recipe although the page loads JSON (round ${rounds} of ${MAX_RECIPE_ROUNDS}).`, "warn");
+      history.push(`Round ${rounds}: the page fetches its data from a JSON call (shown above). Use tier "jsonApi" with that call instead of "browser".`);
       continue;
     }
-    ctx.log(`Trying a ${recipe.tier} recipe (draft ${rounds} of ${MAX_RECIPE_ROUNDS}).`);
+    ctx.log(`Trying a ${recipe.tier} recipe (draft ${rounds} of ${MAX_RECIPE_ROUNDS}, ${tier} model).`);
+    const draftTier: ModelTier = tier;
     const sample = await deps.sample(recipe, ctx);
     if (sample.kind === "blocked" && !/robots\.txt/i.test(sample.reason)) return { kind: "blocked", reason: `${capital(sample.reason)}` };
     if (sample.kind === "ok" && sample.tenders.length > 0) everRead = true;
     const judged = judgeSample(recipe, sample, current.url);
+    // A later draft must not drop a rule that already found values: hints stop after two drafts, and a
+    // third draft that quietly loses fields would pass unchecked.
+    if (sample.kind === "ok" && sample.tenders.length > 0) {
+      const dropped = [...workingFields].filter((f) => !(f in recipe.listFields) && !(f in (recipe.detail?.fields ?? {})));
+      if (dropped.length) judged.errors.push(`This draft drops rules that found values before: ${dropped.join(", ")}. Keep them (from your earlier draft) while fixing the rest.`);
+      for (const [f, fill] of Object.entries(sample.diagnostics.fieldFill)) if (fill.filled > 0) workingFields.add(f);
+    }
     // Documents are easy to forget and invisible on the list page: the model sees one tender's own
     // page once, and when it shows links that look like files, a missing or wrong documents rule
     // blocks the second draft too. After that a recipe without documents is accepted.
@@ -861,6 +904,10 @@ export async function attachWithModel(ctx: PortalContext, deps: ModelAttachDeps 
     }
     lastProblem = blocking[0]!;
     ctx.log(`Draft ${rounds} needs fixes: ${blocking.slice(0, 2).join(" ")}`, "warn");
+    // The fast model only fixes selector errors, which every draft re-checks. Documents and optional or
+    // withdrawn hints are only shown for two drafts, and the fast model tends to drop them (eval: gmina
+    // lost place of performance), so those corrections stay with the smart model.
+    tier = draftTier === "smart" && docsBlock.length === 0 && withdrawnBlock.length === 0 ? "fast" : "smart";
     const itemView = sample.kind === "ok" || sample.kind === "error" ? await showItems(deps, recipe, ctx) : "";
     history.push(
       `Round ${rounds}: your recipe was dry-run on the first list page.\nRecipe:\n${JSON.stringify(recipe)}\nProblems to fix:\n- ${blocking.join("\n- ")}\n${showSample(sample)}\n${itemView}${docsView ? `\n${docsView}` : ""}\nAnswer with a corrected full recipe.`,
