@@ -67,17 +67,19 @@ Each portal is always in one of four states, with a one-sentence `reason` an ope
 
 Every model call is recorded with its purpose, tokens and cost: `GET /internal/ledger` for all portals, `GET /internal/portals/{id}` for one.
 
-| | Model calls | Cost per portal |
-|---|---|---|
-| Attach (once) | 3 calls, ~21k input and ~1.7k output tokens | ~$0.06 |
-| Regular read | **0** | **$0** |
-| Repair (per portal change) | not measured yet | not measured yet |
+| Operation | Model cost |
+|---|---|
+| Attach (once) | **$0.040** average per portal |
+| Regular read | **$0** (no model calls) |
+| Repair | **$0.021** average per scenario that started a repair |
+
+The attach and repair averages come from D’s [`npm run eval` run on November 20, 2026 at 22:28 CET](status/D.md) on the three lab portals: Stadtwerke Lindenau, Ville de Rivemont, and Gmina Lipowo. Against lab ground truth, attach accuracy was **73%** of fields correct, with **0 wrong values** (missing fields still reduced the score). Watchtower healed **85%** of breaking changes (**11 of 13**), with a median heal time of **16 s**. It also started a repair on **3 of 6** harmless changes. These are lab results, not real-portal averages.
 
 **Per portal per month** = attach cost (once) + repair cost × number of portal changes that month. Reads add nothing.
 
 First measurement: drafting a full recipe for TenderNed (Netherlands) from its real API answers took **1 call, 3,020 input and 800 output tokens: $0.014** with `gpt-6.2-sol` at $2 / $10 per million tokens.
 
-B's measured attach run (Platforma Zakupowa): **3 calls, ~21k input and ~1.7k output tokens, ~$0.06**. Known recipes cost $0. Repair cost is not measured yet.
+B's separately measured attach run (Platforma Zakupowa): **3 calls, ~21k input and ~1.7k output tokens, ~$0.06**. Reusing a known recipe without a model call costs $0.
 
 ## API
 
