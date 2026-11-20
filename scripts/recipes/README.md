@@ -6,12 +6,12 @@ Make more with `npx tsx --env-file=.env scripts/draft-recipe.ts <list URL> [...]
 It explores the page in the polite browser, asks `MODEL_SMART` for a recipe (up to 3 calls), and keeps a draft only when
 the list rules find tenders on the live portal without the model.
 
-## Results so far (Fri 17:30–18:30)
+## Results so far (as of Fri 17:25)
 
 | Portal | Country | Result | Model calls | Cost |
 |---|---|---|---|---|
 | TenderNed | NL | jsonApi draft, hand-checked, document download verified | 1 | $0.014 |
-| e-Zamówienia (BZP board) | PL | jsonApi draft, 10 live items, 9 of 10 fields filled | 1 | $0.039 |
+| e-Zamówienia (BZP board) | PL | jsonApi draft, 10 live items, 9 fields mapped (no `url`) | 1 | $0.039 |
 | DTVP (cosinex) | DE | no draft: the search page shows a form, not a list | 3 | $0.018 |
 | e-Vergabe (Bund) | DE | no draft: list URL answers HTTP 400 without a session cookie | 3 | $0.055 |
 | BOAMP | FR | not tried: robots.txt disallows `/api/`, which the site needs | 0 | $0 |
