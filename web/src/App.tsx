@@ -80,13 +80,18 @@ export function App() {
   return (
     <div className="min-h-dvh bg-sea text-ink">
       <Header onAdded={reload} />
-      {failing && (
-        <p role="alert" className="mx-auto max-w-[1440px] min-[1800px]:max-w-[1680px] px-4 pt-3 text-[13px] text-failed sm:px-6">
+      <div className="mx-auto grid max-w-[1440px] min-[1800px]:max-w-[1680px] px-4 text-[13px] sm:px-6">
+        <p aria-hidden="true" className="invisible col-start-1 row-start-1 pt-3">
           The Watchtower API is not answering. Showing the last successful update; retrying every 3 seconds.
         </p>
-      )}
-      {data === null && !failing ? (
-        <p className="mx-auto max-w-[1440px] min-[1800px]:max-w-[1680px] px-4 py-24 text-slate sm:px-6">Loading portals…</p>
+        {failing && <p role="alert" className="col-start-1 row-start-1 pt-3 text-failed">
+          The Watchtower API is not answering. {data ? "Showing the last successful update; retrying every 3 seconds." : "Retrying every 3 seconds."}
+        </p>}
+      </div>
+      {data === null ? (
+        failing ? <main className="mx-auto max-w-[1440px] min-[1800px]:max-w-[1680px] px-4 py-5 sm:px-6">
+          <button type="button" onClick={() => void reload()} className="rounded-[4px] border border-hairline bg-paper px-3 py-2 font-semibold text-docker">Try again</button>
+        </main> : <DashboardSkeleton />
       ) : (
         <main className="mx-auto max-w-[1440px] min-[1800px]:max-w-[1680px] px-4 pt-5 pb-16 sm:px-6">
           <SummaryStrip
@@ -171,6 +176,32 @@ export function App() {
         />
       )}
     </div>
+  );
+}
+
+function DashboardSkeleton() {
+  return (
+    <main className="mx-auto max-w-[1440px] min-[1800px]:max-w-[1680px] px-4 pt-5 sm:px-6">
+      <div role="status" aria-label="Loading dashboard">
+        <div aria-hidden="true">
+          <div className="space-y-3 rounded-[6px] border border-hairline bg-paper px-5 py-4">
+            <div className="h-6 w-48 max-w-full rounded-sm bg-mist" />
+            <div className="h-3 w-72 max-w-full rounded-sm bg-mist" />
+            <div className="h-3 w-56 max-w-full rounded-sm bg-mist" />
+          </div>
+          <div className="mt-5 flex gap-5 border-b border-hairline pb-3">
+            {[0, 1, 2].map((i) => <div key={i} className="h-4 w-12 rounded-sm bg-land" />)}
+          </div>
+          <div className="mt-4 divide-y divide-hairline rounded-[6px] border border-hairline bg-paper">
+            {[0, 1, 2, 3, 4].map((i) => <div key={i} className="flex items-center gap-4 p-4">
+              <div className="size-2 shrink-0 rounded-full bg-land" />
+              <div className="h-3 w-36 max-w-[65%] rounded-sm bg-mist" />
+              <div className="ml-auto hidden h-3 w-24 rounded-sm bg-mist sm:block" />
+            </div>)}
+          </div>
+        </div>
+      </div>
+    </main>
   );
 }
 
