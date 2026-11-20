@@ -69,13 +69,15 @@ Every model call is recorded with its purpose, tokens and cost: `GET /internal/l
 
 | | Model calls | Cost per portal |
 |---|---|---|
-| Attach (once) | _measured before hand-in_ | _measured_ |
+| Attach (once) | 3 calls, ~21k input and ~1.7k output tokens | ~$0.06 |
 | Regular read | **0** | **$0** |
-| Repair (per portal change) | _measured before hand-in_ | _measured_ |
+| Repair (per portal change) | not measured yet | not measured yet |
 
 **Per portal per month** = attach cost (once) + repair cost × number of portal changes that month. Reads add nothing.
 
 First measurement: drafting a full recipe for TenderNed (Netherlands) from its real API answers took **1 call, 3,020 input and 800 output tokens: $0.014** with `gpt-6.2-sol` at $2 / $10 per million tokens.
+
+B's measured attach run (Platforma Zakupowa): **3 calls, ~21k input and ~1.7k output tokens, ~$0.06**. Known recipes cost $0. Repair cost is not measured yet.
 
 ## API
 
