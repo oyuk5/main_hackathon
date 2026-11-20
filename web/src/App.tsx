@@ -60,6 +60,8 @@ export function App({ operator }: { operator?: ReactNode }) {
   }, [tab]);
   const [hover, setHover] = useState<string | null>(null);
   const [view, setView] = useStored<View>("wt.portals.view", { state: "all", sort: "urgent", desc: false });
+  const [tabStates, setTabStates] = useState<Record<Exclude<Tab, "portals">, State | "all">>({ issues: "all", log: "all" });
+  const activeState = tab === "portals" ? view.state : tabStates[tab];
   const [query, setQuery] = useState("");
   const [picked, setPicked] = useStored<string[] | null>("wt.portals.picked", null);
   const [showSide, setShowSide] = useStored<boolean>("wt.portals.side", true);
@@ -74,6 +76,10 @@ export function App({ operator }: { operator?: ReactNode }) {
     const ids = new Set(picked);
     return all.filter((p) => ids.has(p.id));
   }, [all, picked]);
+  const matchingRows = useMemo(
+    () => activeState === "all" ? rows : rows.filter((p) => p.state === activeState),
+    [rows, activeState],
+  );
   const totalCost = useMemo(() => (ledger ?? []).reduce((s, r) => s + r.cost_usd, 0), [ledger]);
 
   // The browser tab says how many portals need a person, so a glance at the tab bar is enough.
@@ -101,12 +107,13 @@ export function App({ operator }: { operator?: ReactNode }) {
             rows={rows}
             total={all.length}
             totalCost={totalCost}
-            picked={view.state}
+            picked={activeState}
             now={now}
             onReload={reload}
             onPick={(s) => {
-              setView({ ...view, state: view.state === s ? "all" : s });
-              window.location.hash = "#/";
+              const state = activeState === s ? "all" : s;
+              if (tab === "portals") setView({ ...view, state });
+              else setTabStates((current) => ({ ...current, [tab]: state }));
             }}
           />
 
@@ -128,11 +135,11 @@ export function App({ operator }: { operator?: ReactNode }) {
             </p>
           ) : tab === "issues" && rows.length > 0 ? (
             <div id="panel-issues" role="tabpanel" aria-labelledby="tab-issues" className="mt-4">
-              <Board rows={rows} now={now} hover={hover} setHover={setHover} />
+              <Board rows={matchingRows} state={activeState} now={now} hover={hover} setHover={setHover} />
             </div>
           ) : tab === "log" && rows.length > 0 ? (
             <div id="panel-log" role="tabpanel" aria-labelledby="tab-log" className="mt-4">
-              <Log portals={rows} now={now} />
+              <Log portals={matchingRows} now={now} />
             </div>
           ) : (
             <div

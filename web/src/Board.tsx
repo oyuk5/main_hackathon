@@ -1,11 +1,11 @@
 /**
  * The issues board: every problem as a ticket in one of three lanes, read left to right in order
- * of urgency. Needs a person, Fixing itself, Fixed by itself (last 24 h). Healthy portals live
- * in the Portals tab.
+ * of urgency. Needs a person, Fixing itself, Fixed by itself (last 24 h). The Serving filter
+ * also shows healthy portals that do not have a recent repair.
  * Tickets are built from the overview only; a ticket opens the portal's side panel.
  */
 import { StatusIcon, stateToIconKind } from "./StatusIcon";
-import { CHARACTER, clock, duration, host, int, plural, when, type PortalRow, type RecentRun } from "./lib";
+import { CHARACTER, clock, duration, host, int, plural, when, type PortalRow, type RecentRun, type State } from "./lib";
 
 type Lane = "person" | "fixing" | "fixed" | "clear";
 
@@ -23,6 +23,7 @@ const LANES: { id: Lane; title: string; note: string; empty: string; tone: strin
   { id: "person", title: "Needs a person", note: "Watchtower could not fix these on its own.", empty: "Nothing needs a person.", tone: "bg-failed" },
   { id: "fixing", title: "Fixing itself", note: "Repairs and first attaches running now. The last correct tenders stay served.", empty: "No repair running.", tone: "bg-healing" },
   { id: "fixed", title: "Fixed by itself", note: "Portals that changed in the last 24 hours and were repaired without help.", empty: "No repairs in the last 24 hours.", tone: "bg-serving" },
+  { id: "clear", title: "Serving", note: "Portals currently delivering tenders.", empty: "No portals are serving.", tone: "bg-serving" },
 ];
 
 /** What a person can do about a portal Watchtower cannot fix itself. Null when the reason gives no clue. */
@@ -128,24 +129,29 @@ export function openIssues(rows: PortalRow[], now: number): number {
   return t.person.length + t.fixing.length;
 }
 
-export function Board({ rows, now, hover, setHover }: { rows: PortalRow[]; now: number; hover: string | null; setHover: (id: string | null) => void }) {
+export function Board({ rows, state, now, hover, setHover }: { rows: PortalRow[]; state: State | "all"; now: number; hover: string | null; setHover: (id: string | null) => void }) {
   const t = tickets(rows, now);
+  const lanes = LANES.filter(({ id }) => {
+    if (state === "all") return id !== "clear";
+    if (state === "serving") return id === "clear" || id === "fixed";
+    return id === (state === "failed" ? "person" : "fixing");
+  });
   return (
-    <section aria-label="Issues" className="grid gap-5 lg:grid-cols-3">
-      {LANES.map((lane) => (
+    <section aria-label="Issues" className={`grid gap-5 ${state === "all" ? "lg:grid-cols-3" : state === "serving" ? "lg:grid-cols-2" : ""}`}>
+      {lanes.map((lane) => (
         <div key={lane.id} className="flex min-w-0 flex-col rounded-[6px] border border-hairline bg-paper/60 px-3 pt-3 pb-2">
           <header className="pb-3">
             <div className="flex items-baseline justify-between gap-3">
               <h2 className="flex items-center gap-2 text-[15px] font-semibold text-ink">
                 <span aria-hidden="true" className={`size-2 shrink-0 rounded-full ${lane.tone}`} />
-                {lane.title}
+                {lane.id === "fixing" && state !== "all" ? CHARACTER[state].words : lane.title}
               </h2>
               <span className="num text-[15px] font-semibold text-slate">{t[lane.id].length}</span>
             </div>
             <p className="mt-0.5 text-[12.5px] leading-snug text-slate">{lane.note}</p>
           </header>
           {t[lane.id].length === 0 ? (
-            <p className="rounded-[4px] border border-dashed border-hairline px-4 py-6 text-center text-[13px] text-faint">{lane.empty}</p>
+            <p className="rounded-[4px] border border-dashed border-hairline px-4 py-6 text-center text-[13px] text-faint">{lane.id === "fixing" && state === "integrating" ? "No first attach is running." : lane.empty}</p>
           ) : lane.id === "clear" ? (
             <ul className="rounded-[4px] border border-hairline bg-sea/40">
               {t.clear.map((k) => <ClearRow key={k.key} k={k} now={now} hover={hover} setHover={setHover} />)}
