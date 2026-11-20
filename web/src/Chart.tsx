@@ -197,13 +197,14 @@ function Light({ pl, k, active, setHover }: { pl: Placed; k: number; active: boo
   return (
     <a
       href={`#/p/${encodeURIComponent(p.id)}`}
-      aria-label={`${host(p.url)}: ${c.words}`}
+      aria-label={`${host(p.url)}: ${c.words}, ${t("table.deliveredOpen", { delivered: p.tenderCount, open: p.openCount })}`}
       onMouseEnter={() => setHover(p.id)}
       onMouseLeave={() => setHover(null)}
       onFocus={() => setHover(p.id)}
       onBlur={() => setHover(null)}
       className="map-control cursor-pointer"
     >
+      <title>{t("table.deliveredOpen", { delivered: p.tenderCount, open: p.openCount })}</title>
       <circle cx={x} cy={y} r={24 * k} className="fill-transparent" />
       <circle cx={x} cy={y} r={22 * k} className="map-focus fill-none" strokeWidth={2 * k} />
       <g className={`${c.cls} ${GLOW[p.state]}`}>
@@ -353,7 +354,7 @@ function Label({ l, active }: { l: Placement; active: boolean }) {
         <p className="narrow truncate text-[15px] font-bold">{host(p.url)}</p>
         <p className="mt-0.5 truncate text-[13px]">
           <span className={`font-semibold ${STATE_COLOR[p.state]}`}>{c.words}</span>
-          {(p.state === "serving" || p.state === "healing") && <span className="text-slate">{t("chart.openTenders", { n: p.tenderCount })}</span>}
+          <span className="text-slate">{p.tenderCount === p.openCount ? t("chart.openTenders", { n: p.openCount }) : `, ${t("table.deliveredOpen", { delivered: p.tenderCount, open: p.openCount })}`}</span>
         </p>
         {reason && <p className="mt-0.5 truncate text-[12.5px] text-slate">{reason}</p>}
       </div>
