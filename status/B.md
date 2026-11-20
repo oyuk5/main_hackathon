@@ -1,19 +1,17 @@
 # B · Attach
 
-_Updated: Fri 21:40. Only B and B's agent write here. Keep it under 15 lines and true._
+_Updated: Fri 22:55. Only B and B's agent write here. Keep it under 15 lines and true._
 
 **Done**
 - Extractor + normalization, tested; `documentRefsPending`. Known recipe TenderNed. No model call on reads.
 - Model Cartographer (task 3), live: Platforma Zakupowa serving (3 drafts, ~$0.06), Mercell blocked (403), DTVP/PLACSP honest fails. Shows the model one tender page so it maps documents; checks the files selector.
-- A's read-honesty requests: a failed later list page → `unreachable` (404/410 = end of list); "no results" ignored in header/nav/footer; explicit award notices skipped before any request; tender pages with file links the documents rule misses → read error (repair); Cartographer rejects a deadline rule that reads the publication date.
-- Families (task 5): fingerprints cosinex, Healy Hudson, Atexo MPE, Open Nexus, Mercell, PLACSP and 3 SaaS hosts; a model-learned recipe becomes the family template (only if it found document links); the next portal on that software attaches with **no model call** ($0).
+- A's read-honesty requests (4d356d2); families (task 5): second portal on known software attaches with no model call ($0).
 
 **Doing now**
-- Next: D's lab portals (`npm run lab`) through attach, then browser tier for JS-only lists.
+- D's eval gaps: stadtwerke misses description/procedureType/contractNature/CPV/place and reads withdrawn 4753 as open (5 of 7 attaches); gmina misses procedureType/contractNature/CPV; ville gets 0 documents. Then browser tier for JS-only lists.
 
 **Needs from others**
-- A + team: Platforma Zakupowa's robots.txt disallows `/file/get_new/`, so no document can be downloaded. Hold those tenders back, or serve them with a reason that says robots.txt blocks the files?
-- A: a model-learned recipe on recognised software has `recipe.family` set, so `saveRecipe` labels it "family". Split the label if the dashboard should tell them apart.
+- A: `scripts/demo.ts` starts real reads on its sample portals by itself (boamp.fr, vergabe.niedersachsen.de, dtvp.de) and calls the model when a key is loaded. Started without a key it shows "No model is configured" on them. Make the demo read-only unless "Read now" is pressed, or say so in the README.
 
 **Known problems**
 - JS-only lists (DTVP) fail honestly: browser tier not built.
