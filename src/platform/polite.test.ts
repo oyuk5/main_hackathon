@@ -141,3 +141,61 @@ describe("robots.txt edge cases", () => {
     assert.equal(robotsAllow(rules, "/tender/1"), true);
   });
 });
+
+describe("redirects over plain HTTP", () => {
+  async function redirecting() {
+    const hits: { path: string; at: number; cookie: string }[] = [];
+    const server = http.createServer((req, res) => {
+      hits.push({ path: req.url!, at: Date.now(), cookie: req.headers.cookie ?? "" });
+      if (req.url === "/robots.txt") return res.writeHead(200, { "content-type": "text/plain" }).end("User-agent: *\nDisallow: /blocked\n");
+      if (req.url === "/a") return res.writeHead(302, { location: "/b", "set-cookie": "lang=en; Path=/" }).end();
+      // Loops until the cookie from /a comes back, like a cookie-based locale redirect.
+      if (req.url === "/b") return req.headers.cookie?.includes("lang=en") ? res.writeHead(301, { location: "/c" }).end() : res.writeHead(302, { location: "/a" }).end();
+      if (req.url === "/c") return res.writeHead(200, { "content-type": "text/plain" }).end("final");
+      if (req.url === "/loop") return res.writeHead(302, { location: "/loop" }).end();
+      if (req.url === "/to-blocked") return res.writeHead(302, { location: "/blocked/x" }).end();
+      if (req.url === "/form") return res.writeHead(303, { location: "/echo" }).end();
+      if (req.url === "/echo") return res.writeHead(200).end(req.method);
+      res.writeHead(404).end();
+    });
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+    const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    return { base, hits, close: () => new Promise<void>((r) => (server.closeAllConnections(), server.close(() => r()))) };
+  }
+
+  it("gates every hop, sends cookies back, and lands on the final address", async () => {
+    const p = await redirecting();
+    try {
+      const res = await politeHttp(new AbortController().signal).fetch(`${p.base}/a`);
+      assert.equal(await res.text(), "final");
+      assert.equal(res.url, `${p.base}/c`);
+      const hops = p.hits.filter((h) => h.path !== "/robots.txt");
+      assert.deepEqual(hops.map((h) => h.path), ["/a", "/b", "/c"]);
+      assert.equal(hops[1]!.cookie, "lang=en");
+      for (let i = 1; i < hops.length; i++) assert.ok(hops[i]!.at - hops[i - 1]!.at >= 900, `hop ${i} came ${hops[i]!.at - hops[i - 1]!.at} ms after the last`);
+    } finally {
+      await p.close();
+    }
+  });
+
+  it("refuses a redirect hop that robots.txt disallows", async () => {
+    const p = await redirecting();
+    try {
+      const httpc = politeHttp(new AbortController().signal);
+      await assert.rejects(httpc.fetch(`${p.base}/to-blocked`), /robots\.txt disallows \/blocked\/x/);
+      assert.ok(!p.hits.some((h) => h.path.startsWith("/blocked")));
+    } finally {
+      await p.close();
+    }
+  });
+
+  it("turns a POST into a GET after 303", async () => {
+    const p = await redirecting();
+    try {
+      const res = await politeHttp(new AbortController().signal).fetch(`${p.base}/form`, { method: "POST", body: "q=1", headers: { "content-type": "application/x-www-form-urlencoded" } });
+      assert.equal(await res.text(), "GET");
+    } finally {
+      await p.close();
+    }
+  });
+});

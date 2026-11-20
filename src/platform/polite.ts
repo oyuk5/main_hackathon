@@ -119,17 +119,57 @@ export async function robotsAllows(url: string, signal?: AbortSignal): Promise<b
 
 // ------------------------------------------------------------ HTTP
 
+const MAX_REDIRECTS = 10;
+
+/**
+ * Plain HTTP for one run. Redirects are followed by hand so every hop passes robots.txt and the
+ * per-host gate (fetch's own "follow" would fire the whole chain at once). Cookies a portal sets
+ * are kept for the run and sent back to the same host, which ends cookie-based locale loops.
+ */
 export function politeHttp(signal: AbortSignal, onRequest?: () => void): PoliteHttp {
+  const jar = new Map<string, Map<string, string>>();
+  const remember = (host: string, res: Response) => {
+    for (const line of res.headers.getSetCookie?.() ?? []) {
+      const pair = line.split(";")[0]!;
+      const eq = pair.indexOf("=");
+      if (eq <= 0) continue;
+      const cookies = jar.get(host) ?? new Map<string, string>();
+      cookies.set(pair.slice(0, eq).trim(), pair.slice(eq + 1).trim());
+      jar.set(host, cookies);
+    }
+  };
+
   return {
     async fetch(url, init) {
-      const u = new URL(url);
-      if (!(await robotsAllows(url, signal))) throw new Error(`robots.txt disallows ${u.pathname}`);
-      await gate(u.host, signal);
-      onRequest?.();
-      const headers = new Headers(init?.headers);
-      if (!headers.has("user-agent")) headers.set("user-agent", config.userAgent);
-      if (!headers.has("accept-language")) headers.set("accept-language", "en;q=0.8,de;q=0.7,fr;q=0.6,nl;q=0.6,es;q=0.6");
-      return fetch(url, { ...init, headers, signal, redirect: "follow" });
+      let current = url;
+      let method = (init?.method ?? "GET").toUpperCase();
+      let body = init?.body;
+      for (let hop = 0; ; hop++) {
+        const u = new URL(current);
+        if (!(await robotsAllows(current, signal))) throw new Error(`robots.txt disallows ${u.pathname}`);
+        await gate(u.host, signal);
+        onRequest?.();
+        const headers = new Headers(init?.headers);
+        if (!headers.has("user-agent")) headers.set("user-agent", config.userAgent);
+        if (!headers.has("accept-language")) headers.set("accept-language", "en;q=0.8,de;q=0.7,fr;q=0.6,nl;q=0.6,es;q=0.6");
+        const cookies = jar.get(u.host);
+        if (cookies?.size && !headers.has("cookie")) headers.set("cookie", [...cookies].map(([k, v]) => `${k}=${v}`).join("; "));
+        if (method === "GET" || method === "HEAD") headers.delete("content-type");
+
+        const res = await fetch(current, { ...init, method, body: method === "GET" || method === "HEAD" ? undefined : body, headers, signal, redirect: "manual" });
+        remember(u.host, res);
+        const location = res.headers.get("location");
+        if (res.status < 300 || res.status > 399 || res.status === 304 || !location) return res;
+
+        await res.body?.cancel().catch(() => {});
+        if (hop + 1 >= MAX_REDIRECTS) throw new Error(`Too many redirects (more than ${MAX_REDIRECTS}) starting at ${url}`);
+        current = new URL(location, current).toString();
+        // 303, and 301/302 after a POST, continue as GET without a body (as browsers do).
+        if (res.status === 303 || ((res.status === 301 || res.status === 302) && method === "POST")) {
+          method = "GET";
+          body = undefined;
+        }
+      }
     },
   };
 }
