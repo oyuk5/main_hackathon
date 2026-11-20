@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { load } from "cheerio";
+import { compressHtml, detectBlockInContent } from "./snapshot.js";
 import { Recipe } from "../shared/recipe.js";
 import type {
   Baseline,
@@ -99,6 +101,7 @@ function buildRepairPrompt(params: {
   triage: TriageReport;
   golden: GoldenRecord[];
   attemptHistory: AttemptFeedback[];
+  pageEvidence?: string;
 }): string {
   const sections = [
     `Triage category: ${params.triage.category}`,
@@ -108,6 +111,7 @@ function buildRepairPrompt(params: {
     `Failing checks:\n${formatFailedChecks(params.triage.failedChecks)}`,
     `Previous recipe:\n${JSON.stringify(params.recipe, null, 2)}`,
     formatSnapshotSection(params.triage.snapshot),
+    params.pageEvidence ?? null,
     params.golden.length > 0
       ? `Golden records to preserve:\n${JSON.stringify(params.golden, null, 2)}`
       : null,
@@ -210,14 +214,19 @@ async function verifyCandidate(
       sampleTenders,
     };
   }
-  // A candidate that finds no files for tenders we delivered with files lost the documents rule.
+  // A ZIP ref can legitimately expand into multiple delivered files; Platform checks the bytes and final count.
   const published = (baseline as Baseline & { publishedDocumentCounts?: Readonly<Record<string, number>> }).publishedDocumentCounts ?? {};
-  const lostFiles = read.tenders.filter((t) => (published[t.id] ?? 0) > 0 && t.documentRefs.length === 0 && !t.documentRefsPending);
+  const lostFiles = read.tenders.filter((t) => {
+    const refs = new Set(t.documentRefs.map((ref) => ref.url));
+    const hasArchive = t.documentRefs.some((ref) => /\.zip(?:[?#]|$)/i.test(ref.url) || /\.zip$/i.test(ref.fileNameHint ?? ""));
+    return !t.documentRefsPending && refs.size < (published[t.id] ?? 0) && !hasArchive;
+  });
   if (lostFiles.length > 0) {
+    const counts = lostFiles.slice(0, 3).map((t) => `${t.id}: ${new Set(t.documentRefs.map((ref) => ref.url)).size} of ${published[t.id]} previously delivered files`).join(", ");
     return {
       kind: "retry",
-      promptReason: `The documents rule found no files for ${lostFiles.length} tender(s) that had files before (e.g. ${lostFiles.slice(0, 3).map((t) => `${t.id} had ${published[t.id]}`).join(", ")}). Fix the documents rule against the tender's own page.`,
-      operatorReason: `The patch found no files for ${lostFiles.length} tender${lostFiles.length === 1 ? "" : "s"} that had attachments.`,
+      promptReason: `The documents rule returned fewer files than previously delivered (${counts}). Fix the documents rule against the tender's own page.`,
+      operatorReason: `The patch returned fewer files for ${plural(lostFiles.length, "tender")} that had attachments.`,
       sampleTenders,
     };
   }
@@ -230,6 +239,7 @@ async function requestPatch(
     triage: TriageReport;
     golden: GoldenRecord[];
     attemptHistory: AttemptFeedback[];
+    pageEvidence?: string;
   },
   ctx: PortalContext,
 ): Promise<PatchResponse> {
@@ -263,6 +273,7 @@ async function executePatchAttempt(params: {
   baseline: Baseline;
   triage: TriageReport;
   attemptHistory: AttemptFeedback[];
+  pageEvidence?: string;
   deps: MedicDeps;
   ctx: PortalContext;
 }): Promise<PatchAttemptOutcome> {
@@ -274,6 +285,7 @@ async function executePatchAttempt(params: {
         triage: params.triage,
         golden: params.baseline.golden,
         attemptHistory: params.attemptHistory,
+        pageEvidence: params.pageEvidence,
       },
       params.ctx,
     );
@@ -346,6 +358,56 @@ type PatchLoopResult =
   | { kind: "resolved"; outcome: RepairOutcome }
   | { kind: "exhausted"; lastFailureReason: string; maxAttempts: number };
 
+async function captureTenderEvidence(recipe: Recipe, baseline: Baseline, ctx: PortalContext): Promise<string | undefined> {
+  if (!recipe.detail && !recipe.documents) return;
+  const golden = baseline.golden.find((record) => typeof record.fields.url === "string");
+  if (!golden || ctx.signal.aborted) return;
+  const page = async (target: URL) => {
+    if (!/^https?:$/.test(target.protocol) || ctx.signal.aborted) return;
+    try {
+      const res = await ctx.http.fetch(target.href, { signal: AbortSignal.any([ctx.signal, AbortSignal.timeout(8_000)]) });
+      if (!res.ok || !/html/i.test(res.headers.get("content-type") ?? "")) {
+        await res.body?.cancel();
+        return;
+      }
+      const url = new URL(res.url || target.href);
+      const reader = res.body?.getReader();
+      if (!reader) return;
+      let body = "";
+      const decoder = new TextDecoder();
+      try {
+        while (body.length < 64_000) {
+          const chunk = await reader.read();
+          if (chunk.done) break;
+          body += decoder.decode(chunk.value, { stream: true });
+        }
+      } finally { await reader.cancel().catch(() => {}); }
+      if (!detectBlockInContent(body, res.status, url.href)) return { body: body.slice(0, 64_000), url };
+    } catch { /* Supplementary evidence is optional; still try the list snapshot. */ }
+  };
+  try {
+    const detail = await page(new URL(String(golden.fields.url), ctx.url));
+    if (!detail) return;
+    const evidence = [`Known tender detail page (${detail.url.href}):\n${compressHtml(detail.body, 5200).compressed}`];
+    if (recipe.documents) {
+      const $ = load(detail.body);
+      const link = $("a[href]").toArray().find((el) => {
+        const href = $(el).attr("href") ?? "";
+        return href && !/\.(pdf|zip|docx?|xlsx?)(?:[?#]|$)/i.test(href) &&
+          /dokument|za[łl][ąa]cznik|attachment|annexe|pi[eè]ce|unterlag|beilage/i.test(`${$(el).text()} ${href}`);
+      });
+      if (link) {
+        const target = new URL($(link).attr("href")!, detail.url);
+        if (target.origin === detail.url.origin) {
+          const documents = await page(target);
+          if (documents) evidence.push(`Linked tender documents page (${documents.url.href}):\n${compressHtml(documents.body, 4200).compressed}`);
+        }
+      }
+    }
+    return evidence.join("\n\n");
+  } catch { return; }
+}
+
 async function runPatchLoop(params: {
   recipe: Recipe;
   baseline: Baseline;
@@ -359,12 +421,13 @@ async function runPatchLoop(params: {
     "The repair could not be verified.",
   );
   const attemptHistory: AttemptFeedback[] = [];
+  const pageEvidence = await captureTenderEvidence(params.recipe, params.baseline, params.ctx);
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     if (params.ctx.signal.aborted) {
       return { kind: "resolved", outcome: { kind: "failed", reason: "Repair stopped." } };
     }
-    const result = await executePatchAttempt({ ...params, attempt, attemptHistory });
+    const result = await executePatchAttempt({ ...params, attempt, attemptHistory, pageEvidence });
     if (result.kind === "resolved") return result;
     lastFailureReason = result.operatorReason;
     attemptHistory.push(result.feedback);
