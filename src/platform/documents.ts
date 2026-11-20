@@ -1,9 +1,15 @@
 /**
  * Document pipeline. Owned by A.
- * Streams each file to disk, hashes it, unpacks ZIPs (each inner file becomes a document),
- * skips anything over the size cap, and stores bytes by sha256 under DATA_DIR/files.
+ * Streams each file to disk, hashes it, unpacks ZIPs (each inner file becomes a document,
+ * one nested ZIP level deep), skips anything over the size cap, and stores bytes by sha256
+ * under DATA_DIR/files. Never holds a whole file in memory.
  *
- * TODO(A): browser downloads (ref.via === "browser", clickPath), nested ZIPs, retries.
+ * Downloads run over HTTP, or in the browser when the portal needs clicks or JavaScript
+ * (ref.via === "browser", with ref.clickPath). Both paths share the same hash, cap and ZIP logic.
+ *
+ * Traps handled: a web page instead of a file (login pages are named as such), a captcha that
+ * still lets the file through (the download is always tried before declaring a block),
+ * oversized files (content-length checked first, streaming aborted at the cap), nested ZIPs.
  */
 import fs from "node:fs";
 import fsp from "node:fs/promises";
@@ -11,6 +17,7 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { Readable } from "node:stream";
 import yauzl from "yauzl";
+import type { Download, Page } from "playwright";
 import { config } from "./config.js";
 import type { TenderDocument } from "../shared/contract.js";
 import type { DocumentFetcher, DocumentRef, PortalContext } from "../shared/modules.js";
@@ -20,42 +27,60 @@ const tmpDir = path.join(config.dataDir, "tmp");
 fs.mkdirSync(filesDir, { recursive: true });
 fs.mkdirSync(tmpDir, { recursive: true });
 
+/** How long the browser path waits for a page, a click target, or a download to start. */
+const BROWSER_STEP_MS = 20_000;
+/** How much of an HTML answer we read to tell a login page from a captcha or a summary page. */
+const HTML_SNIFF_BYTES = 256 * 1024;
+
 export function filePath(sha256: string): string {
   return path.join(filesDir, sha256);
 }
 
+const capMb = () => Math.round(config.maxFileBytes / 1048576);
+
+// ------------------------------------------------------------ naming
+
 function fileNameFrom(res: Response, ref: DocumentRef): string {
   const cd = res.headers.get("content-disposition") ?? "";
   const star = /filename\*\s*=\s*(?:UTF-8|utf-8)''([^;]+)/.exec(cd);
-  if (star?.[1]) return decodeURIComponent(star[1].trim().replace(/"/g, ""));
+  if (star?.[1]) return safeName(decodeURIComponent(star[1].trim().replace(/"/g, "")));
   const plain = /filename\s*=\s*"?([^";]+)"?/i.exec(cd);
-  if (plain?.[1]) return plain[1].trim();
-  if (ref.fileNameHint) return ref.fileNameHint;
-  const last = decodeURIComponent(new URL(res.url || ref.url).pathname.split("/").pop() || "document");
-  return last || "document";
+  if (plain?.[1]) return safeName(plain[1].trim());
+  if (ref.fileNameHint) return safeName(ref.fileNameHint);
+  return nameFromUrl(res.url || ref.url);
 }
 
-/** Moves a temp file into content-addressed storage and returns its document entry. */
-async function commit(tmp: string, fileName: string, sha256: string, sizeBytes: number): Promise<TenderDocument> {
-  const dest = filePath(sha256);
-  if (fs.existsSync(dest)) await fsp.rm(tmp, { force: true });
-  else await fsp.rename(tmp, dest);
-  return { fileName, sizeBytes, sha256, path: `/files/${sha256}` };
+function nameFromUrl(url: string): string {
+  try {
+    return safeName(decodeURIComponent(new URL(url).pathname.split("/").pop() || "document"));
+  } catch {
+    return "document";
+  }
 }
 
-/** Streams a response body to a temp file with a byte cap. Returns null if over the cap. */
-async function download(res: Response): Promise<{ tmp: string; sha256: string; size: number } | null> {
-  const declared = Number(res.headers.get("content-length") ?? "0");
-  if (declared > config.maxFileBytes) return null;
+/** Keeps only the last path segment, so a name can never point outside storage. */
+function safeName(name: string): string {
+  return name.split(/[\\/]/).pop()?.trim() || "document";
+}
+
+// ------------------------------------------------------------ streaming to disk
+
+type Temp = { tmp: string; sha256: string; size: number };
+
+/**
+ * Streams bytes to a temp file with a byte cap, hashing as it goes.
+ * Returns null when the cap is crossed; the source is destroyed so the transfer stops.
+ */
+async function toTemp(source: AsyncIterable<Uint8Array>): Promise<Temp | null> {
   const tmp = path.join(tmpDir, crypto.randomUUID());
   const hash = crypto.createHash("sha256");
   const out = fs.createWriteStream(tmp);
   let size = 0;
   try {
-    for await (const chunk of Readable.fromWeb(res.body as never)) {
-      size += (chunk as Buffer).length;
-      if (size > config.maxFileBytes) throw new Error("over cap");
-      hash.update(chunk as Buffer);
+    for await (const chunk of source) {
+      size += chunk.length;
+      if (size > config.maxFileBytes) throw new OverCap();
+      hash.update(chunk);
       if (!out.write(chunk)) await new Promise<void>((r) => out.once("drain", () => r()));
     }
     await new Promise<void>((r, j) => out.end((e?: Error | null) => (e ? j(e) : r())));
@@ -63,60 +88,291 @@ async function download(res: Response): Promise<{ tmp: string; sha256: string; s
   } catch (e) {
     out.destroy();
     await fsp.rm(tmp, { force: true });
-    if ((e as Error).message === "over cap") return null;
+    if (e instanceof OverCap) return null;
     throw e;
   }
 }
 
-function isZip(tmp: string): boolean {
-  const fd = fs.openSync(tmp, "r");
-  const buf = Buffer.alloc(4);
-  fs.readSync(fd, buf, 0, 4, 0);
-  fs.closeSync(fd);
-  return buf.equals(Buffer.from([0x50, 0x4b, 0x03, 0x04]));
+class OverCap extends Error {}
+
+/** Moves a temp file into content-addressed storage and returns its document entry. */
+async function commit(t: Temp, fileName: string): Promise<TenderDocument> {
+  const dest = filePath(t.sha256);
+  if (fs.existsSync(dest)) await fsp.rm(t.tmp, { force: true });
+  else await fsp.rename(t.tmp, dest);
+  return { fileName, sizeBytes: t.size, sha256: t.sha256, path: `/files/${t.sha256}` };
 }
 
-/** Unpacks a ZIP into documents. Skips folders and entries over the cap. */
-function unzip(zipPath: string): Promise<{ documents: TenderDocument[]; skipped: string[] }> {
+function head(file: string, n: number): Buffer {
+  const fd = fs.openSync(file, "r");
+  try {
+    const buf = Buffer.alloc(n);
+    const got = fs.readSync(fd, buf, 0, n, 0);
+    return buf.subarray(0, got);
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+function isZip(file: string): boolean {
+  return head(file, 4).equals(Buffer.from([0x50, 0x4b, 0x03, 0x04]));
+}
+
+function looksLikeHtml(bytes: Buffer): boolean {
+  return /^\s*(<!doctype html|<html|<head|<body)/i.test(bytes.toString("latin1").replace(/^﻿/, ""));
+}
+
+// ------------------------------------------------------------ what a web page means
+
+const LOGIN_WORDS =
+  /\b(log ?in|sign ?in|anmelden|einloggen|inloggen|aanmelden|connexion|se connecter|iniciar sesi[oó]n|accedi|zaloguj|přihlásit|bejelentkezés|logga in|log ind|kirjaudu)\b/i;
+const CAPTCHA_MARKS = /captcha|g-recaptcha|h-captcha|cf-turnstile|challenge-platform|cf-chl-|are you a robot|are you human/i;
+
+/** Classifies an HTML answer that came instead of a file. */
+function explainPage(html: string, url: string): string {
+  if (/<input[^>]+type\s*=\s*["']?password/i.test(html) || (/<form/i.test(html) && LOGIN_WORDS.test(html))) {
+    return `Documents need a login: ${url} shows a login page instead of the file.`;
+  }
+  if (CAPTCHA_MARKS.test(html)) return `Blocked by a captcha: ${url} shows a captcha instead of the file.`;
+  return `Got a web page instead of a file at ${url}.`;
+}
+
+async function readTextCapped(res: Response, max: number): Promise<string> {
+  const parts: Buffer[] = [];
+  let size = 0;
+  for await (const chunk of Readable.fromWeb(res.body as never) as AsyncIterable<Buffer>) {
+    parts.push(chunk);
+    size += chunk.length;
+    if (size >= max) break; // leaving the loop destroys the stream and stops the transfer
+  }
+  return Buffer.concat(parts).toString("utf8");
+}
+
+// ------------------------------------------------------------ ZIP
+
+function openZip(file: string): Promise<yauzl.ZipFile> {
+  return new Promise((resolve, reject) =>
+    yauzl.open(file, { lazyEntries: true, autoClose: false }, (err, zip) => (err || !zip ? reject(err ?? new Error("cannot open")) : resolve(zip))),
+  );
+}
+
+function nextEntry(zip: yauzl.ZipFile): Promise<yauzl.Entry | null> {
   return new Promise((resolve, reject) => {
-    yauzl.open(zipPath, { lazyEntries: true }, (err, zip) => {
-      if (err || !zip) return reject(err ?? new Error("zip open failed"));
-      const documents: TenderDocument[] = [];
-      const skipped: string[] = [];
-      zip.on("entry", (entry: yauzl.Entry) => {
-        const name = entry.fileName.split("/").pop() ?? entry.fileName;
-        if (/\/$/.test(entry.fileName) || !name) return zip.readEntry();
-        if (entry.uncompressedSize > config.maxFileBytes) {
-          skipped.push(`${name} (over size cap)`);
-          return zip.readEntry();
-        }
-        zip.openReadStream(entry, (e, stream) => {
-          if (e || !stream) {
-            skipped.push(`${name} (unreadable)`);
-            return zip.readEntry();
-          }
-          const tmp = path.join(tmpDir, crypto.randomUUID());
-          const hash = crypto.createHash("sha256");
-          let size = 0;
-          const out = fs.createWriteStream(tmp);
-          stream.on("data", (c: Buffer) => {
-            size += c.length;
-            hash.update(c);
-          });
-          stream.pipe(out);
-          out.on("finish", () => {
-            commit(tmp, name, hash.digest("hex"), size)
-              .then((d) => documents.push(d))
-              .finally(() => zip.readEntry());
-          });
-        });
-      });
-      zip.on("end", () => resolve({ documents, skipped }));
-      zip.on("error", reject);
-      zip.readEntry();
-    });
+    const cleanup = () => {
+      zip.off("entry", onEntry);
+      zip.off("end", onEnd);
+      zip.off("error", onError);
+    };
+    const onEntry = (e: yauzl.Entry) => (cleanup(), resolve(e));
+    const onEnd = () => (cleanup(), resolve(null));
+    const onError = (e: Error) => (cleanup(), reject(e));
+    zip.on("entry", onEntry);
+    zip.on("end", onEnd);
+    zip.on("error", onError);
+    zip.readEntry();
   });
 }
+
+function entryStream(zip: yauzl.ZipFile, entry: yauzl.Entry): Promise<Readable> {
+  return new Promise((resolve, reject) => zip.openReadStream(entry, (e, s) => (e || !s ? reject(e ?? new Error("unreadable")) : resolve(s))));
+}
+
+/**
+ * Unpacks a ZIP into documents. Skips folders and entries over the cap (counted while streaming,
+ * so a ZIP that lies about sizes still stops at the cap). A ZIP inside the ZIP is unpacked one
+ * level deeper; anything deeper is kept as a file.
+ */
+async function unzip(file: string, zipName: string, depth: number, signal: AbortSignal): Promise<{ documents: TenderDocument[]; problems: string[] }> {
+  const documents: TenderDocument[] = [];
+  const problems: string[] = [];
+  const zip = await openZip(file);
+  try {
+    for (let entry = await nextEntry(zip); entry; entry = await nextEntry(zip)) {
+      if (signal.aborted) break;
+      const name = safeName(entry.fileName);
+      if (entry.fileName.endsWith("/") || !name) continue;
+      if (entry.uncompressedSize > config.maxFileBytes) {
+        problems.push(`Left out ${name} from ${zipName}: it is over ${capMb()} MB.`);
+        continue;
+      }
+      let t: Temp | null;
+      try {
+        t = await toTemp(await entryStream(zip, entry));
+      } catch {
+        problems.push(`Left out ${name} from ${zipName}: it could not be unpacked.`);
+        continue;
+      }
+      if (!t) {
+        problems.push(`Left out ${name} from ${zipName}: it is over ${capMb()} MB.`);
+        continue;
+      }
+      if (depth === 0 && isZip(t.tmp)) {
+        try {
+          const inner = await unzip(t.tmp, name, depth + 1, signal);
+          documents.push(...inner.documents);
+          problems.push(...inner.problems);
+        } catch {
+          problems.push(`Left out ${name} from ${zipName}: the inner ZIP could not be opened.`);
+        } finally {
+          await fsp.rm(t.tmp, { force: true });
+        }
+        continue;
+      }
+      documents.push(await commit(t, name));
+    }
+  } finally {
+    zip.close();
+  }
+  return { documents, problems };
+}
+
+/** Turns a downloaded temp file into documents: unpacks ZIPs, commits anything else. */
+async function store(t: Temp, name: string, signal: AbortSignal): Promise<{ documents: TenderDocument[]; problems: string[] }> {
+  if (isZip(t.tmp) || /\.zip$/i.test(name)) {
+    try {
+      return await unzip(t.tmp, name, 0, signal);
+    } catch {
+      // Named .zip but not a readable archive: keep the bytes as a plain file.
+      return { documents: [await commit(t, name)], problems: [] };
+    } finally {
+      await fsp.rm(t.tmp, { force: true });
+    }
+  }
+  return { documents: [await commit(t, name)], problems: [] };
+}
+
+// ------------------------------------------------------------ HTTP path
+
+async function viaHttp(ref: DocumentRef, ctx: PortalContext): Promise<{ documents: TenderDocument[]; problems: string[] }> {
+  const body = ref.form ? new URLSearchParams(ref.form).toString() : undefined;
+  const res = await ctx.http.fetch(ref.url, {
+    method: ref.method ?? "GET",
+    body,
+    headers: body ? { "content-type": "application/x-www-form-urlencoded" } : undefined,
+  });
+  if (!res.ok) {
+    await res.body?.cancel().catch(() => {});
+    return { documents: [], problems: [`Could not download ${ref.url}: the portal answered HTTP ${res.status}.`] };
+  }
+  if ((res.headers.get("content-type") ?? "").includes("text/html")) {
+    return { documents: [], problems: [explainPage(await readTextCapped(res, HTML_SNIFF_BYTES), ref.url)] };
+  }
+  const declared = Number(res.headers.get("content-length") ?? "0");
+  const name = fileNameFrom(res, ref);
+  if (declared > config.maxFileBytes) {
+    await res.body?.cancel().catch(() => {});
+    return { documents: [], problems: [`Left out ${name}: it is over ${capMb()} MB.`] };
+  }
+  if (!res.body) return { documents: [], problems: [`Could not download ${ref.url}: the answer was empty.`] };
+  const t = await toTemp(Readable.fromWeb(res.body as never) as AsyncIterable<Buffer>);
+  if (!t) return { documents: [], problems: [`Left out ${name}: it is over ${capMb()} MB.`] };
+  if (t.size === 0) {
+    await fsp.rm(t.tmp, { force: true });
+    return { documents: [], problems: [`Could not download ${ref.url}: the file was empty.`] };
+  }
+  const first = head(t.tmp, 2048);
+  if (looksLikeHtml(first)) {
+    // Mislabelled web page (e.g. application/octet-stream). Read a bounded slice to explain it.
+    const html = head(t.tmp, HTML_SNIFF_BYTES).toString("utf8");
+    await fsp.rm(t.tmp, { force: true });
+    return { documents: [], problems: [explainPage(html, ref.url)] };
+  }
+  return store(t, name, ctx.signal);
+}
+
+// ------------------------------------------------------------ browser path
+
+/**
+ * Opens ref.url, clicks each selector of ref.clickPath in order, and catches the download,
+ * on the page itself or on a popup it opens. The download is always tried first; only when
+ * no file arrives does the page get inspected for a login or a captcha.
+ */
+async function viaBrowser(ref: DocumentRef, ctx: PortalContext): Promise<{ documents: TenderDocument[]; problems: string[] }> {
+  return ctx.browser.withPage(async (page) => {
+    let download: Download | undefined;
+    let wake: (() => void) | undefined;
+    const catchDownloads = (p: Page) =>
+      p.on("download", (d) => {
+        download ??= d;
+        wake?.();
+      });
+    catchDownloads(page);
+    page.context().on("page", catchDownloads);
+
+    /** Waits up to `ms` for a download to start. */
+    const waitForDownload = (ms: number) =>
+      download || ctx.signal.aborted
+        ? Promise.resolve()
+        : new Promise<void>((resolve) => {
+            const timer = setTimeout(resolve, ms);
+            wake = () => (clearTimeout(timer), resolve());
+            ctx.signal.addEventListener("abort", () => wake?.(), { once: true });
+          });
+
+    try {
+      await page.goto(ref.url, { waitUntil: "domcontentloaded", timeout: BROWSER_STEP_MS });
+    } catch (e) {
+      // Navigating straight to a file throws "Download is starting"; the download event still fires.
+      if (!/download is starting/i.test((e as Error).message)) {
+        await waitForDownload(1000);
+        if (!download) throw e;
+      }
+    }
+
+    const steps = ref.clickPath ?? [];
+    for (const [i, selector] of steps.entries()) {
+      if (download || ctx.signal.aborted) break;
+      const target = page.locator(selector).first();
+      // Not there after a few seconds and the page is a login or captcha wall: say so now
+      // instead of waiting out the full timeout. Slow JavaScript pages still get the full wait.
+      const present = await target.waitFor({ state: "attached", timeout: 3000 }).then(() => true, () => false);
+      if (!present) {
+        const wall = await explainStuck(page, ref.url, "");
+        if (/^(Documents need a login|Blocked by a captcha)/.test(wall)) return { documents: [], problems: [wall] };
+      }
+      try {
+        await target.click({ timeout: BROWSER_STEP_MS });
+      } catch {
+        await waitForDownload(1000);
+        if (download) break;
+        return { documents: [], problems: [await explainStuck(page, ref.url, `step ${i + 1} of ${steps.length} (${selector}) could not be clicked`)] };
+      }
+      if (i < steps.length - 1) {
+        await page.waitForLoadState("domcontentloaded", { timeout: BROWSER_STEP_MS }).catch(() => {});
+      }
+    }
+
+    await waitForDownload(BROWSER_STEP_MS);
+    if (ctx.signal.aborted) return { documents: [], problems: [] };
+    if (!download) return { documents: [], problems: [await explainStuck(page, ref.url, "no file arrived")] };
+
+    const d: Download = download;
+    const name = safeName(d.suggestedFilename() || ref.fileNameHint || nameFromUrl(d.url()));
+    const failure = await d.failure();
+    if (failure) return { documents: [], problems: [`Could not download ${name} from ${ref.url}: ${failure}.`] };
+    const t = await toTemp((await d.createReadStream()) as AsyncIterable<Buffer>);
+    if (!t) {
+      await d.delete().catch(() => {});
+      return { documents: [], problems: [`Left out ${name}: it is over ${capMb()} MB.`] };
+    }
+    await d.delete().catch(() => {}); // Playwright's own copy; ours is in temp storage now
+    if (looksLikeHtml(head(t.tmp, 2048))) {
+      const html = head(t.tmp, HTML_SNIFF_BYTES).toString("utf8");
+      await fsp.rm(t.tmp, { force: true });
+      return { documents: [], problems: [explainPage(html, ref.url)] };
+    }
+    return store(t, name, ctx.signal);
+  });
+}
+
+/** Names why a browser download did not happen: login and captcha first, otherwise the plain fact. */
+async function explainStuck(page: Page, url: string, what: string): Promise<string> {
+  const html = await page.content().catch(() => "");
+  const verdict = explainPage(html.slice(0, HTML_SNIFF_BYTES), url);
+  return verdict.startsWith("Got a web page") ? `Could not download from ${url}: ${what}.` : verdict;
+}
+
+// ------------------------------------------------------------ entry point
 
 export const documentFetcher: DocumentFetcher = {
   async fetchAll(refs, ctx: PortalContext) {
@@ -125,41 +381,12 @@ export const documentFetcher: DocumentFetcher = {
     for (const ref of refs) {
       if (ctx.signal.aborted) break;
       try {
-        if (ref.via === "browser") {
-          problems.push(`Browser download not implemented yet: ${ref.url}`); // TODO(A)
-          continue;
-        }
-        const body = ref.form ? new URLSearchParams(ref.form).toString() : undefined;
-        const res = await ctx.http.fetch(ref.url, {
-          method: ref.method ?? "GET",
-          body,
-          headers: body ? { "content-type": "application/x-www-form-urlencoded" } : undefined,
-        });
-        if (!res.ok) {
-          problems.push(`HTTP ${res.status} for ${ref.url}`);
-          continue;
-        }
-        const type = res.headers.get("content-type") ?? "";
-        if (type.includes("text/html")) {
-          problems.push(`Got a web page, not a file: ${ref.url}`); // likely a login wall or a summary page
-          continue;
-        }
-        const name = fileNameFrom(res, ref);
-        const got = await download(res);
-        if (!got) {
-          problems.push(`Left out ${name}: over ${Math.round(config.maxFileBytes / 1048576)} MB`);
-          continue;
-        }
-        if (isZip(got.tmp) || /\.zip$/i.test(name)) {
-          const z = await unzip(got.tmp);
-          documents.push(...z.documents);
-          problems.push(...z.skipped.map((s) => `Left out ${s} from ${name}`));
-          await fsp.rm(got.tmp, { force: true });
-        } else {
-          documents.push(await commit(got.tmp, name, got.sha256, got.size));
-        }
+        const got = ref.via === "browser" ? await viaBrowser(ref, ctx) : await viaHttp(ref, ctx);
+        documents.push(...got.documents);
+        problems.push(...got.problems);
       } catch (e) {
-        problems.push(`${(e as Error).message} for ${ref.url}`);
+        if (ctx.signal.aborted) break;
+        problems.push(`Could not download ${ref.url}: ${(e as Error).message.split("\n")[0]}.`);
       }
     }
     return { documents, problems };

@@ -292,12 +292,17 @@ async function deliver(portalId: string, read: OkRead, ctx: PortalContext): Prom
     const row = store.getTenderRow(portalId, et.id);
     const refsHash = sha(JSON.stringify(et.documentRefs));
     let documents: TenderDocument[];
+    // Documents are fetched again only when the refs change, or when the last fetch had problems
+    // (stored with an empty refs hash), so a failed download is retried on the next read.
+    let storedRefsHash = refsHash;
     if (row && row.refs_hash === refsHash) {
       documents = (JSON.parse(row.json) as TenderT).documents;
     } else {
       const got = await documentFetcher.fetchAll(et.documentRefs, ctx);
+      if (ctx.signal.aborted) break;
       for (const p of got.problems) ctx.log(`Tender ${et.id}: ${p}`, "warn");
       documents = got.documents;
+      if (got.problems.length > 0) storedRefsHash = "";
     }
     const status: TenderT["status"] = et.withdrawn
       ? "withdrawn"
@@ -309,7 +314,7 @@ async function deliver(portalId: string, read: OkRead, ctx: PortalContext): Prom
     if (!row) fresh += 1;
     else if (row.content_hash !== hash) changed += 1;
     const lastChangedAt = row && row.content_hash === hash ? row.last_changed_at : now;
-    store.upsertTender(portalId, { ...draft, lastChangedAt }, hash, refsHash, now);
+    store.upsertTender(portalId, { ...draft, lastChangedAt }, hash, storedRefsHash, now);
   }
 
   // No longer listed => closed.

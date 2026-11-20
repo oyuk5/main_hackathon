@@ -79,15 +79,34 @@ export function politeHttp(signal: AbortSignal, onRequest?: () => void): PoliteH
 
 let browserPromise: Promise<Browser> | null = null;
 function sharedBrowser(): Promise<Browser> {
-  browserPromise ??= chromium.launch({ headless: true });
+  if (!browserPromise) {
+    const launching = chromium.launch({ headless: true });
+    browserPromise = launching;
+    // A failed launch must not be cached forever: the next page tries again.
+    launching.catch(() => {
+      if (browserPromise === launching) browserPromise = null;
+    });
+  }
   return browserPromise;
+}
+
+/** Closes the shared Chromium (tests and shutdown). The next withPage launches a new one. */
+export async function closeSharedBrowser(): Promise<void> {
+  const b = browserPromise;
+  browserPromise = null;
+  if (b) await (await b).close().catch(() => {});
 }
 
 export function politeBrowser(signal: AbortSignal, onRequest?: () => void): PoliteBrowser {
   return {
     async withPage(fn) {
+      if (signal.aborted) throw new Error("aborted");
       const browser = await sharedBrowser();
       const context = await browser.newContext({ userAgent: config.userAgent, acceptDownloads: true });
+      // DELETE must stop traffic within a minute: closing the context kills its pages,
+      // pending navigations, clicks and downloads at once, instead of waiting for fn to finish.
+      const stop = () => void context.close().catch(() => {});
+      signal.addEventListener("abort", stop, { once: true });
       try {
         await context.route("**/*", async (route) => {
           const req = route.request();
@@ -103,6 +122,7 @@ export function politeBrowser(signal: AbortSignal, onRequest?: () => void): Poli
         const page = await context.newPage();
         return await fn(page);
       } finally {
+        signal.removeEventListener("abort", stop);
         await context.close().catch(() => {});
       }
     },
