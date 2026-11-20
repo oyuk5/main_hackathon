@@ -1,353 +1,131 @@
-# Watchtower
+# Watchtower: architecture
 
-**Any tender portal in Europe. Connected in a minute. Repairs itself. Proves every repair.**
+**Any tender portal in Europe. Attached on its own. Watched honestly. Repaired with proof.**
 
-Patterno track, MAIN AI Hackathon 2026. Submission Saturday 10:30 on BuilderBase.
-
----
+Requirements: `docs/BRIEF.md` (wins every conflict). Tasks and owners: `docs/TASKS.md`.
 
 ## 1. The problem from first principles
 
-Patterno says it aggregates tenders from **4,500+ portals across Europe** ([Patterno](https://www.patterno.de/en/vergabe-portale), [KI-Syndikat review](https://www.ki-syndikat.de/tools/patterno/)). Today every portal gets a hand-written adapter. When a portal changes, the adapter "goes blind" and an engineer fixes it by hand (Patterno pitch).
+Patterno reads tenders from **4,500+ portals in 29 countries** and connects each one by hand. When a portal changes, its tenders "can stop arriving without anyone noticing" (Patterno brief). At that scale something breaks every day, so the fix is not more engineers. The fix is a cost per portal close to zero, and breakage that is noticed, explained and repaired on its own.
 
-So maintenance cost grows with the number of portals. At 4,500 portals, even rare breakage means something is broken every day. Hiring more engineers doesn't fix that. The only real fix is to make **cost per portal close to zero** and **breakage boring**.
+Three facts shape the design:
 
-Our research found three facts that shape the whole design.
+1. **Thousands of portals, a few software packages.** Many portals run the same e-procurement software under different addresses (the brief says so; cosinex powers DTVP and several German state portals). Learn the software once, reuse it many times.
+2. **The dangerous failure is the silent one.** A scraper that returns nothing is easy to spot. One that returns plausible wrong values is not. The brief agrees: *"A wrong value is worse than a missing one"* and *"the state it reports matches what it delivers."*
+3. **Models are expensive and unpredictable; code is cheap and repeatable.** The brief: use an LLM to learn, check and repair; regular reads should run without a model call.
 
-### Fact 1: there are thousands of portals, but only a few kinds of portal software
+**Principle: the model proposes, code decides.** The model writes and patches a recipe (data, not code). Deterministic code runs it, checks it, and has the final word on whether it may serve.
 
-Most German portals run on a small number of commercial e-procurement products. cosinex's "Vergabemarktplatz" (VMP) powers DTVP and several state portals, such as Lower Saxony and Brandenburg. Others run Healy Hudson, subreport ELViS, Vergabe24 or aumass ([DTVP](https://dtvp.de/vergabestellen/), [portal comparison](https://www.vergabe.bot/blog/vergabeportale-vergleich), [Lower Saxony overview](https://www.mw.niedersachsen.de/download/223791/Uebersicht_Vergabeplattformen.pdf)). You can see the software in the URLs, for example `/Satellite/public/company/project/CX.../announcements/` on cosinex portals.
-
-**Consequence:** don't learn 4,500 websites. Learn a few dozen **platform families**. Once one cosinex portal is learned, the next one should connect in seconds, with no LLM.
-
-### Fact 2: notices are moving to central registries, but documents stay on the portals
-
-- **TED** publishes every EU tender above the thresholds, with an official, anonymous search API ([TED API docs](https://docs.ted.europa.eu/api/latest/index.html), [developers corner](https://ted.europa.eu/simap/developers-corner-for-reusers)).
-- Germany's **Bekanntmachungsservice** at oeffentlichevergabe.de collects national notices and publishes them as open data in eForms-DE, OCDS and CSV ([Beschaffungsamt](https://www.bescha.bund.de/DE/E-Beschaffung/Datenservice/Oeffentlicher-Einkauf_node.html), [open data policy](https://oeffentlichevergabe.de/ui/en/Open-Data-Richtlinie)).
-- But the **tender documents** (the PDFs that decide whether a company can win) still live on each portal. Many municipal portals also don't follow the national standards ([OECD](https://oecd.org/en/publications/public-procurement-in-germany_1db30826-en/full-report/component-9)).
-
-**Consequence:** central registries are useful in two ways. They're a **coverage backbone**. They're also an **independent source of truth** that tells us when a portal adapter is quietly missing tenders. Portal adapters are still needed for documents and for portals the registries miss.
-
-### Fact 3: the dangerous failure is the silent one
-
-A scraper that returns zero results is easy to spot. A scraper that returns **plausible but wrong** values, such as yesterday's deadline or the buyer name in the title field, damages trust for weeks before anyone notices. Practitioners name this as the main risk of self-healing scrapers ([Zyte](https://www.zyte.com/blog/what-is-a-self-healing-web-scraper/)).
-
-**Consequence:** self-healing without proof is a liability. Every repair must be **verified by code** before it serves a single tender.
-
-### The principle
-
-> **The LLM proposes. Code decides.**
->
-> AI explores, writes and repairs adapters. Plain, deterministic code runs them, checks them and has the final say. Serving tenders never touches an LLM.
-
-This matches what Patterno asked for in the pitch: LLMs for adapting and monitoring, no LLM for serving.
-
----
-
-## 2. What the judges will see
-
-Three moments, each under a minute.
-
-1. **Connect.** Paste a portal URL. A live log shows the agent exploring. The tile turns green, with real tenders and documents. *Target: under 60 seconds.*
-2. **Break and heal.** Press "Mutate" on a demo portal: rename classes, change pagination, move the URL. The tile goes red, then the repair appears as a readable diff with "verified against 5 known tenders". Green again. *Target: under 30 seconds, about one cent.*
-3. **Scale.** Paste a second portal built on the same software family. It turns green in two seconds with **no LLM call and $0**. That's what 4,500 portals looks like.
-
-Then one screen of numbers from our own chaos tests: detection rate, heal rate, time to heal, cost per heal and false-heal rate.
-
----
-
-## 3. System overview
+## 2. System
 
 ```
-                      ┌──────────────────────── one container ───────────────────────┐
-  POST /api/portals → │  Cartographer ──► Recipe vN ──► Runner ──► Postgres ──► API   │
-                      │   (LLM, once)      (JSON)      (no LLM)     (tenders,          │
-                      │        ▲                          │          documents,        │
-                      │        │                          ▼          lineage)          │
-                      │   Family library             Watchtower                        │
-                      │   (cosinex, ...)          (checks, no LLM)                     │
-                      │        ▲                          │ amber / red                │
-                      │        │                          ▼                            │
-                      │   learned families ◄──── Medic (LLM patch)                     │
-                      │                               │                                │
-                      │                         Verifier (no LLM)                      │
-                      │                    pass: promote   fail: quarantine            │
-                      │                                                                │
-                      │  Registry oracle: TED + Bekanntmachungsservice → recall check  │
-                      │  Dashboard (Next.js) · live events over SSE · Chaos lab        │
-                      └────────────────────────────────────────────────────────────────┘
+                    ┌──────────────────── one container, port 8080 ─────────────────────┐
+ POST /portals ───► │ orchestrator (state machine, scheduler, 1 job per portal)         │
+                    │    │                                                              │
+                    │    ├─ attach ─► Cartographer (LLM) ─► Recipe v1 + golden records  │
+                    │    ├─ read ───► Extractor (no LLM) ─► ReadOutcome                 │
+                    │    ├─ judge ──► Watch.evaluate (no LLM) ─► healthy │ broken │ ... │
+                    │    ├─ healthy ► DocumentFetcher ─► SQLite + /files ─► API         │
+                    │    └─ broken ─► Medic (LLM patch) ─► Verifier (no LLM) ─► vN+1    │
+                    │                                                                   │
+                    │ politeness gate: ≤1 req/s per host, robots.txt, no login/captcha  │
+                    │ dashboard (React) at GET /, internal data at /internal/*          │
+                    └───────────────────────────────────────────────────────────────────┘
 ```
 
----
+### State machine (the brief's four states)
 
-## 4. Components
+| From | Event | To | Reason shown (example) |
+|---|---|---|---|
+| (new) | `POST /portals` | `integrating` | "Attaching: learning how to read this portal." |
+| `integrating` | attach ok, checks pass | `serving` | "Serving 23 open tenders (23 new, 0 changed). Last read 10:42, all checks passed." |
+| `integrating` | login or captcha | `failed` | "Blocked: tender documents need a login." |
+| `serving` | read passes checks | `serving` | updated counts |
+| `serving` | read fails checks | `healing` | "Repairing: no tender has a title (0 of 23)." Last correct tenders stay served. |
+| `healing` | verified repair | `serving` | "Repaired: list moved from table to cards; 5 of 5 known tenders match." |
+| `healing` | repair fails | `failed` | "Could not repair: ... A person is needed. Keeping the last 23 correct tenders." |
+| any | portal unreachable after retries | `failed` | "Portal not reachable: HTTP 503. Trying again every 30 min." |
+| `failed` | a later probe succeeds | `serving` | recovers without help |
 
-### 4.1 Recipe: the adapter as data
+Runs: the first attach is a `read`. Every repair is a `repair` run. `refresh` during a running job returns that job's `runId`.
 
-An adapter is a **JSON recipe**, validated by a zod schema. The LLM never writes executable code. That makes recipes safe to run, easy to read in a code review, small to diff, and easy to patch.
+## 3. Components
 
-```jsonc
-{
-  "portal": "vergabe-niedersachsen",
-  "family": "cosinex-vmp",                 // null if unknown
-  "version": 4,
-  "source": { "tier": "json_api" },        // feed | json_api | html | browser
-  "list": {
-    "request": { "url": "https://…/search?page={page}", "method": "GET" },
-    "pagination": { "type": "page_param", "start": 1, "stopWhen": "empty" },
-    "items": "$.results[*]"                // JSONPath for JSON, CSS for HTML
-  },
-  "fields": {
-    "externalId": { "from": "$.id" },
-    "title":      { "from": "$.title" },
-    "buyerName":  { "from": "$.authority.name" },
-    "deadline":   { "from": "$.deadline", "parse": "date", "locale": "de-DE" },
-    "cpv":        { "from": "$.cpvCodes[*]" },
-    "detailUrl":  { "from": "$.link", "absolute": true }
-  },
-  "detail": {
-    "fields":    { "description": { "css": "#beschreibung" } },
-    "documents": { "css": "a[href$='.pdf'], a.download", "attr": "href" }
-  },
-  "politeness": { "minDelayMs": 1500, "respectRobots": true }
-}
-```
+### Recipe (`src/shared/recipe.ts`, B)
+An adapter as JSON, validated by zod. No code strings. It has a tier (feed, JSON API, HTML, browser; the most stable one wins), a time zone for local deadlines, the list request and pagination, field rules for the list and detail page, document hops for multi-step downloads, and the words that mean "no results" or "withdrawn". Because it is data, the Medic can patch it with a small diff, and a person can review it.
 
-**Source tiers.** We always pick the most stable source the portal offers:
+### Cartographer (B, uses the model)
+1. Cheap discovery first: feeds, alternate links, the JSON API the page itself calls (network capture in Playwright), software fingerprint.
+2. Follow summary pages to the real tender page (a brief trap).
+3. Send the model a compressed page (accessibility tree or pruned DOM, repeated rows collapsed to two examples), never raw HTML.
+4. Structured output: the Recipe schema. Dry-run with the Extractor and send exact errors back. At most 3 rounds.
+5. Pin 3 to 5 golden records: real values that every future repair must reproduce.
+6. Detect blocks (login forms, captcha widgets, 401/403) and report them in plain words. Try documents before declaring a captcha block: some portals show a captcha, yet the files download without it.
 
-| Tier | What | Why it's ranked here |
+### Extractor (B, no model)
+Runs a recipe through `ctx.http` or `ctx.browser`. Reads every list page, then detail pages only for new or changed tenders, so a refresh every few minutes stays cheap at 1 request per second. Normalizes dates with the portal's time zone, CPV codes without the check digit, and local procedure words. Returns diagnostics (field fill, page skeleton hash, empty-state text) for the Watch.
+
+### Watch (C, no model)
+Decides whether a read may be served: count against the baseline, field fill across the whole run, invariants (dates parse, deadline after publication, unique stable ids, valid CPV), golden-record recheck, and skeleton drift as an early warning. It also tells a real empty day ("Keine Ausschreibungen") from a broken list, and a block from an outage.
+
+### Medic and Verifier (C, model for the patch only)
+Triage with rules first. The model gets the old recipe, the failing checks and a structural diff of the old and new page, and returns a minimal patch. The patched recipe is run and must pass the Watch **and** reproduce the golden records before it serves anything. After 3 failed attempts it tries a fresh attach, then gives up with a clear reason. Every repair is stored as a new recipe version with a one-sentence summary and its cost.
+
+### Documents (A)
+Streams each file to disk with sha256 on the fly, never in memory. Unpacks ZIPs (each inner file becomes a document), leaves out anything over 250 MB (checked from `content-length` and while streaming, because ZIPs can exceed 1 GB), stores bytes by hash and serves them at `/files/{sha256}`. Browser downloads cover multi-step flows. Unchanged documents are never fetched twice.
+
+### Politeness (A)
+One gate per host, at least 1.1 s between requests, shared by HTTP and the browser (every browser request is routed through it; images, fonts and media are blocked). robots.txt is honored. No logins, no captcha solving, an honest User-Agent.
+
+### Families (B, Should-have)
+Fingerprint the software from URL paths, footer and generator tags. A portal on known software starts from the family recipe and attaches without a model call. This answers the brief's "Approach" question: the cost per portal falls as more portals are added.
+
+## 4. Why this wins each judging point
+
+| Judged on | Our answer |
+|---|---|
+| Attach | Most stable source first (JSON API over HTML), summary pages followed, documents including ZIPs and multi-step downloads, values left empty when unsure. |
+| Notice | `serving` only after deterministic checks pass. Golden records catch plausible wrong values. Every state has a plain-language reason. |
+| Repair | Minimal model patches, proven against golden records before serving. Last correct tenders served meanwhile. |
+| Dashboard | One calm screen: state, reason, counts, last success; per portal, every read and repair with what changed and what it cost. |
+| Approach | Reads cost $0 in model usage. Model cost only for attach and repair, measured per portal in the ledger. Families make each new portal cheaper. |
+
+## 5. Stack
+
+| Part | Choice | Why |
 |---|---|---|
-| 1. Feed | RSS, Atom, OCDS or eForms XML | Built for machines. Almost never changes. |
-| 2. JSON API | The XHR calls the portal's own frontend makes, captured with Playwright's network listener | Redesigns change the HTML, but usually keep the API. |
-| 3. HTML | CSS selectors over plain HTTP | Fast, but breaks on redesigns. |
-| 4. Browser | Headless Chromium render | Only when the content needs JavaScript. |
+| Language | TypeScript, Node 22.13+ | Patterno's own backend language |
+| Server | Fastify 5: API, files, static dashboard | Exact root paths, one process with the worker |
+| Storage | SQLite via `node:sqlite`, file in `DATA_DIR` | Zero setup, one container |
+| Browser | Playwright 1.65.1 Chromium, from the official image | Network capture, JS portals, downloads |
+| Parsing | cheerio, jsonpath-plus | Deterministic reads |
+| Schemas | zod 4 | API contract, recipe, model output |
+| Model | OpenAI SDK, models set by env vars | Event credits; logged per call |
+| Dashboard | React 19, Vite 8, Tailwind 4 | Built to static files, served at `/` |
+| Container | `mcr.microsoft.com/playwright:v1.65.1-noble`, multi-stage | No browser download during the build |
 
-Most portals that "break" only break at tier 3. A tier-2 recipe often survives a full redesign untouched. This point goes in the pitch.
+Deliberately left out: Next.js, Supabase, n8n, user accounts, queues, Kubernetes, vector databases, agent frameworks. Each would be a part that could break during the test.
 
-### 4.2 Family library: learn the software, not the website
+## 6. Cost model (for the README)
 
-- **Fingerprint** each new portal with cheap signals: URL patterns, cookie and script names, generator meta tags, footer text, characteristic CSS class names. No LLM.
-- If the fingerprint matches a known family, start from the **family template** and fill in only the portal-specific parts (base URL, language). Dry-run it. If it passes, we're done: **seconds, zero LLM cost**.
-- Every time the Cartographer learns a new portal from scratch, it **promotes the reusable part into a family template**. The system gets cheaper with every portal it learns.
-- Hackathon scope: ship the **cosinex VMP** family (used by DTVP and several state portals) plus one family from Patterno's demo portals. Show the second-portal-in-two-seconds moment.
+- **Read:** $0 in model usage, by design. Only HTTP at 1 request per second.
+- **Attach:** a few model calls per portal (exploration, recipe, up to 3 corrections). Measured from the ledger.
+- **Repair:** one triage call plus up to 3 patch calls. Measured from the ledger.
+- **Per portal per month:** attach once, plus repairs times the expected number of portal changes. Show the formula and our measured numbers.
 
-### 4.3 Cartographer: onboarding agent (LLM)
-
-Input: a URL. Output: a working recipe and a set of golden records.
-
-1. **Look for the easy wins:** `robots.txt`, sitemap, `<link rel="alternate">` feeds, OCDS endpoints, and the family fingerprint.
-2. **Explore:** open the page in Playwright and record all network traffic. Find the listing, either from link text in German, Dutch, French, English and so on ("Ausschreibungen", "Aanbestedingen", "Avis", "Tenders"), or by letting the model choose the next click.
-3. **Compress before you prompt:** send the model the accessibility tree and a pruned DOM (repeated rows collapsed to 2 examples, text trimmed), plus the captured JSON responses. Never send raw HTML. It's cheaper, faster and more accurate. Stagehand's design makes the same choice ([Stagehand](https://www.mintlify.com/browserbase/stagehand/concepts/how-stagehand-works)).
-4. **Write the recipe** through structured output (the zod recipe schema compiled to a JSON schema).
-5. **Dry run and correct:** the Runner executes it and the Watchtower checks the result. The model gets back exact errors ("deadline: 0/20 parsed; sample value '12.12.2026 10:00 Uhr'"). At most 3 rounds.
-6. **Pin golden records:** store 3 to 5 extracted tenders with their exact field values. They become the proof for every future repair.
-
-### 4.4 Runner: deterministic execution (no LLM)
-
-- Runs each recipe on a schedule. Uses plain HTTP (`undici`) for tiers 1 to 3 and Playwright only for tier 4.
-- Normalizes into the canonical schema (section 5), upserts by `(portalId, externalId)` and stores a content hash to detect changes and corrections.
-- Downloads documents into storage addressed by SHA-256. Unchanged documents are never fetched twice.
-- Is polite by default: honors `robots.txt`, rate-limits per host, backs off on errors, sends an honest User-Agent. **Never** bypasses logins or captchas. Those portals get the status `restricted` with an explanation. That keeps Patterno on the right side of every portal's terms.
-
-### 4.5 Watchtower: health checks (no LLM)
-
-| Check | What it catches |
-|---|---|
-| Status codes, timing, redirects | Portal down, blocking us, URL moved |
-| Item count against a rolling baseline | Empty list after a redesign, broken pagination |
-| Fill rate per field, **across the whole run** | A selector that matches nothing |
-| Invariants: dates parse, deadline after publish date, CPV format, IDs unique, URLs resolve | A selector that matches the **wrong** element |
-| Golden-record recheck | Plausible but wrong values |
-| Structural fingerprint of the listing page | Layout change, flagged **before** data breaks |
-| Document reachability | Moved document storage |
-| **Registry recall** (4.7) | The portal quietly drops tenders |
-
-States: **green** (healthy), **amber** (drift or partial loss: keep serving the last good data and start the Medic), **red** (broken: mark data stale and start the Medic), **restricted** (login or captcha: we don't go there).
-
-### 4.6 Medic and Verifier: repair with proof
-
-1. **Triage** without an LLM where possible: `network`, `url_moved`, `layout_drift`, `pagination_changed`, `field_renamed`, `source_changed` or `legitimately_empty`. "Legitimately empty" matters: a portal with no tenders today is not broken, so we check for its "no results" message and a working search first.
-2. **Patch:** the model gets the current recipe, the failing checks, and a **structural diff** between the last good snapshot and the current page. It returns a minimal **JSON Patch**, not a rewrite. Small patches are easier to verify and to read.
-3. **Shadow run:** the patched recipe runs without serving anything.
-4. **Verify, with no LLM:** every Watchtower check must pass, **and** the golden records must come back with identical values. No pass, no promotion.
-5. **Escalate:** up to 3 patch attempts, then a full Cartographer re-onboard, then quarantine with a plain-language diagnosis for a human.
-6. **Record:** each promotion is a new recipe version with its diff, its trigger, its verification result and its cost. Every heal is reviewable afterward.
-
-### 4.7 Registry oracle: an independent truth check
-
-TED and the Bekanntmachungsservice notices include links back to the portal that hosts the documents (eForms BT-15, the documents URL). So for each portal we know roughly **which tenders it should be showing**.
-
-- **Recall check:** the share of registry notices for this portal that our adapter also found. If recall drops from 98% to 60% while every other check is green, something is silently wrong. No other team will have this signal.
-- **Coverage map:** count notices by documents-URL host to rank which portals matter most. The result is a coverage curve: "the top N portals cover X% of German notices". That answers Patterno's coverage question with measured data, and it tells them which portals to onboard next.
-- **Hackathon scope:** load TED results and one daily Bekanntmachungsservice export, then compute the host ranking. *Verify the export endpoint in their Swagger docs first. Third-party wrappers mention `/api/notice-exports`.*
-
-### 4.8 Chaos lab: proof before Patterno tests us
-
-Patterno will change their demo portals on Saturday. We rehearse it first, and measure it.
-
-- **Three demo portals** in the repo, each a different shape: a server-rendered table, a JS app over a JSON API, and paginated cards with PDF documents.
-- **A mutator** with realistic changes: renamed classes, reordered columns, extra wrapper elements, pagination switched (pages → "load more" → infinite scroll), renamed JSON keys, a moved listing URL, date format changes, a cookie banner, and an empty-results day.
-- **An eval runner:** mutate, detect, heal, verify, score. It runs as a script and from the dashboard.
-- **The scoreboard:** detection rate, heal rate, median time to heal, LLM cost per heal, and **false heals, which must be 0**.
-
----
-
-## 5. Canonical tender schema
-
-Field names follow eForms business terms where they apply, so the data maps to the EU standard.
-
-| Field | eForms | Notes |
-|---|---|---|
-| `externalId` | BT-04 procedure identifier | Else the portal's own ID |
-| `title` | BT-21 | |
-| `description` | BT-24 | |
-| `buyerName` | BT-500 | |
-| `cpv[]` | BT-262 | |
-| `publishedAt` | BT-05 | ISO 8601 |
-| `deadline` | BT-131 | ISO 8601 with timezone |
-| `estimatedValue` | BT-27 | `{amount, currency}` |
-| `placeOfPerformance` | NUTS | When available |
-| `documentsUrl` | BT-15 | Also the key for the registry oracle |
-| `documents[]` | | `{url, sha256, mime, bytes, fetchedAt}` |
-| `portalId`, `sourceUrl`, `recipeVersion`, `firstSeenAt`, `lastSeenAt`, `contentHash` | | Lineage on every record |
-
-Every tender can answer "where did you come from, and which version of which recipe extracted you".
-
----
-
-## 6. API
-
-Same container. OpenAPI spec at `/api/docs`. **Ask Patterno for their exact format and match it.**
-
-| Endpoint | Purpose |
-|---|---|
-| `POST /api/portals` `{url, name?, country?}` | Onboard a portal. Returns `202` and a job ID. |
-| `GET /api/portals` | All portals: status, tier, family, last run, counts, recall |
-| `GET /api/portals/:id` | Health history, recipe versions and diffs, heal log |
-| `POST /api/portals/:id/run` · `/heal` | Run or repair now |
-| `GET /api/tenders?portal=&active=true&since=&cpv=&country=` | Active tenders, cursor pagination |
-| `GET /api/tenders/:id` | One tender with documents and lineage |
-| `GET /api/documents/:sha256` | Stored document |
-| `GET /api/events` | Server-sent events for the live dashboard |
-| `GET /api/health` | Container health |
-
----
-
-## 7. Dashboard: designed, not assembled
-
-Design principles: one screen, calm by default, loud only when something is wrong. Status is shown by color and motion, never only by text. Every number can be clicked through to its evidence.
-
-- **Status wall:** one tile per portal with a status light, a 24-hour item-count sparkline, a tier badge (Feed, API, HTML, Browser), a family badge and the recall percentage. When everything is green, the screen should feel almost empty. That calm is the point.
-- **Add portal:** a single input. The agent's steps stream in as a short live log that a judge can read.
-- **Heal timeline:** red → triage → patch (a diff with old and new values) → verification (golden records ✓) → green. Each step shows its time and cost.
-- **Chaos lab:** mutation buttons per demo portal, and the eval scoreboard.
-- **Ledger:** total LLM spend, split into onboarding and heals, next to **$0 for serving**.
-- **Coverage:** a map of Europe and the coverage curve from the registry oracle.
-
-Use the `frontend-design` skill in `.claude/skills/` for the visual pass. Pick one typeface, one accent color and generous spacing. Avoid the default component-library look.
-
----
-
-## 8. Tech stack
-
-Matches Patterno's own stack: their engineering posts ask for TypeScript and PostgreSQL ([Founding Engineer post](https://applicant.notion.site/Founding-Engineer-Hamburg-Remote-31e2c0deef1c816bbc1af32da8cdcf30)).
-
-| Part | Choice |
-|---|---|
-| Language | TypeScript end to end |
-| App | Next.js 16: dashboard plus API route handlers |
-| Worker | A separate Node process in the same container: scheduler, Runner, Cartographer, Medic |
-| Browser | Playwright with Chromium (official Playwright base image) |
-| Parsing | undici, cheerio, jsonpath-plus |
-| Schemas | zod: recipe, tender, and LLM structured output |
-| Database | Postgres through Drizzle. Embedded **PGlite** by default, or a real Postgres through `DATABASE_URL` |
-| Documents | Local volume, addressed by SHA-256 |
-| LLM | OpenAI (event credits). A strong model for Cartographer and Medic, a small one for triage. Log the cost of every call. |
-| Shipping | One Dockerfile. `docker run -p 3000:3000 watchtower` starts everything. |
-
-**What we deliberately don't build:** login or captcha bypass, user accounts, Kubernetes, a vector database, an agent framework, Supabase. Every part we skip is a part that can't break during the demo.
-
----
-
-## 9. Plan
-
-### Priorities
-
-| Must (the demo fails without it) | Should (makes us win) | Could (if time allows) |
-|---|---|---|
-| Recipe schema and Runner | Chaos lab and scoreboard | Registry recall check |
-| Cartographer for tiers 2 to 4 | Family library with cosinex | Coverage curve and map |
-| Watchtower checks and states | Heal timeline with diffs | TED as an onboarded portal |
-| Medic and Verifier with golden records | Cost ledger | Document change detection |
-| API, status wall, one container | Polished visual design | |
-
-### Team
-
-| Person | Owns |
-|---|---|
-| A | Recipe schema, Runner, database, API, Dockerfile |
-| B | Cartographer and family library |
-| C | Watchtower, Medic, Verifier, registry oracle |
-| D | Demo portals, mutator, dashboard, pitch video |
-
-**Freeze the recipe schema and the tender schema in the first hour.** Everyone builds against them.
-
-### Timeline (Friday to Saturday 10:30)
-
-| By | Milestone |
-|---|---|
-| Fri 15:00 | Schemas frozen. Repo, Dockerfile, demo portal 1 live. |
-| Fri 17:00 | **Walking skeleton:** a hand-written recipe → Runner → DB → API → a green tile. Ugly is fine. |
-| Fri 20:00 | Cartographer onboards demo portals 1 and 2 by itself. |
-| Fri 23:00 | Medic heals the first 3 mutation types, and the Verifier proves each heal. |
-| Sat 01:00 | **Backup video recorded.** Clean `docker build` from scratch passes. |
-| Sat 01:00 to 07:00 | Sleep in two shifts. The awake pair runs the chaos eval, adds the cosinex family and real portals. |
-| Sat 08:30 | Code freeze. Build and run on a second laptop. |
-| Sat 09:30 | Final 3-minute video. |
-| Sat 10:00 | Submit. The form closes exactly at 10:30. |
-
----
-
-## 10. Pitch (3 minutes)
-
-1. **The problem in one number (15 s):** "Patterno reads 4,500 portals. Each one breaks eventually. Today a person fixes it."
-2. **Connect (35 s):** paste a URL, green in under a minute.
-3. **Break and heal (50 s):** mutate live, red, the repair as a diff, "verified against 5 known tenders", green.
-4. **Scale (25 s):** a second portal of the same family, green in two seconds, $0.
-5. **Proof (30 s):** the chaos scoreboard and the ledger. Serving costs $0 in LLM.
-6. **Why Patterno can ship it Monday (25 s):** TypeScript and Postgres like their stack, recipes they can review, an eForms-aligned schema, one container.
-
----
-
-## 11. Risks
+## 7. Risks
 
 | Risk | Answer |
 |---|---|
-| Login or captcha portal | `restricted` status with a reason. Never bypassed. |
-| The LLM proposes a wrong patch | Nothing ships without golden-record verification. False heals must stay at 0. |
-| A portal is legitimately empty | Triage confirms the empty-results state before calling it broken. |
-| Saturday's changes are larger than our mutations | Fall back to a full re-onboard, then quarantine with a diagnosis. |
-| The registry export endpoint differs | It's a "Could" item. Cut it and nothing else is affected. |
-| The container fails on Patterno's machine | Pinned versions, a fresh build on a second laptop, `GET /api/health`. |
-
-## 12. Questions for Patterno today
-
-1. What exact request and response format will you call?
-2. Do the demo portals have documents we must download?
-3. What kinds of changes will you make on Saturday?
-4. Will the container have internet access to real portals, or only to your demo portals?
-5. How many demo portals, and do any need JavaScript rendering?
-
----
+| A portal needs a login or shows a captcha | `failed` with a reason. Try documents first, because some download anyway. |
+| The model proposes a wrong patch | Golden records must match, or nothing ships. |
+| A real empty day looks like breakage | Empty-state text in the recipe and the Watch. |
+| Large ZIPs | Streamed with a 250 MB cap, never in memory. |
+| Base image Node too old for `node:sqlite` | The Dockerfile fails early; switch base or to better-sqlite3. |
+| Refresh called every few minutes | Incremental reads: detail pages and documents only for new or changed tenders. |
 
 ## Sources
-
-- Patterno challenge slide and pitch recording, MAIN AI Hackathon 2026.
-- Patterno scale: [Patterno portal overview](https://www.patterno.de/en/vergabe-portale), [KI-Syndikat review](https://www.ki-syndikat.de/tools/patterno/), [LinkedIn](https://linkedin.com/company/patterno).
-- Platform software: [DTVP for contracting authorities](https://dtvp.de/vergabestellen/), [portal comparison](https://www.vergabe.bot/blog/vergabeportale-vergleich), [Patterno portal list 2026](https://www.patterno.de/de/resources/blog/vergabeportale-deutschland-ueberblick), [Lower Saxony platform overview](https://www.mw.niedersachsen.de/download/223791/Uebersicht_Vergabeplattformen.pdf).
-- Central registries: [TED API](https://docs.ted.europa.eu/api/latest/index.html), [TED developers corner](https://ted.europa.eu/simap/developers-corner-for-reusers), [eForms reusers Q&A](https://op.europa.eu/en/web/ted-reusers-workshops/questions_and_answers_2024_04_17), [Datenservice Öffentlicher Einkauf](https://www.bescha.bund.de/DE/E-Beschaffung/Datenservice/Oeffentlicher-Einkauf_node.html), [open data policy](https://oeffentlichevergabe.de/ui/en/Open-Data-Richtlinie), [vergabe-api wrapper](https://github.com/applehorsefrog/vergabe-api).
-- Fragmentation: [OECD, Public procurement in Germany](https://oecd.org/en/publications/public-procurement-in-germany_1db30826-en/full-report/component-9).
-- Self-healing patterns: [Zyte](https://www.zyte.com/blog/what-is-a-self-healing-web-scraper/), [ScraperHub reference](https://github.com/ScraperHub/self-healing-scrapers-with-cloud-storage-fixtures-and-llm-fallback), [scrapemend](https://pypi.org/project/scrapemend/), [Stagehand caching](https://docs.stagehand.dev/v4/best-practices/caching), [how Stagehand works](https://www.mintlify.com/browserbase/stagehand/concepts/how-stagehand-works).
+- Patterno challenge brief (PDF) and pitch, MAIN AI Hackathon 2026.
+- [TED API](https://docs.ted.europa.eu/api/latest/index.html), [Datenservice Öffentlicher Einkauf](https://www.bescha.bund.de/DE/E-Beschaffung/Datenservice/Oeffentlicher-Einkauf_node.html), [DTVP](https://dtvp.de/vergabestellen/), [portal comparison](https://www.vergabe.bot/blog/vergabeportale-vergleich).
+- Self-healing patterns: [Zyte](https://www.zyte.com/blog/what-is-a-self-healing-web-scraper/), [ScraperHub](https://github.com/ScraperHub/self-healing-scrapers-with-cloud-storage-fixtures-and-llm-fallback), [Stagehand](https://www.mintlify.com/browserbase/stagehand/concepts/how-stagehand-works).
 - Patterno stack: [Founding Engineer post](https://applicant.notion.site/Founding-Engineer-Hamburg-Remote-31e2c0deef1c816bbc1af32da8cdcf30).
-
-Figures from vendors (portal counts, platform usage) are self-reported and unverified.

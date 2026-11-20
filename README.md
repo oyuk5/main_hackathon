@@ -1,36 +1,45 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Watchtower
 
-## Getting Started
+An agent that connects public-tender portals on its own, watches over them, and repairs itself when one breaks. Built for Patterno's challenge at the MAIN AI Hackathon 2026.
 
-First, run the development server:
+## Run it
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+docker build -t watchtower .
+docker run -p 8080:8080 --env-file .env watchtower
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Dashboard: http://localhost:8080. API: see below.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## How it works
+_A (person) finishes this page by Saturday 08:00. One page, plain words._
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+1. **Attach.** Given a portal address, an LLM explores the portal once and writes a recipe: a small JSON description of where the tender list is, how to page through it, where each field and document is.
+2. **Read.** Plain code runs the recipe on a schedule. **No model call.** At most one request per second per portal.
+3. **Notice.** Deterministic checks decide whether a read is correct before it is served, including known "golden" tenders that must still match.
+4. **Repair.** When checks fail, the LLM proposes a minimal change to the recipe. Code proves it against the golden tenders before it serves anything. Meanwhile, the last correct tenders stay available.
 
-## Learn More
+## Environment variables
 
-To learn more about Next.js, take a look at the following resources:
+| Name | Required | Meaning |
+|---|---|---|
+| `OPENAI_API_KEY` | yes | Model key. |
+| `MODEL_SMART` | yes | Model for attaching and repairing. |
+| `MODEL_FAST` | yes | Model for triage. |
+| `PRICE_SMART_IN`, `PRICE_SMART_OUT`, `PRICE_FAST_IN`, `PRICE_FAST_OUT` | no | USD per million tokens, for the cost ledger. |
+| `PORT` | no | Default 8080. |
+| `DATA_DIR` | no | Default `/data` in the container. |
+| `READ_INTERVAL_MINUTES` | no | Default 30. |
+| `FAILED_RETRY_MINUTES` | no | Default 30. |
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## What one portal costs in model usage
+_Filled from measured numbers (`GET /internal/ledger`) before hand-in._
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+| | Model calls | Cost |
+|---|---|---|
+| Attach (once) | – | – |
+| Regular read | 0 | $0 |
+| Repair (per portal change) | – | – |
 
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## API
+`POST /portals`, `GET /portals`, `GET /portals/{id}`, `DELETE /portals/{id}`, `POST /portals/{id}/refresh`, `GET /portals/{id}/tenders[?changedSince=]`, `GET /portals/{id}/runs`, `GET /files/{sha256}`, `GET /` (dashboard). Exact shapes: `src/shared/contract.ts`.

@@ -1,0 +1,29 @@
+@import "tailwindcss";
+
+/* Design tokens. D owns the visual pass (see docs/TASKS.md, use the frontend-design skill). */
+:root {
+  --bg: #fbfbfa;
+  --panel: #ffffff;
+  --ink: #111111;
+  --muted: #6b6b6b;
+  --line: #e7e7e4;
+  --serving: #1f9d55;
+  --integrating: #2f6fdb;
+  --healing: #d98a00;
+  --failed: #d23c3c;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0d0d0e;
+    --panel: #161618;
+    --ink: #f2f2f2;
+    --muted: #9a9aa0;
+    --line: #2a2a2e;
+  }
+}
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
