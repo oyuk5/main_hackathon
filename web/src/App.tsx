@@ -1,18 +1,16 @@
 /**
- * Operator dashboard. A summary bar answers "is everything fine?" at a glance. Two tabs below:
- * Portals (every portal, most urgent first, with a small chart of where they are) and Issues
- * (#/issues: what needs a person, what is fixing itself, what fixed itself). A portal opens in
- * a side panel (#/p/<id>) over either tab.
+ * Operator dashboard styled after Docker Desktop: clean dark/light surfaces, 1px hairlines,
+ * vertical column header dividers, Docker Blue primary controls, and 10px status circles.
  */
 import { useEffect, useMemo, useState } from "react";
 import { Board, openIssues } from "./Board";
-import { Beacon, Chart } from "./Chart";
+import { Chart } from "./Chart";
 import { Detail } from "./Detail";
 import { Log } from "./Log";
 import { Picker } from "./Picker";
-import { Strip } from "./Strip";
+import { StatusIcon, stateToIconKind } from "./StatusIcon";
 import {
-  CHARACTER, STATE_COLOR, STATE_ORDER, countryOf, host, int, plural, usd, useNow, usePoll, when,
+  CHARACTER, STATE_ORDER, countryOf, host, int, plural, usd, useNow, usePoll, when,
   type LedgerRow, type PortalRow, type State,
 } from "./lib";
 
@@ -23,7 +21,16 @@ function useRoute() {
   const read = () => {
     const h = window.location.hash;
     const id = h.match(/^#\/p\/(.+)$/)?.[1];
-    return { id: id ? decodeURIComponent(id) : null, tab: h.startsWith("#/issues") ? ("issues" as Tab) : h.startsWith("#/log") ? ("log" as Tab) : id ? null : ("portals" as Tab) };
+    return {
+      id: id ? decodeURIComponent(id) : null,
+      tab: h.startsWith("#/issues")
+        ? ("issues" as Tab)
+        : h.startsWith("#/log")
+          ? ("log" as Tab)
+          : id
+            ? null
+            : ("portals" as Tab),
+    };
   };
   const [route, setRoute] = useState(read);
   const [tab, setTab] = useState<Tab>(read().tab ?? "portals");
@@ -48,64 +55,181 @@ export function App() {
   const [view, setView] = useStored<View>("wt.portals.view", { state: "all", sort: "urgent" });
   const [query, setQuery] = useState("");
   const [picked, setPicked] = useStored<string[] | null>("wt.portals.picked", null);
+  const [showSide, setShowSide] = useStored<boolean>("wt.portals.side", true);
+
   const all = useMemo(
     () => [...(data ?? [])].sort((a, b) => STATE_ORDER[a.state] - STATE_ORDER[b.state] || host(a.url).localeCompare(host(b.url))),
     [data],
   );
   // Every tab shows only the portals picked in the tab bar. Ids of deleted portals are ignored.
   const rows = useMemo(() => (picked ? all.filter((p) => picked.includes(p.id)) : all), [all, picked]);
+  const totalCost = useMemo(() => (ledger ?? []).reduce((s, r) => s + r.cost_usd, 0), [ledger]);
 
   return (
-    <div className="min-h-dvh">
-      <Header now={now} onAdded={reload} />
+    <div className="min-h-dvh bg-sea text-ink">
+      <Header onAdded={reload} />
       {failing && (
-        <p role="alert" className="mx-auto max-w-[1440px] px-4 pt-4 text-sm text-failed sm:px-6">
-          The Watchtower API is not answering. What you see is from the last successful update; retrying every 3 seconds.
+        <p role="alert" className="mx-auto max-w-[1440px] px-4 pt-3 text-[13px] text-failed sm:px-6">
+          The Watchtower API is not answering. Showing the last successful update; retrying every 3 seconds.
         </p>
       )}
       {data === null && !failing ? (
         <p className="mx-auto max-w-[1440px] px-4 py-24 text-slate sm:px-6">Loading portals…</p>
       ) : (
-        <main className="mx-auto max-w-[1440px] px-4 pt-6 pb-20 sm:px-6">
-          <Summary rows={rows} total={all.length} picked={view.state} onPick={(s) => {
-            setView({ ...view, state: view.state === s ? "all" : s });
-            window.location.hash = "#/";
-          }} />
-          {all.length > 0 && <Tabs tab={tab} rows={rows} now={now} picker={<Picker all={all} picked={picked} setPicked={setPicked} />} />}
+        <main className="mx-auto max-w-[1440px] px-4 pt-5 pb-16 sm:px-6">
+          <SummaryStrip
+            rows={rows}
+            total={all.length}
+            totalCost={totalCost}
+            picked={view.state}
+            now={now}
+            onReload={reload}
+            onPick={(s) => {
+              setView({ ...view, state: view.state === s ? "all" : s });
+              window.location.hash = "#/";
+            }}
+          />
+
+          {all.length > 0 && (
+            <Tabs
+              tab={tab}
+              rows={rows}
+              now={now}
+              picker={<Picker all={all} picked={picked} setPicked={setPicked} />}
+            />
+          )}
+
           {all.length > 0 && rows.length === 0 ? (
-            <p className="mt-6 border border-dashed border-hairline px-5 py-10 text-center text-[14px] text-slate">
+            <p className="mt-4 rounded-[6px] border border-dashed border-hairline bg-paper px-5 py-10 text-center text-[13.5px] text-slate">
               No portal is selected.{" "}
-              <button type="button" onClick={() => setPicked(null)} className="font-semibold text-ink underline underline-offset-2">Show all portals</button>
+              <button type="button" onClick={() => setPicked(null)} className="font-semibold text-docker hover:underline">
+                Show all portals
+              </button>
             </p>
           ) : tab === "issues" && rows.length > 0 ? (
-            <div id="panel-issues" role="tabpanel" aria-labelledby="tab-issues" className="mt-6">
+            <div id="panel-issues" role="tabpanel" aria-labelledby="tab-issues" className="mt-4">
               <Board rows={rows} now={now} hover={hover} setHover={setHover} />
             </div>
           ) : tab === "log" && rows.length > 0 ? (
-            <div id="panel-log" role="tabpanel" aria-labelledby="tab-log" className="mt-6">
+            <div id="panel-log" role="tabpanel" aria-labelledby="tab-log" className="mt-4">
               <Log portals={rows} now={now} />
             </div>
           ) : (
-          <div id="panel-portals" role="tabpanel" aria-labelledby="tab-portals" className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_380px]">
-            <Portals rows={rows} view={view} setView={setView} query={query} setQuery={setQuery} now={now} hover={hover} setHover={setHover} />
-            <aside className="space-y-6">
-              {rows.length > 0 && (
-                <section aria-labelledby="where" className="border border-hairline bg-paper p-3">
-                  <div className="mb-2 flex items-baseline justify-between">
-                    <h2 id="where" className="text-[14px] font-semibold">Where they are</h2>
-                    <HoverNote rows={rows} hover={hover} />
-                  </div>
-                  <Chart rows={rows} hover={hover} setHover={setHover} compact />
-                </section>
+            <div
+              id="panel-portals"
+              role="tabpanel"
+              aria-labelledby="tab-portals"
+              className={`mt-4 grid gap-5 ${showSide && rows.length > 0 ? "lg:grid-cols-[minmax(0,1fr)_360px]" : ""}`}
+            >
+              <Portals
+                rows={rows}
+                view={view}
+                setView={setView}
+                query={query}
+                setQuery={setQuery}
+                now={now}
+                hover={hover}
+                setHover={setHover}
+                showSide={showSide}
+                setShowSide={setShowSide}
+                onReload={reload}
+              />
+              {showSide && rows.length > 0 && (
+                <aside className="space-y-4">
+                  <section aria-labelledby="where" className="rounded-[6px] border border-hairline bg-paper p-3.5">
+                    <div className="mb-2 flex items-baseline justify-between">
+                      <h2 id="where" className="text-[13px] font-semibold text-ink">Where they are</h2>
+                      <HoverNote rows={rows} hover={hover} />
+                    </div>
+                    <Chart rows={rows} hover={hover} setHover={setHover} compact />
+                  </section>
+                  <Cost rows={ledger ?? []} portals={rows.length} />
+                </aside>
               )}
-              <Cost rows={ledger ?? []} portals={rows.length} />
-            </aside>
-          </div>
+            </div>
           )}
         </main>
       )}
-      {openId && <Detail id={openId} onClose={() => (window.location.hash = tab === "portals" ? "" : `#/${tab}`)} onChanged={reload} />}
+      {openId && (
+        <Detail
+          id={openId}
+          onClose={() => (window.location.hash = tab === "portals" ? "" : `#/${tab}`)}
+          onChanged={reload}
+        />
+      )}
     </div>
+  );
+}
+
+// ------------------------------------------------------------ header & tabs
+
+function Header({ onAdded }: { onAdded: () => void }) {
+  const [url, setUrl] = useState("");
+  const [note, setNote] = useState<{ ok: boolean; text: string } | null>(null);
+  const [sending, setSending] = useState(false);
+
+  const add = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const value = url.trim();
+    if (!value) return;
+    setSending(true);
+    try {
+      const res = await fetch("/portals", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ url: value }),
+      });
+      if (res.status === 400) return setNote({ ok: false, text: "That is not a web address. Start with https://." });
+      if (!res.ok) throw new Error(String(res.status));
+      const { id } = (await res.json()) as { id: string };
+      setUrl("");
+      setNote({ ok: true, text: `${host(value)} is now watched. Attaching starts now.` });
+      onAdded();
+      window.location.hash = `#/p/${encodeURIComponent(id)}`;
+    } catch {
+      setNote({ ok: false, text: "The portal was not added: the API did not answer." });
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <header className="border-b border-hairline bg-paper">
+      <div className="mx-auto flex max-w-[1440px] flex-col gap-3 px-4 py-2.5 sm:flex-row sm:items-center sm:gap-5 sm:px-6">
+        <a href="#" className="flex items-center gap-2.5">
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true" className="shrink-0 text-docker">
+            <rect x="2.2" y="2.2" width="15.6" height="15.6" rx="3.5" stroke="currentColor" strokeWidth="1.6" />
+            <circle cx="10" cy="10" r="3" fill="currentColor" />
+          </svg>
+          <span className="text-[16px] font-semibold tracking-tight text-ink">Watchtower</span>
+          <span className="hidden text-[13px] text-slate md:inline">Tender Portal Monitor</span>
+        </a>
+        <form onSubmit={add} className="flex w-full gap-2 sm:ml-auto sm:w-auto">
+          <label htmlFor="portal-url" className="sr-only">Portal address</label>
+          <input
+            id="portal-url"
+            type="url"
+            inputMode="url"
+            required
+            value={url}
+            onChange={(e) => (setUrl(e.target.value), setNote(null))}
+            placeholder="https://portal-address"
+            className="h-8 min-w-0 flex-1 rounded-[4px] border border-hairline bg-sea px-3 text-[13px] text-ink placeholder:text-faint focus:border-docker focus:bg-paper focus:outline-none sm:w-[290px]"
+          />
+          <button
+            disabled={sending}
+            className="h-8 shrink-0 rounded-[4px] bg-docker-solid px-3.5 text-[13px] font-semibold text-white transition-colors hover:bg-docker disabled:opacity-60 cursor-pointer"
+          >
+            {sending ? "Adding…" : "Watch portal"}
+          </button>
+        </form>
+      </div>
+      {note && (
+        <p role="status" className={`mx-auto max-w-[1440px] px-4 pb-2 text-[13px] sm:px-6 sm:text-right ${note.ok ? "text-slate" : "text-failed"}`}>
+          {note.text}
+        </p>
+      )}
+    </header>
   );
 }
 
@@ -117,24 +241,34 @@ function Tabs({ tab, rows, now, picker }: { tab: Tab; rows: PortalRow[]; now: nu
     { id: "log", href: "#/log", label: "Log" },
   ];
   return (
-    <div className="mt-6 flex items-end gap-4 border-b border-hairline">
-    <nav role="tablist" aria-label="Views" className="flex gap-6">
-      {tabs.map((t) => (
-        <a
-          key={t.id}
-          id={`tab-${t.id}`}
-          role="tab"
-          aria-selected={tab === t.id}
-          aria-controls={`panel-${t.id}`}
-          href={t.href}
-          className={`-mb-px flex items-center gap-2 border-b-2 px-0.5 pb-2.5 text-[15px] font-semibold ${tab === t.id ? "border-ink text-ink" : "border-transparent text-slate hover:text-ink"}`}
-        >
-          {t.label}
-          {t.count !== undefined && <span className={`num rounded-full px-2 py-px text-[12px] leading-[18px] font-semibold ${t.alert ? "bg-failed-wash text-failed" : "bg-mist text-slate"}`}>{t.count}</span>}
-        </a>
-      ))}
-    </nav>
-      <div className="mb-2 ml-auto">{picker}</div>
+    <div className="mt-5 flex items-end gap-4 border-b border-hairline">
+      <nav role="tablist" aria-label="Views" className="flex gap-7">
+        {tabs.map((t) => (
+          <a
+            key={t.id}
+            id={`tab-${t.id}`}
+            role="tab"
+            aria-selected={tab === t.id}
+            aria-controls={`panel-${t.id}`}
+            href={t.href}
+            className={`-mb-px flex items-center gap-2 border-b-2 px-0.5 pb-3 text-[15px] transition-colors ${
+              tab === t.id ? "border-docker font-semibold text-docker" : "border-transparent font-medium text-slate hover:text-ink"
+            }`}
+          >
+            {t.label}
+            {t.count !== undefined && (
+              <span
+                className={`num rounded-[4px] px-2 py-0.5 text-[12px] leading-[18px] font-medium ${
+                  t.alert ? "bg-failed-wash text-failed" : "bg-mist text-slate"
+                }`}
+              >
+                {t.count}
+              </span>
+            )}
+          </a>
+        ))}
+      </nav>
+      <div className="mb-2.5 ml-auto">{picker}</div>
     </div>
   );
 }
@@ -142,117 +276,105 @@ function Tabs({ tab, rows, now, picker }: { tab: Tab; rows: PortalRow[]; now: nu
 function HoverNote({ rows, hover }: { rows: PortalRow[]; hover: string | null }) {
   const p = rows.find((r) => r.id === hover);
   const countries = new Set(rows.map(countryOf).filter(Boolean)).size;
-  if (!p) return <span className="text-[12.5px] text-slate">{plural(countries, "country", "countries")}</span>;
-  return <span className={`truncate pl-2 text-[12.5px] font-semibold ${STATE_COLOR[p.state]}`}>{host(p.url)}</span>;
+  if (!p) return <span className="text-[12px] text-slate">{plural(countries, "country", "countries")}</span>;
+  return <span className="truncate pl-2 text-[12px] font-semibold text-ink">{host(p.url)}</span>;
 }
 
-// ------------------------------------------------------------ header
-
-function Header({ now, onAdded }: { now: number; onAdded: () => void }) {
-  const [url, setUrl] = useState("");
-  const [note, setNote] = useState<{ ok: boolean; text: string } | null>(null);
-  const [sending, setSending] = useState(false);
-
-  const add = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const value = url.trim();
-    if (!value) return;
-    setSending(true);
-    try {
-      const res = await fetch("/portals", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ url: value }) });
-      if (res.status === 400) return setNote({ ok: false, text: "That is not a web address. Use the portal's full address, starting with https://." });
-      if (!res.ok) throw new Error(String(res.status));
-      const { id } = (await res.json()) as { id: string };
-      setUrl("");
-      setNote({ ok: true, text: `${host(value)} is now watched. Attaching starts now.` });
-      onAdded();
-      window.location.hash = `#/p/${encodeURIComponent(id)}`;
-    } catch {
-      setNote({ ok: false, text: "The portal was not added: the API did not answer. Try again in a moment." });
-    } finally {
-      setSending(false);
-    }
-  };
-
-  const today = new Intl.DateTimeFormat(undefined, { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false }).format(now);
-
-  return (
-    <header className="border-b border-ink/80 bg-paper">
-      <div className="mx-auto flex max-w-[1520px] flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:gap-6 sm:px-6">
-        <a href="#" className="flex items-baseline gap-3">
-          <span className="wide text-[19px] font-[750] tracking-[-0.02em]">Watchtower</span>
-          <span className="font-chart text-[15px] text-slate italic">Keeps tender portals delivering</span>
-        </a>
-        <span className="num text-[13px] text-slate sm:ml-2">{today}</span>
-        <form onSubmit={add} className="flex w-full gap-2 sm:ml-auto sm:w-auto">
-          <label htmlFor="portal-url" className="sr-only">Portal address</label>
-          <input
-            id="portal-url"
-            type="url"
-            inputMode="url"
-            required
-            value={url}
-            onChange={(e) => (setUrl(e.target.value), setNote(null))}
-            placeholder="https://portal-address"
-            className="h-9 min-w-0 flex-1 border border-ink/30 bg-sea px-3 text-sm placeholder:text-faint focus:border-ink focus:bg-paper focus:outline-none sm:w-[300px]"
-          />
-          <button disabled={sending} className="h-9 shrink-0 bg-ink px-3.5 text-sm font-semibold text-paper hover:bg-magenta disabled:opacity-60">
-            {sending ? "Adding…" : "Watch portal"}
-          </button>
-        </form>
-      </div>
-      {note && (
-        <p role="status" className={`mx-auto max-w-[1520px] px-4 pb-2.5 text-sm sm:px-6 sm:text-right ${note.ok ? "text-slate" : "text-failed"}`}>
-          {note.text}
-        </p>
-      )}
-    </header>
-  );
-}
-
-
-// ------------------------------------------------------------ summary bar
+// ------------------------------------------------------------ docker-style summary strip
 
 const ORDER: State[] = ["failed", "healing", "integrating", "serving"];
 
-function Summary({ rows, total, picked, onPick }: { rows: PortalRow[]; total: number; picked: State | "all"; onPick: (s: State) => void }) {
+function SummaryStrip({
+  rows,
+  total,
+  totalCost,
+  picked,
+  now,
+  onReload,
+  onPick,
+}: {
+  rows: PortalRow[];
+  total: number;
+  totalCost: number;
+  picked: State | "all";
+  now: number;
+  onReload: () => void;
+  onPick: (s: State) => void;
+}) {
   if (total === 0) {
     return (
-      <section className="border border-hairline bg-paper px-5 py-6">
-        <h1 className="wide text-[22px] font-[750] tracking-[-0.02em]">No portals yet</h1>
-        <p className="mt-1 max-w-[62ch] text-slate">
-          Add a portal's address above. Watchtower learns how to read it, delivers its open tenders and their documents, and repairs itself when the portal changes.
+      <section className="mt-4 rounded-[6px] border border-hairline bg-paper px-5 py-6">
+        <h1 className="text-[18px] font-semibold text-ink">No portals yet</h1>
+        <p className="mt-1 max-w-[62ch] text-[13.5px] text-slate">
+          Add a portal address above. Watchtower learns how to read it, delivers its open tenders and documents, and repairs itself when a portal changes.
         </p>
       </section>
     );
   }
+
+  const servingCount = rows.filter((r) => r.state === "serving").length;
+  const failedCount = rows.filter((r) => r.state === "failed").length;
   const open = rows.reduce((s, r) => s + (r.state === "serving" || r.state === "healing" ? r.tenderCount : 0), 0);
-  const failed = rows.filter((r) => r.state === "failed").length;
-  const headline = failed === 0 ? "Nothing needs a person" : `${plural(failed, "portal")} ${failed === 1 ? "needs" : "need"} a person`;
+  const pct = rows.length > 0 ? Math.round((servingCount / rows.length) * 100) : 0;
+  const headline = failedCount === 0 ? "Nothing needs a person" : `${plural(failedCount, "portal")} ${failedCount === 1 ? "needs" : "need"} a person`;
+  const refreshed = new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }).format(now);
 
   return (
-    <section aria-label="Summary" className="grid grid-cols-2 border border-hairline bg-paper sm:grid-cols-[minmax(0,1.4fr)_repeat(4,minmax(0,1fr))]">
-      <div className="col-span-2 border-b border-hairline px-5 py-4 sm:col-span-1 sm:border-r sm:border-b-0">
-        <h1 className={`wide text-[21px] leading-tight font-[750] tracking-[-0.02em] ${failed ? "text-failed" : ""}`}>{headline}</h1>
-        <p className="mt-1 text-[13.5px] text-slate">
-          {rows.length === total ? `${plural(total, "portal")} watched` : `${rows.length} of ${plural(total, "portal")} selected`}, <span className="num font-semibold text-ink">{int(open)}</span> open tenders delivered
-        </p>
+    <section aria-label="Summary" className="grid grid-cols-2 overflow-hidden rounded-[6px] border border-hairline bg-paper sm:grid-cols-[minmax(0,1.55fr)_repeat(4,minmax(0,1fr))]">
+      <div className="col-span-2 flex flex-col justify-between border-b border-hairline px-5 py-4 sm:col-span-1 sm:border-r sm:border-b-0">
+        <div>
+          <h1 className={`text-[21px] leading-tight font-semibold tracking-tight ${failedCount > 0 ? "text-failed" : "text-ink"}`}>
+            {headline}
+          </h1>
+          <p className="mt-1 text-[13.5px] text-slate">
+            <span className="num font-medium text-ink">{servingCount}/{rows.length}</span> serving
+            <span className="mx-1.5 text-faint">·</span>
+            <span className="num font-medium text-ink">{int(open)}</span> open tenders
+            <span className="mx-1.5 text-faint">·</span>
+            <span className="num">{usd(totalCost)}</span>
+          </p>
+        </div>
+
+        <div className="mt-3 flex items-center justify-between gap-3">
+          <div className="h-1.5 w-full max-w-[200px] overflow-hidden rounded-full bg-hairline">
+            <div className="h-full rounded-full bg-serving transition-all" style={{ width: `${pct}%` }} />
+          </div>
+          <div className="flex shrink-0 items-center gap-1.5 text-[12px] text-slate">
+            <span className="num" title="Last refresh">{refreshed}</span>
+            <button
+              type="button"
+              onClick={onReload}
+              title="Refresh overview now"
+              aria-label="Refresh overview now"
+              className="rounded-[4px] p-1 text-docker hover:bg-mist cursor-pointer"
+            >
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M13.5 8a5.5 5.5 0 1 1-1.35-3.6" />
+                <path d="M13.8 2.4v2.8H11" />
+              </svg>
+            </button>
+          </div>
+        </div>
       </div>
+
       {ORDER.map((s) => {
         const n = rows.filter((r) => r.state === s).length;
+        const active = picked === s;
         return (
           <button
             key={s}
             type="button"
             onClick={() => onPick(s)}
-            aria-pressed={picked === s}
-            title={picked === s ? "Show all portals" : `Show only portals that are ${CHARACTER[s].words.toLowerCase()}`}
-            className={`flex items-center gap-3 border-hairline px-4 py-3.5 text-left sm:px-5 sm:py-4 max-sm:odd:border-l max-sm:[&:nth-child(-n+3)]:border-b sm:border-l sm:first-of-type:border-l-0 ${picked === s ? "bg-mist shadow-[inset_0_-3px_0_var(--color-ink)]" : "hover:bg-mist"} ${n === 0 ? "opacity-45" : ""}`}
+            aria-pressed={active}
+            title={active ? "Show all portals" : `Filter: ${CHARACTER[s].words}`}
+            className={`flex items-center gap-3.5 border-hairline px-5 py-4 text-left transition-colors cursor-pointer max-sm:odd:border-l max-sm:[&:nth-child(-n+3)]:border-b sm:border-l sm:first-of-type:border-l-0 ${
+              active ? "bg-mist shadow-[inset_0_-3px_0_var(--color-docker)]" : "hover:bg-mist"
+            } ${n === 0 ? "opacity-45" : ""}`}
           >
-            <Beacon state={s} size={20} />
+            <StatusIcon kind={stateToIconKind(s)} size={14} />
             <span>
-              <span className="num wide block text-[24px] leading-none font-[750]">{n}</span>
-              <span className={`mt-1 block text-[13px] font-semibold ${STATE_COLOR[s]}`}>{CHARACTER[s].words}</span>
+              <span className="num block text-[24px] leading-none font-bold text-ink">{n}</span>
+              <span className="mt-1.5 block text-[13px] font-medium text-slate">{CHARACTER[s].words}</span>
             </span>
           </button>
         );
@@ -261,32 +383,32 @@ function Summary({ rows, total, picked, onPick }: { rows: PortalRow[]; total: nu
   );
 }
 
-// ------------------------------------------------------------ portal list
+// ------------------------------------------------------------ portal table
 
 type SortKey = "urgent" | "tenders" | "stale" | "name";
-interface View { state: State | "all"; sort: SortKey }
-
-const SORTS: { id: SortKey; label: string }[] = [
-  { id: "urgent", label: "Most urgent" },
-  { id: "stale", label: "Longest without delivery" },
-  { id: "tenders", label: "Most open tenders" },
-  { id: "name", label: "Name" },
-];
+interface View {
+  state: State | "all";
+  sort: SortKey;
+}
 
 const time = (iso: string | null) => (iso ? Date.parse(iso) : -Infinity);
 const SORT: Record<SortKey, (a: PortalRow, b: PortalRow) => number> = {
   urgent: (a, b) => STATE_ORDER[a.state] - STATE_ORDER[b.state] || time(a.lastSuccessAt) - time(b.lastSuccessAt),
   stale: (a, b) => time(a.lastSuccessAt) - time(b.lastSuccessAt),
   tenders: (a, b) => b.tenderCount - a.tenderCount,
-  name: () => 0,
+  name: (a, b) => host(a.url).localeCompare(host(b.url)),
 };
 
-/** A per-viewer setting kept in this browser; falls back to the default when storage is unavailable. */
+/** Stored JSON helper safely handling both objects and booleans. */
 function useStored<T>(key: string, initial: T): [T, (v: T) => void] {
   const [value, setValue] = useState<T>(() => {
     try {
       const raw = localStorage.getItem(key);
-      return raw ? { ...initial, ...JSON.parse(raw) } : initial;
+      if (!raw) return initial;
+      const parsed = JSON.parse(raw);
+      return typeof initial === "object" && initial !== null && !Array.isArray(initial)
+        ? { ...initial, ...parsed }
+        : parsed;
     } catch {
       return initial;
     }
@@ -296,121 +418,327 @@ function useStored<T>(key: string, initial: T): [T, (v: T) => void] {
     try {
       localStorage.setItem(key, JSON.stringify(v));
     } catch {
-      /* private window: keep it for this visit only */
+      /* private mode */
     }
   };
   return [value, set];
 }
 
-const COLS = "md:grid-cols-[minmax(0,1.15fr)_minmax(0,1.5fr)_88px_104px] xl:grid-cols-[minmax(0,1.15fr)_minmax(0,1.5fr)_88px_104px_140px]";
+function SortArrow({ active }: { active: boolean }) {
+  if (!active) return null;
+  return (
+    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="ml-1 inline shrink-0 text-docker">
+      <path d="M8 13V3" />
+      <path d="M4.5 6.5 8 3l3.5 3.5" />
+    </svg>
+  );
+}
 
-function Portals({ rows: all, view, setView, query, setQuery, now, hover, setHover }: {
-  rows: PortalRow[]; view: View; setView: (v: View) => void; query: string; setQuery: (q: string) => void;
-  now: number; hover: string | null; setHover: (id: string | null) => void;
+function Portals({
+  rows: all,
+  view,
+  setView,
+  query,
+  setQuery,
+  now,
+  hover,
+  setHover,
+  showSide,
+  setShowSide,
+  onReload,
+}: {
+  rows: PortalRow[];
+  view: View;
+  setView: (v: View) => void;
+  query: string;
+  setQuery: (q: string) => void;
+  now: number;
+  hover: string | null;
+  setHover: (id: string | null) => void;
+  showSide: boolean;
+  setShowSide: (v: boolean) => void;
+  onReload: () => void;
 }) {
+  const [showFilterBar, setShowFilterBar] = useState(false);
+  const [refreshing, setRefreshing] = useState<Record<string, boolean>>({});
+
   const q = query.trim().toLowerCase();
   const rows = all
     .filter((r) => view.state === "all" || r.state === view.state)
     .filter((r) => !q || host(r.url).toLowerCase().includes(q) || r.reason.toLowerCase().includes(q))
     .sort((a, b) => SORT[view.sort](a, b) || host(a.url).localeCompare(host(b.url)));
+
   if (all.length === 0) return <div />;
+
   const chips: (State | "all")[] = ["all", ...ORDER];
 
+  const triggerRefresh = async (e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
+    setRefreshing((m) => ({ ...m, [id]: true }));
+    try {
+      await fetch(`/portals/${encodeURIComponent(id)}/refresh`, { method: "POST" });
+      onReload();
+    } finally {
+      setTimeout(() => {
+        setRefreshing((m) => {
+          const next = { ...m };
+          delete next[id];
+          return next;
+        });
+      }, 800);
+    }
+  };
+
   return (
-    <section aria-label="Portals" className="min-w-0 self-start border border-hairline bg-paper">
-      <div className="flex flex-wrap items-center gap-2 border-b border-hairline px-5 py-3">
-        <div role="group" aria-label="Show portals that are" className="flex flex-wrap gap-1">
-          {chips.map((s) => {
-            const n = s === "all" ? all.length : all.filter((r) => r.state === s).length;
-            if (s !== "all" && n === 0) return null;
-            const on = view.state === s;
-            return (
-              <button
-                key={s}
-                type="button"
-                aria-pressed={on}
-                onClick={() => setView({ ...view, state: s })}
-                className={`flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-[12.5px] font-semibold ${on ? "border-ink bg-ink text-paper" : "border-hairline text-slate hover:border-ink/40 hover:text-ink"}`}
-              >
-                {s !== "all" && <Beacon state={s} size={11} />}
-                {s === "all" ? "All" : CHARACTER[s].words}
-                <span className={`num ${on ? "opacity-70" : "text-faint"}`}>{n}</span>
-              </button>
-            );
-          })}
-        </div>
-        <div className="flex w-full items-center gap-2 sm:ml-auto sm:w-auto">
-          <label htmlFor="portal-find" className="sr-only">Find a portal or reason</label>
+    <section aria-label="Portals" className="min-w-0">
+      {/* Docker Search & Action Bar */}
+      <div className="mb-3 flex flex-wrap items-center gap-2.5">
+        <div className="relative flex-1 sm:flex-none sm:w-[290px]">
+          <svg
+            width="15"
+            height="15"
+            viewBox="0 0 16 16"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            aria-hidden="true"
+            className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-slate"
+          >
+            <circle cx="7" cy="7" r="4.8" />
+            <path d="m10.6 10.6 3.2 3.2" strokeLinecap="round" />
+          </svg>
+          <label htmlFor="portal-find" className="sr-only">Search portals</label>
           <input
             id="portal-find"
             type="search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Find"
-            className="h-7 min-w-0 flex-1 border border-hairline bg-sea px-2.5 text-[13px] placeholder:text-faint focus:border-ink focus:bg-paper focus:outline-none sm:w-[130px]"
+            placeholder="Search"
+            className="h-9 w-full rounded-[4px] border border-hairline bg-paper pr-3 pl-9 text-[13.5px] text-ink placeholder:text-faint focus:border-docker focus:outline-none"
           />
-          <label className="flex items-center gap-1.5 text-[12.5px] text-slate">
-            Sort
-            <select
-              value={view.sort}
-              onChange={(e) => setView({ ...view, sort: e.target.value as SortKey })}
-              className="h-7 border border-hairline bg-paper px-1.5 text-[13px] text-ink focus:border-ink focus:outline-none"
-            >
-              {SORTS.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
-            </select>
-          </label>
         </div>
+
+        {/* Docker Blue Filter Toggle */}
+        <button
+          type="button"
+          onClick={() => setShowFilterBar((v) => !v)}
+          aria-expanded={showFilterBar}
+          title="Filter by state"
+          className={`inline-flex h-9 w-9 items-center justify-center rounded-[4px] border transition-colors cursor-pointer ${
+            showFilterBar || view.state !== "all"
+              ? "border-docker bg-docker/15 text-docker"
+              : "border-transparent text-docker hover:bg-mist"
+          }`}
+        >
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
+            <path d="M2.5 4.5h11M4.5 8h7M6.5 11.5h3" />
+          </svg>
+        </button>
+
+        {/* Docker Blue Side Panel / Map Toggle */}
+        <button
+          type="button"
+          onClick={() => setShowSide(!showSide)}
+          aria-pressed={showSide}
+          title={showSide ? "Hide map & cost panel" : "Show map & cost panel"}
+          className={`inline-flex h-9 w-9 items-center justify-center rounded-[4px] border transition-colors cursor-pointer ${
+            showSide ? "border-docker/40 bg-docker/10 text-docker" : "border-transparent text-docker hover:bg-mist"
+          }`}
+        >
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+            <rect x="2" y="2.5" width="12" height="11" rx="1.8" />
+            <path d="M10 2.5v11" />
+          </svg>
+        </button>
+
+        {(showFilterBar || view.state !== "all") && (
+          <div role="group" aria-label="Show portals that are" className="flex flex-wrap items-center gap-1 sm:ml-2">
+            {chips.map((s) => {
+              const n = s === "all" ? all.length : all.filter((r) => r.state === s).length;
+              if (s !== "all" && n === 0) return null;
+              const on = view.state === s;
+              return (
+                <button
+                  key={s}
+                  type="button"
+                  aria-pressed={on}
+                  onClick={() => setView({ ...view, state: s })}
+                  className={`flex h-7 items-center gap-1.5 rounded-[4px] border px-2 text-[12px] font-medium cursor-pointer ${
+                    on
+                      ? "border-docker bg-docker/15 text-ink"
+                      : "border-hairline bg-paper text-slate hover:border-slate/50 hover:text-ink"
+                  }`}
+                >
+                  {s !== "all" && <StatusIcon kind={stateToIconKind(s)} size={10} />}
+                  {s === "all" ? "All" : CHARACTER[s].words}
+                  <span className="num text-faint">{n}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
-      {rows.length === 0 ? (
-        <div className="px-5 py-10 text-center text-[14px] text-slate">
-          No portal matches.{" "}
-          <button type="button" onClick={() => (setView({ ...view, state: "all" }), setQuery(""))} className="font-semibold text-ink underline underline-offset-2">
-            Clear the filters
-          </button>
-        </div>
-      ) : (
-        <div className={`hidden gap-x-5 border-b border-hairline px-5 py-2 text-[12px] text-slate md:grid ${COLS}`}>
-          <span>Portal</span>
-          <span>What Watchtower says</span>
-          <span className="text-right">Open tenders</span>
-          <span>Last delivered</span>
-          <span className="hidden xl:flex xl:justify-between"><span>24 h ago</span><span>now</span></span>
-        </div>
-      )}
-      <ol>
-        {rows.map((r) => (
-          <li key={r.id} className="border-b border-hairline last:border-b-0">
-            <a
-              href={`#/p/${encodeURIComponent(r.id)}`}
-              onMouseEnter={() => setHover(r.id)}
-              onMouseLeave={() => setHover(null)}
-              onFocus={() => setHover(r.id)}
-              onBlur={() => setHover(null)}
-              className={`grid items-center gap-x-5 gap-y-1 px-5 py-3.5 ${COLS} ${hover === r.id ? "bg-mist" : "hover:bg-mist"}`}
+
+      {/* Docker Desktop Table */}
+      <div className="overflow-x-auto rounded-[6px] border border-hairline bg-paper">
+        {rows.length === 0 ? (
+          <div className="px-5 py-10 text-center text-[13.5px] text-slate">
+            No portal matches.{" "}
+            <button
+              type="button"
+              onClick={() => {
+                setView({ ...view, state: "all" });
+                setQuery("");
+              }}
+              className="font-semibold text-docker hover:underline cursor-pointer"
             >
-              <span className="flex min-w-0 items-center gap-2.5">
-                <Beacon state={r.state} size={19} />
-                <span className="min-w-0 leading-snug">
-                  <span className="narrow block truncate text-[16.5px] font-semibold" title={r.url}>{host(r.url)}</span>
-                  <span className="block truncate text-[13px]">
-                    <span className={`font-semibold ${STATE_COLOR[r.state]}`}>{CHARACTER[r.state].words}</span>
-                    {r.busy && <span className="text-slate">, {r.busy.kind === "repair" ? "repairing" : "reading"} now</span>}
-                  </span>
-                </span>
-              </span>
-              <span className="line-clamp-3 text-[14.5px] leading-snug" title={r.reason}>{r.reason}</span>
-              <span className="num wide text-[18px] font-[700] md:text-right">
-                {int(r.tenderCount)}
-                <span className="narrow ml-1 text-[12.5px] font-normal text-slate md:hidden">open tenders</span>
-              </span>
-              <span className="text-[13px] leading-snug text-slate">{r.lastSuccessAt ? when(r.lastSuccessAt, now) : "Not yet"}</span>
-              <span className="hidden xl:block">
-                <Strip runs={r.recent ?? []} now={now} />
-              </span>
-            </a>
-          </li>
-        ))}
-      </ol>
+              Clear the filters
+            </button>
+          </div>
+        ) : (
+          <table className="w-full border-collapse text-left text-[13.5px]">
+            <thead>
+              <tr className="border-b border-hairline bg-sea/70 text-[12.5px] font-semibold text-ink">
+                <th scope="col" className="w-10 border-r border-hairline px-2 py-2.5 text-center" aria-label="Status" />
+                <th scope="col" className="border-r border-hairline px-3 py-2.5 whitespace-nowrap">
+                  <button
+                    type="button"
+                    onClick={() => setView({ ...view, sort: "name" })}
+                    className="inline-flex items-center hover:text-docker cursor-pointer"
+                  >
+                    Portal
+                    <SortArrow active={view.sort === "name"} />
+                  </button>
+                </th>
+                <th scope="col" className="border-r border-hairline px-3 py-2.5 whitespace-nowrap">
+                  <button
+                    type="button"
+                    onClick={() => setView({ ...view, sort: "urgent" })}
+                    className="inline-flex items-center hover:text-docker cursor-pointer"
+                  >
+                    State
+                    <SortArrow active={view.sort === "urgent"} />
+                  </button>
+                </th>
+                <th scope="col" className="border-r border-hairline px-3 py-2.5 whitespace-nowrap">
+                  What Watchtower says
+                </th>
+                <th scope="col" className="border-r border-hairline px-3 py-2.5 text-right whitespace-nowrap">
+                  <button
+                    type="button"
+                    onClick={() => setView({ ...view, sort: "tenders" })}
+                    className="inline-flex items-center hover:text-docker cursor-pointer"
+                  >
+                    Tenders
+                    <SortArrow active={view.sort === "tenders"} />
+                  </button>
+                </th>
+                <th scope="col" className="border-r border-hairline px-3 py-2.5 whitespace-nowrap">
+                  <button
+                    type="button"
+                    onClick={() => setView({ ...view, sort: "stale" })}
+                    className="inline-flex items-center hover:text-docker cursor-pointer"
+                  >
+                    Last delivered
+                    <SortArrow active={view.sort === "stale"} />
+                  </button>
+                </th>
+                <th scope="col" className="w-[76px] px-3 py-2.5 text-center whitespace-nowrap">
+                  Actions
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => {
+                const isSelectedRow = hover === r.id;
+                const isActive = r.state === "serving";
+                const isBusy = Boolean(r.busy || refreshing[r.id]);
+                const detailHref = `#/p/${encodeURIComponent(r.id)}`;
+
+                return (
+                  <tr
+                    key={r.id}
+                    onMouseEnter={() => setHover(r.id)}
+                    onMouseLeave={() => setHover(null)}
+                    onClick={() => {
+                      window.location.hash = detailHref;
+                    }}
+                    className={`border-b border-hairline last:border-b-0 cursor-pointer transition-colors ${
+                      isSelectedRow ? "bg-mist" : "hover:bg-mist/80"
+                    }`}
+                  >
+                    <td className="px-2 py-2.5 text-center align-middle">
+                      <div className="flex justify-center">
+                        <StatusIcon kind={stateToIconKind(r.state)} size={11} />
+                      </div>
+                    </td>
+                    <td className="max-w-[210px] px-3 py-2.5 align-middle">
+                      <a
+                        href={detailHref}
+                        onClick={(e) => e.stopPropagation()}
+                        title={r.url}
+                        className={`block truncate hover:underline ${
+                          isActive || r.state === "failed" ? "font-semibold text-ink" : "font-normal text-ink/90"
+                        }`}
+                      >
+                        {host(r.url)}
+                      </a>
+                    </td>
+                    <td className="px-3 py-2.5 align-middle whitespace-nowrap">
+                      <span className={r.state === "failed" ? "font-medium text-ink" : "text-slate"}>
+                        {CHARACTER[r.state].words}
+                      </span>
+                      {r.busy && (
+                        <span className="text-[12px] text-faint">
+                          , {r.busy.kind === "repair" ? "repairing" : "reading"}
+                        </span>
+                      )}
+                    </td>
+                    <td className="max-w-[290px] px-3 py-2.5 align-middle text-slate" title={r.reason}>
+                      <span className="block truncate">{r.reason}</span>
+                    </td>
+                    <td className="num px-3 py-2.5 text-right align-middle font-medium text-ink whitespace-nowrap">
+                      {int(r.tenderCount)}
+                    </td>
+                    <td className="px-3 py-2.5 align-middle text-[13px] text-slate whitespace-nowrap">
+                      {r.lastSuccessAt ? when(r.lastSuccessAt, now) : <span className="text-faint">Not yet</span>}
+                    </td>
+                    <td className="px-2 py-2.5 align-middle">
+                      <div className="flex items-center justify-center gap-1">
+                        <button
+                          type="button"
+                          onClick={(e) => void triggerRefresh(e, r.id)}
+                          disabled={isBusy}
+                          title={isBusy ? "Run in progress" : "Read portal now"}
+                          aria-label={`Read ${host(r.url)} now`}
+                          className="rounded p-1 text-docker hover:bg-sea disabled:opacity-40 cursor-pointer"
+                        >
+                          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round">
+                            <path d="M5 3.5 12.5 8 5 12.5V3.5Z" />
+                          </svg>
+                        </button>
+                        <a
+                          href={detailHref}
+                          onClick={(e) => e.stopPropagation()}
+                          title="Inspect portal details"
+                          aria-label={`Open details for ${host(r.url)}`}
+                          className="rounded p-1 text-docker hover:bg-sea"
+                        >
+                          <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+                            <circle cx="8" cy="3.5" r="1.15" />
+                            <circle cx="8" cy="8" r="1.15" />
+                            <circle cx="8" cy="12.5" r="1.15" />
+                          </svg>
+                        </a>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+      </div>
     </section>
   );
 }
@@ -426,15 +754,22 @@ function Cost({ rows, portals }: { rows: LedgerRow[]; portals: number }) {
   const other = rows.filter((r) => r.purpose !== "attach" && r.purpose !== "repair").reduce((s, r) => s + r.cost_usd, 0);
 
   return (
-    <section aria-labelledby="cost" className="border border-hairline bg-paper p-4">
-      <h2 id="cost" className="text-[14px] font-semibold">Model usage so far</h2>
-      <p className="num wide mt-1 text-[32px] leading-none font-[750] tracking-[-0.03em]">{usd(total)}</p>
-      <p className="mt-2 text-[13.5px] leading-relaxed text-slate">
-        {attach ? <>Learning {plural(attach.calls, "portal")} cost <b className="num font-semibold text-ink">{usd(attach.cost_usd)}</b>, about <b className="num font-semibold text-ink">{usd(attach.cost_usd / attach.calls)}</b> each. </> : "No portal has been learned yet. "}
-        {repair ? <>{plural(repair.calls, "repair")} cost <b className="num font-semibold text-ink">{usd(repair.cost_usd)}</b>. </> : "No repairs so far. "}
-        {other > 0 && <>Checks cost <b className="num font-semibold text-ink">{usd(other)}</b>. </>}
-        Regular reads run without a model and cost nothing.
-      </p>
+    <section aria-labelledby="cost" className="rounded-[6px] border border-hairline bg-paper p-3.5">
+      <h2 id="cost" className="text-[13px] font-semibold text-ink">Model usage so far</h2>
+      <p className="num mt-1 text-[20px] font-semibold text-ink">{usd(total)}</p>
+      <p className="mt-0.5 text-[12.5px] text-slate">Regular reads call no model and cost $0.</p>
+      {total > 0 && (
+        <dl className="mt-3 grid grid-cols-2 gap-2 border-t border-hairline pt-2.5 text-[12.5px]">
+          <div>
+            <dt className="text-slate">Attaching</dt>
+            <dd className="num font-semibold text-ink">{usd(attach?.cost_usd ?? 0)}</dd>
+          </div>
+          <div>
+            <dt className="text-slate">Repairs</dt>
+            <dd className="num font-semibold text-ink">{usd((repair?.cost_usd ?? 0) + other)}</dd>
+          </div>
+        </dl>
+      )}
     </section>
   );
 }

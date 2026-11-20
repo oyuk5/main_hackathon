@@ -3,7 +3,7 @@
  * the map, the issues and the log. `picked` null means all portals.
  */
 import { useEffect, useRef, useState } from "react";
-import { Beacon } from "./Chart";
+import { StatusIcon, stateToIconKind } from "./StatusIcon";
 import { STATE_ORDER, host, type PortalRow } from "./lib";
 
 export function Picker({ all, picked, setPicked }: { all: PortalRow[]; picked: string[] | null; setPicked: (ids: string[] | null) => void }) {
@@ -42,7 +42,7 @@ export function Picker({ all, picked, setPicked }: { all: PortalRow[]; picked: s
         aria-haspopup="true"
         aria-expanded={open}
         onClick={() => setOpen(!open)}
-        className={`flex h-8 max-w-[260px] items-center gap-2 border px-2.5 text-[13px] font-semibold ${picked ? "border-ink bg-ink text-paper" : "border-hairline bg-paper hover:border-ink/40"}`}
+        className={`flex h-8 max-w-[260px] items-center gap-2 rounded-[4px] border px-2.5 text-[13px] font-medium cursor-pointer ${picked ? "border-docker bg-docker/15 text-ink" : "border-hairline bg-paper text-ink hover:border-slate/50"}`}
       >
         <span className="truncate">{label}</span>
         <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true" className={`shrink-0 transition-transform ${open ? "rotate-180" : ""}`}>
@@ -50,7 +50,7 @@ export function Picker({ all, picked, setPicked }: { all: PortalRow[]; picked: s
         </svg>
       </button>
       {open && (
-        <div className="absolute right-0 z-30 mt-1.5 w-[300px] border border-hairline bg-paper shadow-[0_8px_24px_rgb(0_0_0/0.12)]">
+        <div className="absolute right-0 z-30 mt-1.5 w-[300px] rounded-[6px] border border-hairline bg-paper shadow-[0_8px_24px_rgb(0_0_0/0.25)]">
           {all.length > 8 && (
             <div className="border-b border-hairline p-2">
               <label htmlFor="picker-find" className="sr-only">Find a portal</label>
@@ -60,28 +60,28 @@ export function Picker({ all, picked, setPicked }: { all: PortalRow[]; picked: s
                 value={find}
                 onChange={(e) => setFind(e.target.value)}
                 placeholder="Find a portal"
-                className="h-8 w-full border border-hairline bg-sea px-2.5 text-[13px] placeholder:text-faint focus:border-ink focus:bg-paper focus:outline-none"
+                className="h-8 w-full rounded-[4px] border border-hairline bg-sea px-2.5 text-[13px] text-ink placeholder:text-faint focus:border-docker focus:bg-paper focus:outline-none"
               />
             </div>
           )}
           <div className="flex items-center justify-between border-b border-hairline px-3 py-2 text-[12.5px]">
             <span className="text-slate">{count} of {all.length} shown</span>
             <span className="flex gap-3">
-              <button type="button" onClick={() => setPicked(null)} className="font-semibold text-ink hover:underline">All</button>
-              <button type="button" onClick={() => setPicked([])} className="font-semibold text-ink hover:underline">None</button>
+              <button type="button" onClick={() => setPicked(null)} className="font-semibold text-docker hover:underline cursor-pointer">All</button>
+              <button type="button" onClick={() => setPicked([])} className="font-semibold text-docker hover:underline cursor-pointer">None</button>
             </span>
           </div>
           <ul className="max-h-[320px] overflow-y-auto py-1">
             {list.map((p) => (
               <li key={p.id}>
                 <label className="flex cursor-pointer items-center gap-2.5 px-3 py-1.5 hover:bg-mist">
-                  <input type="checkbox" checked={chosen.has(p.id)} onChange={() => toggle(p.id)} className="size-4 shrink-0 accent-[var(--color-ink)]" />
-                  <Beacon state={p.state} size={14} />
-                  <span className="narrow min-w-0 truncate text-[14px] font-semibold">{host(p.url)}</span>
+                  <input type="checkbox" checked={chosen.has(p.id)} onChange={() => toggle(p.id)} className="size-4 shrink-0 accent-[var(--color-docker)]" />
+                  <StatusIcon kind={stateToIconKind(p.state)} size={10} />
+                  <span className="min-w-0 truncate text-[13.5px] font-medium text-ink">{host(p.url)}</span>
                   <button
                     type="button"
                     onClick={(e) => (e.preventDefault(), setPicked([p.id]), setOpen(false))}
-                    className="ml-auto shrink-0 text-[12px] text-slate hover:text-ink hover:underline"
+                    className="ml-auto shrink-0 text-[12px] text-docker hover:underline cursor-pointer"
                   >
                     Only
                   </button>

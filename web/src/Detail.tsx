@@ -4,8 +4,9 @@
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Strip } from "./Strip";
+import { StatusIcon, stateToIconKind } from "./StatusIcon";
 import {
-  STATE_COLOR, STATE_LABEL, clock, diffRecipes, duration, host, int, plural, usd, useNow, usePoll, when,
+  STATE_LABEL, clock, diffRecipes, duration, host, int, plural, usd, useNow, usePoll, when,
   type PortalDetail, type RunRow,
 } from "./lib";
 
@@ -63,16 +64,16 @@ function Body({ d, now, onChanged, onRemoved }: { d: PortalDetail; now: number; 
   return (
     <div className="px-6 pt-6 pb-16">
       <header>
-        <div className={`flex items-center gap-2 text-[13px] font-medium ${STATE_COLOR[p.state]}`}>
-          <span className="light" data-busy={busy ? "true" : "false"} aria-hidden="true" />
-          {STATE_LABEL[p.state]}
+        <div className="flex items-center gap-2 text-[13px] font-medium text-ink">
+          <StatusIcon kind={stateToIconKind(p.state)} size={12} />
+          <span>{STATE_LABEL[p.state]}</span>
           {busy && <span className="font-normal text-slate">and {busy.kind === "repair" ? "repairing" : "reading"} now</span>}
         </div>
-        <h2 className="wide mt-2 text-[1.9rem] leading-tight font-[750] tracking-[-0.025em] break-words">{host(p.url)}</h2>
-        <a href={p.url} target="_blank" rel="noreferrer" className="text-[13px] break-all text-slate underline decoration-hairline underline-offset-4 hover:text-ink">
+        <h2 className="mt-2 text-[1.7rem] leading-tight font-semibold tracking-tight break-words text-ink">{host(p.url)}</h2>
+        <a href={p.url} target="_blank" rel="noreferrer" className="text-[13px] break-all text-docker hover:underline">
           {p.url}
         </a>
-        <p className="mt-4 max-w-[60ch] text-[16px] leading-relaxed">{p.reason}</p>
+        <p className="mt-3 max-w-[60ch] text-[14.5px] leading-relaxed text-slate">{p.reason}</p>
         <Actions id={p.id} busy={!!busy} onChanged={onChanged} onRemoved={onRemoved} />
       </header>
 
@@ -138,12 +139,12 @@ function Actions({ id, busy, onChanged, onRemoved }: { id: string; busy: boolean
 
   return (
     <div className="mt-5 flex flex-wrap items-center gap-2">
-      <button onClick={refresh} className="h-8 bg-ink px-3 text-[13px] font-semibold text-paper hover:bg-magenta">
+      <button onClick={refresh} className="h-8 rounded-[4px] bg-docker-solid px-3 text-[13px] font-semibold text-white hover:bg-docker cursor-pointer">
         Read now
       </button>
       <button
         onClick={remove}
-        className={`h-8 border px-3 text-[13px] font-medium ${confirm ? "border-failed bg-failed text-paper" : "border-hairline text-slate hover:border-failed/40 hover:text-failed"}`}
+        className={`h-8 rounded-[4px] border px-3 text-[13px] font-medium cursor-pointer ${confirm ? "border-failed bg-failed text-white" : "border-hairline text-slate hover:border-failed/50 hover:text-failed"}`}
       >
         {confirm ? "Click again to stop watching" : "Stop watching"}
       </button>
@@ -229,7 +230,7 @@ function Event({ run, d, now }: { run: RunRow; d: PortalDetail; now: number }) {
     ? running ? "Repairing" : run.result === "ok" ? "Repaired" : "Repair failed"
     : running ? "Reading" : run.result === "ok" ? "Read passed" : "Read failed";
   const tone = running ? "bg-integrating" : run.result === "ok" ? (repair ? "bg-serving" : "bg-faint") : "bg-failed";
-  const text = running ? "text-integrating" : run.result === "ok" ? (repair ? "text-serving" : "text-ink") : "text-failed";
+  const text = "text-ink";
   const cost = d.runCosts?.[run.id] ?? 0;
   const events = d.events.filter((e) => e.run_id === run.id).reverse();
 
