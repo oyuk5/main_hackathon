@@ -38,3 +38,4 @@ Sat 00:11 · A · Preserve the whole previous tender while its attachments are p
 Sat 00:29 · A · Give Medic bounded live tender and document-hop evidence and retry partial attachment loss · changed list selectors do not explain changed detail and file links
 Sat 00:31 · A · Keep exact observed optional detail-label hints through the penultimate draft · missing procedure, contract and place fields accounted for Gmina attach losses
 Sat 00:33 · A · Expose stored openCount only in the internal overview and use it in dashboard counts · retained closed and withdrawn tenders are delivered but not open
+Sat 00:35 · A · Name minority document walls in the serving reason · unaffected tenders remain available without hiding the blocked attachments

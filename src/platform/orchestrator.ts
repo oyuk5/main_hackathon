@@ -521,8 +521,19 @@ export async function deliver(portalId: string, read: OkRead, ctx: PortalContext
   const documentsPending = plan.pending + pendingRefs + documentFailures.length > 0;
   const waiting = pendingNew > 0 ? `; documents for ${count(pendingNew, "more tender")} are on their way` : "";
   const deferredUpdates = plan.pending - plan.pendingNew;
+  const wallNotes = [
+    [/^Documents need a login/i, "need a login"],
+    [/^Blocked by a captcha/i, "are blocked by a captcha"],
+    [/robots\.txt disallows/i, "are blocked by robots.txt"],
+  ] as const;
+  const namedWalls = documentFailures.filter((f) => f.blocked);
+  const wallNote = wallNotes.map(([pattern, why]) => {
+    const n = namedWalls.filter((f) => pattern.test(f.detail)).length;
+    return n ? ` Documents for ${count(n, "tender")} ${why}; ${n === 1 ? "that tender is" : "those tenders are"} held back from this delivery.` : "";
+  }).join("");
+  const otherFailures = documentFailures.length - namedWalls.length;
   const documentNote = documentFailures.length
-    ? ` Documents for ${count(documentFailures.length, "tender")} could not be fetched; retrying next read.`
+    ? wallNote + (otherFailures ? ` Documents for ${count(otherFailures, "tender")} could not be fetched; retrying next read.` : "")
     : deferredUpdates > 0 ? ` Document updates for ${count(deferredUpdates, "tender")} are on their way.`
       : documentsPending ? "" : " All checks passed.";
   const deliveryNote = delivered.length > 0 && read.tenders.every((t) => statusOf(t) !== "open")

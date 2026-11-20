@@ -300,6 +300,18 @@ test("a tender whose refs this read did not look for is held back when new, kept
   assert.equal(next.pendingNew, 0);
 });
 
+test("a minority login wall is named while the other tenders are delivered", async () => {
+  const p = newPortal();
+  const http = await import("./testkit.js");
+  const fake = await http.fakePortal({ "/private": (_req, res) => res.writeHead(401).end() });
+  try {
+    const blocked = { ...tender(1, 0), documentRefs: [{ url: `${fake.base}/private`, via: "http" as const }] };
+    const result = await deliver(p, read([blocked, tender(2, 1), tender(3, 1)]), ctx());
+    assert.deepEqual(store.listTenders(p).map((t) => t.id), ["T2", "T3"]);
+    assert.match(result.summary, /Documents for 1 tender need a login; that tender is held back/);
+  } finally { await fake.close(); }
+});
+
 test("document problems: a few keep serving, most login walls fail, most other failures repair", async () => {
   const { classifyDocumentFailures } = await import("./orchestrator.js");
   const login = { blocked: true, tenderId: "t", detail: "Documents need a login: x shows a login page instead of the file." };
