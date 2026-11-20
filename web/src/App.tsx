@@ -382,7 +382,7 @@ function SummaryStrip({
   return (
     <section aria-label="Summary" className="flex flex-col gap-4 rounded-[6px] border border-hairline bg-paper px-5 py-4 xl:flex-row xl:items-center xl:gap-8">
       <div className="min-w-0 flex-1">
-        <h1 className={`font-display text-[26px] leading-tight font-bold tracking-tight ${failedCount > 0 ? "text-failed" : "text-ink"}`}>{headline}</h1>
+        <h1 className={`font-display text-[26px] leading-tight font-bold tracking-tight ${failedCount > 0 ? "text-failed" : "text-calm"}`}>{headline}</h1>
         <p className="mt-1 flex flex-wrap items-center gap-x-1 text-[13.5px] text-slate">
           <span>
             <span className="num font-semibold text-ink">{int(open)}</span> open tenders delivered from{" "}
