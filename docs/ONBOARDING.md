@@ -4,8 +4,8 @@
 
 **Deadline Saturday 10:30, we submit at 10:00.** No submission, no judging.
 
-## 1. Set up (Windows or macOS)
-1. **Node 22.13 or newer** (`node -v`). Git. VS Code with Claude Code or Codex. **A** also needs Docker Desktop.
+## 1. Set up (Windows, macOS or Linux)
+1. **Node 22.13 or newer** (`node -v`). Git. VS Code with Claude Code or Codex. **A** also needs Docker Desktop (Docker Engine on Linux).
 2. Clone the repo and install:
    ```bash
    git clone https://github.com/oyuk5/main_hackathon.git
@@ -21,6 +21,20 @@
    npm run test:contract      # in a second terminal: "All contract checks passed"
    ```
 5. **Windows:** if `git status` shows every file as changed after you pull `.gitattributes`, run `git add --renormalize .` once. Only line endings changed; nothing else.
+6. **Linux** (tested path: Ubuntu/Debian; other distros work but install Chromium's libraries by hand):
+   ```bash
+   # Node 22 via nvm (distro packages are usually too old)
+   curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash
+   source ~/.bashrc && nvm install 22 && node -v      # must print v22.13 or newer
+
+   # Chromium plus the system libraries it needs (asks for sudo)
+   npx playwright install --with-deps chromium
+
+   cp .env.example .env
+   ```
+   - If Playwright fails with "missing dependencies", rerun the `--with-deps` line. A plain `install chromium` downloads the browser but not the libraries.
+   - **A, Docker:** install Docker Engine (`curl -fsSL https://get.docker.com | sh`), then `sudo usermod -aG docker $USER` and log out and back in so `docker` runs without sudo.
+   - Port 8080 busy? Check with `ss -ltnp | grep 8080`.
 
 ## 2. Pick your letter
 | | Area | You own | Your agent reads |
