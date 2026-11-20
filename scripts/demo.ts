@@ -174,6 +174,51 @@ function seed() {
     tenders: { count: 7, host: "localhost:4100", titles: ["Dredging of the inner basin", "Quay crane maintenance"], buyers: ["Harbour Board"] },
   });
 
+  // More portals across Europe, so the dashboard shows how it reads at a realistic size.
+  // Germany gets enough of them that the map groups them into one numbered marker.
+  const more: { key: string; url: string; country: string | null; state: "serving" | "healing" | "failed" | "integrating"; tenders: number; reason?: string; buyer: string; title: string }[] = [
+    { key: "dtvp", url: "https://www.dtvp.de/", country: "DE", state: "failed", tenders: 0, buyer: "", title: "", reason: "The tender list is drawn by JavaScript and no data address could be found, so Watchtower cannot read it yet." },
+    { key: "nrw", url: "https://www.evergabe.nrw.de/", country: "DE", state: "serving", tenders: 214, buyer: "Stadt Köln", title: "Sanierung Schulzentrum Süd" },
+    { key: "nds", url: "https://vergabe.niedersachsen.de/", country: "DE", state: "serving", tenders: 96, buyer: "Land Niedersachsen", title: "Rahmenvertrag Reinigungsleistungen" },
+    { key: "subreport", url: "https://www.subreport.de/", country: "DE", state: "healing", tenders: 133, buyer: "Stadtwerke Bochum", title: "Erneuerung Fernwärmeleitung",
+      reason: "Repairing: the deadline column moved and now reads as the publication date. Serving the last 133 correct tenders meanwhile." },
+    { key: "berlin", url: "https://www.berlin.de/vergabeplattform/", country: "DE", state: "serving", tenders: 58, buyer: "Senatsverwaltung Berlin", title: "Lieferung von E-Lastenrädern" },
+    { key: "pz", url: "https://platformazakupowa.pl/", country: "PL", state: "serving", tenders: 412, buyer: "Gmina Wrocław", title: "Przebudowa ulicy Kościuszki" },
+    { key: "ezam", url: "https://ezamowienia.gov.pl/", country: "PL", state: "integrating", tenders: 0, buyer: "", title: "" },
+    { key: "placsp", url: "https://contrataciondelestado.es/", country: "ES", state: "failed", tenders: 0, buyer: "", title: "", reason: "Blocked: the search needs a session started by a person in a browser, so Watchtower does not read it." },
+    { key: "consip", url: "https://www.acquistinretepa.it/", country: "IT", state: "serving", tenders: 187, buyer: "Comune di Bologna", title: "Fornitura arredi scolastici" },
+    { key: "bosa", url: "https://www.publicprocurement.be/", country: "BE", state: "serving", tenders: 301, buyer: "Stad Gent", title: "Onderhoud groenzones" },
+    { key: "auftrag", url: "https://www.auftrag.at/", country: "AT", state: "serving", tenders: 77, buyer: "Stadt Graz", title: "Winterdienst 2027" },
+    { key: "simap", url: "https://www.simap.ch/", country: "CH", state: "serving", tenders: 142, buyer: "Kanton Zürich", title: "Neubau Werkhof" },
+    { key: "udbud", url: "https://udbud.dk/", country: "DK", state: "serving", tenders: 64, buyer: "Aarhus Kommune", title: "Levering af skolemælk" },
+    { key: "avrop", url: "https://www.e-avrop.com/", country: "SE", state: "serving", tenders: 49, buyer: "Göteborgs Stad", title: "Snöröjning centrum" },
+    { key: "etenders", url: "https://www.etenders.gov.ie/", country: "IE", state: "serving", tenders: 88, buyer: "Dublin City Council", title: "Street lighting maintenance" },
+    { key: "base", url: "https://www.base.gov.pt/", country: "PT", state: "integrating", tenders: 0, buyer: "", title: "" },
+    { key: "nen", url: "https://nen.nipez.cz/", country: "CZ", state: "serving", tenders: 120, buyer: "Statutární město Brno", title: "Rekonstrukce tramvajové trati" },
+    { key: "mercell", url: "https://www.mercell.com/", country: null, state: "failed", tenders: 0, buyer: "", title: "", reason: "Blocked: the portal answers 403 Forbidden to automated reads." },
+  ];
+  more.forEach((m, n) => {
+    const last = 3 + ((n * 7) % 25);
+    const reason = m.reason ?? (m.state === "integrating" ? "Attaching: learning how to read this portal." : `Serving ${m.tenders} open tenders (${n % 3} new, 0 changed). Last read ${hhmm(last)}, all checks passed.`);
+    const recipe = { ...htmlV1, countryCode: m.country, list: { ...htmlV1.list, request: { url: m.url } } };
+    addPortal({
+      id: `p_demo_${m.key}`, url: m.url, state: m.state, reason, createdAgo: m.state === "integrating" ? 1 + n : 60 * (10 + n), lastSuccessAgo: m.tenders ? last : null,
+      recipes: m.state === "integrating" ? [] : [{ ago: 60 * (10 + n), origin: "attach", note: "Server-rendered list with a next-page link.", recipe }],
+      runs: m.state === "integrating" ? [] : m.tenders === 0
+        ? [{ ago: 60 * (10 + n), kind: "read", result: "failed", seconds: 9, summary: reason }]
+        : [
+            { ago: 60 * (10 + n), kind: "read", result: "ok", seconds: 90, summary: `Attached the list. Serving ${m.tenders} open tenders.`, cost: { purpose: "attach", inTok: 5000 + n * 120, outTok: 900 } },
+            ...(m.state === "healing"
+              ? [
+                  { ago: 12, kind: "read" as const, result: "failed" as const, seconds: 14, summary: "Deadline equals the publication date on 133 of 133 tenders." },
+                  { ago: 11, kind: "repair" as const, result: null, summary: "", cost: { purpose: "repair", inTok: 3900, outTok: 0 } },
+                ]
+              : []),
+          ],
+      tenders: m.tenders ? { count: m.tenders, host: new URL(m.url).host, titles: [m.title], buyers: [m.buyer] } : undefined,
+    });
+  });
+
   addPortal({
     id: "p_demo_evergabe", url: "https://www.evergabe-online.de/", state: "integrating", createdAgo: 2, lastSuccessAgo: null,
     reason: "Attaching: learning how to read this portal.", runs: [],
