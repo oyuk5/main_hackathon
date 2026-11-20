@@ -6,6 +6,15 @@ import { cartographer, pickGolden, attachKnown } from "./index.js";
 import { findKnownRecipe, registerKnownRecipe, type KnownRecipe } from "./known.js";
 import type { ExtractedTender, PortalContext } from "../shared/modules.js";
 import { Recipe } from "../shared/recipe.js";
+import { detailLabelHints } from "./cartographer.js";
+
+test("detail label hints use exact observed labels and do not guess a place", () => {
+  const recipe = Recipe.parse({ schemaVersion: 1, tier: "html", timeZone: "Europe/Warsaw", list: { request: { url: "https://example.org/" }, pagination: { type: "none" }, item: "article" }, listFields: { title: { css: "h2" } } });
+  const hints = detailLabelHints(recipe, '<table><tr><th>Tryb postępowania</th><td>Przetarg nieograniczony</td></tr><tr><th>Rodzaj zamówienia</th><td>Roboty budowlane</td></tr><tr><th>Miejsce realizacji</th><td>Obszar całego kraju</td></tr></table>');
+  assert.match(hints ?? "", /procedureType.*Tryb postępowania/);
+  assert.match(hints ?? "", /contractNature.*Rodzaj zamówienia/);
+  assert.doesNotMatch(hints ?? "", /postalCode/);
+});
 
 let server: http.Server;
 let base = "";

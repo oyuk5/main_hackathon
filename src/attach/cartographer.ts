@@ -683,6 +683,31 @@ export function missingOptionalFields(recipe: Recipe, texts: string[]): string |
   return `The list or the tender's own page seems to show ${missing.map((m) => m.name).join(", ")}, but the recipe has no rule for ${fields}. Map them (detail.fields when they are only on the tender's own page); leave out any that is not clearly there.`;
 }
 
+/** Suggest a selector only when the sampled detail page shows a label beside a value. */
+export function detailLabelHints(recipe: Recipe, body: string): string | null {
+  const $ = cheerio.load(body);
+  const hints: string[] = [];
+  const labels = [
+    { field: "procedureType", label: /^(tryb postępowania|verfahrensart|vergabeart|type de procédure)$/i },
+    { field: "contractNature", label: /^(rodzaj zamówienia|leistungsart|auftragsart|nature du marché|type de marché)$/i },
+  ];
+  $("tr, dt").each((_i, el) => {
+    const node = $(el);
+    const label = (node.is("dt") ? node.text() : node.children("th, td").first().text()).trim().replace(/:$/, "");
+    const value = (node.is("dt") ? node.next("dd").text() : node.children("th, td").eq(1).text()).trim();
+    if (!value) return;
+    for (const rule of labels) {
+      if (rule.label.test(label) && !hasRule(recipe, rule.field)) {
+        hints.push(`${rule.field}: ${JSON.stringify({ label, parse: rule.field })}`);
+      }
+    }
+    if (!hasRule(recipe, "postalCode") && !hasRule(recipe, "city") && /^(miejsce realizacji|ort der ausführung|lieu d.exécution)$/i.test(label) && /^\d{2}-\d{3}\s+\p{L}/u.test(value)) {
+      hints.push(`postalCode: ${JSON.stringify({ label, parse: "postalCode" })}; city: ${JSON.stringify({ label, regex: "^\\d{2}-\\d{3}\\s+(.+)$" })}`);
+    }
+  });
+  return hints.length ? `The tender detail page shows these exact labels. Use these selectors in detail.fields, not listFields:\n${[...new Set(hints)].join("\n")}` : null;
+}
+
 /** A portal that marks cancelled tenders needs a withdrawn rule, or a cancelled tender is served as open. */
 export function missingWithdrawnRule(recipe: Recipe, texts: string[]): string | null {
   const all = texts.join("\n");
@@ -1085,15 +1110,18 @@ export async function attachWithModel(ctx: PortalContext, deps: ModelAttachDeps 
     // Evidence from what the portal shows: the list page, the JSON calls, the list items, one tender page.
     let withdrawnBlock: string[] = [];
     let listItems: string[] | null = null;
-    if (sample.kind === "ok" && sample.tenders.length > 0 && drafts <= 2) {
-      const items = await deps.items(recipe, ctx).catch(() => ({ items: [] as string[] }));
-      listItems = items.items;
-      const texts = [current.raw, current.rendered ?? "", ...current.json.map((j) => JSON.stringify(j.data)), ...items.items, tenderPage?.body ?? ""];
-      // A hint for two drafts: models tend to fix the required fields first and skip it once.
-      const optional = missingOptionalFields(recipe, texts);
-      if (optional) withdrawnBlock.push(optional);
-      const withdrawn = missingWithdrawnRule(recipe, texts);
-      if (withdrawn) withdrawnBlock = [withdrawn];
+    if (sample.kind === "ok" && sample.tenders.length > 0 && rounds < MAX_RECIPE_ROUNDS) {
+      if (drafts <= 2) {
+        const items = await deps.items(recipe, ctx).catch(() => ({ items: [] as string[] }));
+        listItems = items.items;
+        const texts = [current.raw, current.rendered ?? "", ...current.json.map((j) => JSON.stringify(j.data)), ...items.items, tenderPage?.body ?? ""];
+        const optional = missingOptionalFields(recipe, texts);
+        if (optional) withdrawnBlock.push(optional);
+        const withdrawn = missingWithdrawnRule(recipe, texts);
+        if (withdrawn) withdrawnBlock = [withdrawn];
+      }
+      const concrete = tenderPage && detailLabelHints(recipe, tenderPage.body);
+      if (concrete) withdrawnBlock.push(concrete);
     }
     // CPV codes: a rule that reads nothing (or no rule) while the portal shows codes gets their exact
     // place and a rule checked on that page, so the model fixes the rule instead of dropping it.

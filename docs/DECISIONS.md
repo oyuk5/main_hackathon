@@ -36,3 +36,4 @@ Format: `Day HH:MM · who · decision · why`
 Sat 00:11 · A · Preserve the whole previous tender while its attachments are pending; re-download previously delivered files before promoting a repair · old bytes and a reused URL do not verify a new snapshot
 
 Sat 00:29 · A · Give Medic bounded live tender and document-hop evidence and retry partial attachment loss · changed list selectors do not explain changed detail and file links
+Sat 00:31 · A · Keep exact observed optional detail-label hints through the penultimate draft · missing procedure, contract and place fields accounted for Gmina attach losses
