@@ -81,6 +81,8 @@ export interface LabPortal {
   kind: string;
   notes: string[];
   tenders: LabTender[];
+  /** Changed versions the mutator can switch to: name → what changes. "v1" is always the original. */
+  variants: Record<string, string>;
   /** Absolute URL of a tender's own page. */
   tenderUrl(base: string, t: LabTender): string;
   /** Handles a request under /<slug>/. `path` is the rest after the slug, starting with "/". */
@@ -196,15 +198,20 @@ export function zipBytes(t: LabTender): Buffer {
 
 // ---------------------------------------------------------------- truth
 
-export function truthOf(p: LabPortal, base: string): Truth {
+/** Variants that are not breakage: the system must stay serving and must not repair. */
+export const HARMLESS = new Set(["cookie-banner", "empty-day"]);
+
+export function truthOf(p: LabPortal, base: string, variant = "v1"): Truth & { variant: string } {
+  const tenders = variant === "empty-day" ? [] : p.tenders;
   return {
     portal: p.slug,
+    variant,
     url: `${base}/${p.slug}/`,
     country: p.country,
     timeZone: p.timeZone,
     kind: p.kind,
     notes: p.notes,
-    tenders: p.tenders.map((t) => ({
+    tenders: tenders.map((t) => ({
       id: t.id,
       url: p.tenderUrl(base, t),
       title: t.title,
@@ -251,6 +258,27 @@ export function sendFile(res: ServerResponse, name: string, bytes: Buffer): void
 
 export function notFound(res: ServerResponse): void {
   sendHtml(res, "<!doctype html><title>Not found</title><h1>Not found</h1>", 404);
+}
+
+/** German, French and Polish month names for the date-format variants. */
+const MONTHS: Record<string, string[]> = {
+  de: ["Januar", "Februar", "März", "April", "Mai", "Juni", "Juli", "August", "September", "Oktober", "November", "Dezember"],
+  fr: ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre"],
+  pl: ["stycznia", "lutego", "marca", "kwietnia", "maja", "czerwca", "lipca", "sierpnia", "września", "października", "listopada", "grudnia"],
+};
+
+/** 2026-12-05 → "5. Dezember 2026" (de), "5 décembre 2026" (fr), "5 grudnia 2026" (pl) */
+export function longDate(day: string, lang: "de" | "fr" | "pl"): string {
+  const [y, m, d] = day.split("-").map(Number) as [number, number, number];
+  return `${d}${lang === "de" ? "." : ""} ${MONTHS[lang]![m - 1]} ${y}`;
+}
+
+/** A cookie consent overlay. Changes the page, not the data. */
+export function cookieBanner(text: string, accept: string): string {
+  return (
+    `<div id="cookie-consent" class="consent-overlay" role="dialog" aria-modal="true" style="position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:999">` +
+    `<div class="consent-box"><p>${esc(text)}</p><button type="button" onclick="this.closest('#cookie-consent').remove()">${esc(accept)}</button></div></div>`
+  );
 }
 
 export function page(title: string, lang: string, body: string, head = ""): string {

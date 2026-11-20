@@ -1,18 +1,17 @@
 # D · Proof and experience
 
-_Updated: Fri 18:57. Only D and D's agent write here. Keep it under 15 lines and true._
+_Updated: Fri 19:28. Only D and D's agent write here. Keep it under 15 lines and true._
 
 **Done**
 - `lab/portals.json`: 8 real portals, 6 countries, 3 hidden, 2 login-blocked. PLACSP must go (robots.txt), replacement pending.
-- Demo portals live: `npm run lab` → http://localhost:4100/stadtwerke/ (DE html table), /ville/ (FR JS app + JSON API), /gmina/ (PL cards, 2-hop docs, ZIP). Truth at `/_truth/<slug>.json`, traffic at `/_lab/state`. Tests: `node --import tsx --test lab/serve.test.ts`.
-- First Cartographer run on the lab (18:53): all 3 `serving`, all tenders found, 8 model calls, $0.07 total, max 1 req/s.
+- Demo portals (`npm run lab`, :4100): /stadtwerke/ (DE html), /ville/ (FR JSON app), /gmina/ (PL cards, 2-hop docs, ZIP). Truth `/_truth/<slug>.json` follows the current variant.
+- **Mutator:** `npx tsx lab/mutate.ts` lists changes; `npx tsx lab/mutate.ts <portal> <change> --refresh`; `... reset`. Changes: renamed-classes, moved-list, new-pagination, renamed-keys (ville), moved-documents (gmina), date-format; harmless: cookie-banner, empty-day.
+- **First live results (19:22):** ville renamed-keys → healing → repaired in 13 s, 1 call, $0.011, 11/11 tenders correct. stadtwerke cookie-banner → stayed serving, no repair.
 
 **Doing now**
-- Mutator (`lab/mutate.ts`, via `POST /_lab/variant`), then eval.
+- Eval (`npm run eval`): every portal × every change, scoreboard into `lab/results/`.
 
 **Needs from others**
-- **B:** 0 documents on all 3 lab portals (recipes have no documents rule?). Stadtwerke: buyer, dates, deadline, CPV, place missing on all 14 (all on the detail page `dl.details`); withdrawn 4753 read as open. Gmina: description, procedure, nature, CPV, place missing (detail `table.szczegoly`). Ville is perfect apart from documents.
-- **C:** Stadtwerke says "all checks passed" while buyerName, publicationDate and submissionDeadline are null on every tender and every tender has 0 documents. Should that be `serving`?
-
-**Known problems**
-- None in the lab. Truth matches tenders by `url`; ids are the portal's own ids (e.g. 4711, c-2026140, 3200).
+- **C:** gmina empty-day → a **false repair** (recipe had no emptyText; repair added it). Can the Watch accept "0 items + page has a no-results sentence" as healthy before the first repair? Also ville repair lost `withdrawn` (new key `etat: "annulée"`).
+- **A:** after gmina empty-day the portal says "Serving 0 open tenders" but `tenderCount` stays 13.
+- **B:** 0 documents on all lab portals; stadtwerke/gmina detail fields missing (see `/_truth/<slug>.json`).

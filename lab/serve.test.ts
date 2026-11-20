@@ -121,10 +121,106 @@ test("every document in every truth downloads with that hash and size", async ()
 
 test("lab counts requests per portal and accepts a variant", async () => {
   await get("/gmina/przetargi");
-  const v = await fetch(`${base}/_lab/variant?portal=gmina&v=v2`, { method: "POST" });
+  const v = await fetch(`${base}/_lab/variant?portal=gmina&v=renamed-classes`, { method: "POST" });
   assert.equal(v.status, 200);
   const s = (await (await get("/_lab/state")).json()) as { portals: Array<{ slug: string; variant: string; requests: number }> };
   const g = s.portals.find((p) => p.slug === "gmina")!;
-  assert.equal(g.variant, "v2");
+  assert.equal(g.variant, "renamed-classes");
+  await fetch(`${base}/_lab/variant?portal=gmina&v=v1`, { method: "POST" });
   assert.ok(g.requests > 0);
+});
+
+// ---------------------------------------------------------------- mutator variants
+
+async function setVariant(slug: string, v: string): Promise<Response> {
+  return fetch(`${base}/_lab/variant?portal=${slug}&v=${v}`, { method: "POST" });
+}
+const text = async (p: string) => (await get(p)).text();
+
+test("unknown variants are refused", async () => {
+  assert.equal((await setVariant("gmina", "nope")).status, 400);
+});
+
+test("every variant keeps detail pages and documents reachable, and the truth follows it", async () => {
+  for (const p of portals) {
+    for (const v of ["v1", ...Object.keys(p.variants)]) {
+      assert.equal((await setVariant(p.slug, v)).status, 200);
+      const t = await truthOf(p.slug);
+      assert.equal((t as Truth & { variant: string }).variant, v);
+      if (v === "empty-day") {
+        assert.equal(t.tenders.length, 0);
+        continue;
+      }
+      assert.ok(t.tenders.length >= 10, `${p.slug}/${v} keeps its tenders`);
+      const x = t.tenders[0]!;
+      assert.equal((await get(new URL(x.url).pathname)).status, 200, `${p.slug}/${v} detail page`);
+    }
+    await setVariant(p.slug, "v1");
+  }
+});
+
+test("stadtwerke variants change what they say", async () => {
+  await setVariant("stadtwerke", "renamed-classes");
+  let h = await text("/stadtwerke/ausschreibungen");
+  assert.ok(h.includes('class="vergabeliste"') && !h.includes('class="tenders"') && h.includes('class="weiter"'));
+  await setVariant("stadtwerke", "moved-list");
+  assert.equal((await get("/stadtwerke/ausschreibungen")).status, 404);
+  assert.ok((await text("/stadtwerke/")).includes("/stadtwerke/vergabe/aktuell"));
+  assert.ok((await text("/stadtwerke/vergabe/aktuell")).includes("<tbody><tr>"));
+  await setVariant("stadtwerke", "new-pagination");
+  h = await text("/stadtwerke/ausschreibungen");
+  assert.ok(!h.includes('class="next"') && h.includes("?page=3"));
+  assert.equal((await text("/stadtwerke/ausschreibungen?page=3")).match(/<tr><td>/g)?.length, 4);
+  await setVariant("stadtwerke", "date-format");
+  assert.match(await text("/stadtwerke/ausschreibungen"), /\d+\. (Januar|Februar|März|April|Mai|Juni|Juli|August|September|Oktober|November|Dezember) 20\d\d, \d\d:\d\d Uhr/);
+  await setVariant("stadtwerke", "cookie-banner");
+  h = await text("/stadtwerke/ausschreibungen");
+  assert.ok(h.includes("cookie-consent") && h.includes('class="tenders"'));
+  await setVariant("stadtwerke", "empty-day");
+  assert.ok((await text("/stadtwerke/ausschreibungen")).includes("keine Ausschreibungen"));
+  await setVariant("stadtwerke", "v1");
+});
+
+test("ville variants change the API", async () => {
+  await setVariant("ville", "renamed-keys");
+  let d = (await (await get("/ville/api/consultations?page=1&taille=5")).json()) as Record<string, unknown>;
+  assert.ok(Array.isArray(d.items) && !("resultats" in d) && "titre" in (d.items as object[])[0]!);
+  assert.ok((await text("/ville/app.js")).includes('"titre"'));
+  await setVariant("ville", "moved-list");
+  assert.equal((await get("/ville/api/consultations?page=1")).status, 404);
+  d = (await (await get("/ville/api/v2/consultations?page=1&taille=5")).json()) as Record<string, unknown>;
+  assert.equal((d.resultats as unknown[]).length, 5);
+  await setVariant("ville", "new-pagination");
+  const a = (await (await get("/ville/api/consultations?page=1")).json()) as { resultats: Array<{ id: string }> };
+  const b = (await (await get("/ville/api/consultations?page=2")).json()) as { resultats: Array<{ id: string }> };
+  assert.deepEqual(a.resultats.map((r) => r.id), b.resultats.map((r) => r.id), "page is ignored");
+  const c = (await (await get("/ville/api/consultations?offset=8&limit=4")).json()) as { resultats: unknown[] };
+  assert.equal(c.resultats.length, 3);
+  await setVariant("ville", "date-format");
+  const f = (await (await get("/ville/api/consultations?page=1")).json()) as { resultats: Array<{ dateLimiteRemise: string }> };
+  assert.match(f.resultats[0]!.dateLimiteRemise, /^\d\d\/\d\d\/20\d\d à \d\dh\d\d$/);
+  await setVariant("ville", "empty-day");
+  const e = (await (await get("/ville/api/consultations?page=1")).json()) as { total: number };
+  assert.equal(e.total, 0);
+  await setVariant("ville", "v1");
+});
+
+test("gmina variants change cards, paging and the documents page", async () => {
+  await setVariant("gmina", "renamed-classes");
+  assert.ok((await text("/gmina/przetargi")).includes('<article class="ogloszenie">'));
+  await setVariant("gmina", "moved-list");
+  assert.equal((await get("/gmina/przetargi")).status, 404);
+  assert.ok((await text("/gmina/zamowienia-publiczne")).includes('class="karta"'));
+  await setVariant("gmina", "new-pagination");
+  const h = await text("/gmina/przetargi?strona=2");
+  assert.ok(h.includes("?od=6") && !h.includes('rel="next"') && h.includes("Pozycje 1–6"));
+  await setVariant("gmina", "moved-documents");
+  const t = await truthOf("gmina");
+  const x = t.tenders[0]!;
+  assert.equal((await get(`/gmina/przetarg/${x.id}/dokumentacja`)).status, 404);
+  assert.ok((await text(`/gmina/przetarg/${x.id}`)).includes(`/gmina/przetarg/${x.id}/zalaczniki`));
+  assert.ok((await text(`/gmina/przetarg/${x.id}/zalaczniki`)).includes("/gmina/pliki/"));
+  await setVariant("gmina", "date-format");
+  assert.match(await text("/gmina/przetargi"), /\d+ (stycznia|lutego|marca|kwietnia|maja|czerwca|lipca|sierpnia|września|października|listopada|grudnia) 20\d\d r\., godz\. \d\d:\d\d/);
+  await setVariant("gmina", "v1");
 });

@@ -5,7 +5,7 @@
  * Traps: nothing in the raw HTML, deadlines as local Paris time without offset ("2026-12-09 12:00"),
  * CPV with check digits, one cancelled consultation ("annulee": true).
  */
-import { addDays, fakeFile, fakePdf, notFound, page, sendFile, sendHtml, sendJson, today, type LabPortal, type LabTender } from "./common.js";
+import { addDays, cookieBanner, fakeFile, fakePdf, notFound, page, sendFile, sendHtml, sendJson, today, type LabPortal, type LabTender } from "./common.js";
 
 const ZONE = "Europe/Paris";
 const PAGE_SIZE = 5;
@@ -59,60 +59,127 @@ function build(): LabTender[] {
 
 const tenders = build();
 
-function apiItem(t: LabTender) {
+const VARIANTS = {
+  "renamed-keys": "JSON keys renamed (resultats → items, intitule → titre, acheteur.nom → organisme, dateLimiteRemise → dateLimite, pieces → documents, ...).",
+  "moved-list": "The API moves from /ville/api/consultations to /ville/api/v2/consultations; the old address answers 404.",
+  "new-pagination": "Page numbers replaced by offset/limit (?offset=0&limit=4); the page parameter is ignored.",
+  "date-format": "Dates as '18/11/2026' and deadlines as '09/12/2026 à 12h00' instead of ISO.",
+  "cookie-banner": "A cookie consent overlay in the app shell. Data unchanged: must stay serving.",
+  "empty-day": "No consultations today (total 0). Must stay serving, not broken.",
+};
+
+/** JSON key names that change in the renamed-keys variant. */
+const KEYS_V1 = { list: "resultats", total: "total", title: "intitule", deadline: "dateLimiteRemise", published: "datePublication", files: "pieces", fileName: "nom", fileLink: "lien" };
+const KEYS_V2 = { list: "items", total: "count", title: "titre", deadline: "dateLimite", published: "publieLe", files: "documents", fileName: "fichier", fileLink: "url" };
+
+function apiBase(variant: string): string {
+  return variant === "moved-list" ? "/ville/api/v2/consultations" : "/ville/api/consultations";
+}
+
+function frDate(day: string): string {
+  const [y, m, d] = day.split("-");
+  return `${d}/${m}/${y}`;
+}
+
+function apiItem(t: LabTender, variant: string) {
+  const k = variant === "renamed-keys" ? KEYS_V2 : KEYS_V1;
+  const fmt = variant === "date-format";
+  const files = t.files.map((f) => ({
+    [k.fileName]: f.name,
+    taille: f.bytes.length,
+    [k.fileLink]: `${apiBase(variant)}/${t.id}/pieces/${encodeURIComponent(f.name)}`,
+  }));
+  if (variant === "renamed-keys") {
+    return {
+      id: t.id,
+      numero: t.referenceNumber,
+      [k.title]: t.title,
+      organisme: t.buyerName,
+      [k.published]: t.publicationDate,
+      [k.deadline]: `${t.deadlineDate} ${t.deadlineTime}`,
+      typeProcedure: PROCEDURE[t.procedureType],
+      categorie: NATURE[t.contractNature],
+      cpv: t.cpv,
+      lieu: { cp: t.postalCode, commune: t.city },
+      description: t.description,
+      etat: t.withdrawn ? "annulée" : "en cours",
+      [k.files]: files,
+    };
+  }
   return {
     id: t.id,
     reference: t.referenceNumber,
     intitule: t.title,
     acheteur: { nom: t.buyerName },
-    datePublication: t.publicationDate,
-    dateLimiteRemise: `${t.deadlineDate} ${t.deadlineTime}`,
+    datePublication: fmt ? frDate(t.publicationDate) : t.publicationDate,
+    dateLimiteRemise: fmt ? `${frDate(t.deadlineDate)} à ${t.deadlineTime.replace(":", "h")}` : `${t.deadlineDate} ${t.deadlineTime}`,
     procedure: PROCEDURE[t.procedureType],
     nature: NATURE[t.contractNature],
     codesCpv: t.cpv,
     lieuExecution: { codePostal: t.postalCode, ville: t.city },
     objet: t.description,
     annulee: t.withdrawn,
-    pieces: t.files.map((f) => ({ nom: f.name, taille: f.bytes.length, lien: `/ville/api/consultations/${t.id}/pieces/${encodeURIComponent(f.name)}` })),
+    pieces: files,
   };
 }
 
-const APP_JS = `
+/** The app knows its own API: key names, address and paging style change together with the variant. */
+function appJs(variant: string): string {
+  const k = variant === "renamed-keys" ? KEYS_V2 : KEYS_V1;
+  const v2 = variant === "renamed-keys";
+  const offset = variant === "new-pagination";
+  const cfg = {
+    api: apiBase(variant),
+    k,
+    buyer: v2 ? "organisme" : "acheteur.nom",
+    ref: v2 ? "numero" : "reference",
+    cancelled: v2 ? "etat" : "annulee",
+    size: offset ? 4 : PAGE_SIZE,
+    offset,
+  };
+  return `
+const C = ${JSON.stringify(cfg)};
 const app = document.getElementById("app");
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+const get = (o, p) => p.split(".").reduce((x, k) => (x == null ? x : x[k]), o);
+const isCancelled = (c) => { const v = get(c, C.cancelled); return v === true || v === "annulée"; };
 async function list(page) {
-  const r = await fetch("/ville/api/consultations?page=" + page + "&taille=${PAGE_SIZE}");
-  const d = await r.json();
-  const rows = d.resultats.map((c) =>
-    '<article class="consultation"><h2><a href="/ville/consultation/' + c.id + '">' + esc(c.intitule) + '</a></h2>' +
-    '<p class="ref">' + esc(c.reference) + ' · ' + esc(c.acheteur.nom) + '</p>' +
-    '<p>Date limite : ' + esc(c.dateLimiteRemise) + (c.annulee ? ' · <strong>Annulée</strong>' : '') + '</p></article>').join("");
-  const pages = Math.ceil(d.total / d.taille);
+  const q = C.offset ? "?offset=" + (page - 1) * C.size + "&limit=" + C.size : "?page=" + page + "&taille=" + C.size;
+  const d = await (await fetch(C.api + q)).json();
+  const items = d[C.k.list];
+  if (!items.length) { app.innerHTML = "<h1>Consultations en cours</h1><p class='vide'>Aucune consultation en cours.</p>"; return; }
+  const rows = items.map((c) =>
+    '<article class="consultation"><h2><a href="/ville/consultation/' + c.id + '">' + esc(c[C.k.title]) + '</a></h2>' +
+    '<p class="ref">' + esc(get(c, C.ref)) + ' · ' + esc(get(c, C.buyer)) + '</p>' +
+    '<p>Date limite : ' + esc(c[C.k.deadline]) + (isCancelled(c) ? ' · <strong>Annulée</strong>' : '') + '</p></article>').join("");
+  const pages = Math.ceil(d[C.k.total] / C.size);
   const nav = Array.from({ length: pages }, (_, i) => '<button data-page="' + (i + 1) + '"' + (i + 1 === page ? ' aria-current="page"' : '') + '>' + (i + 1) + '</button>').join("");
   app.innerHTML = '<h1>Consultations en cours</h1>' + rows + '<nav class="pagination">' + nav + '</nav>';
   app.querySelectorAll("button[data-page]").forEach((b) => b.addEventListener("click", () => list(Number(b.dataset.page))));
 }
 async function detail(id) {
-  const r = await fetch("/ville/api/consultations/" + id);
+  const r = await fetch(C.api + "/" + id);
   if (!r.ok) { app.innerHTML = "<h1>Consultation introuvable</h1>"; return; }
   const c = await r.json();
-  app.innerHTML = '<h1>' + esc(c.intitule) + '</h1>' + (c.annulee ? '<p class="annulee">Cette consultation a été annulée.</p>' : '') +
-    '<ul class="infos"><li>Référence : ' + esc(c.reference) + '</li><li>Acheteur : ' + esc(c.acheteur.nom) + '</li>' +
-    '<li>Procédure : ' + esc(c.procedure) + '</li><li>Nature : ' + esc(c.nature) + '</li>' +
-    '<li>Codes CPV : ' + esc(c.codesCpv.join(", ")) + '</li><li>Lieu : ' + esc(c.lieuExecution.codePostal + " " + c.lieuExecution.ville) + '</li>' +
-    '<li>Publiée le : ' + esc(c.datePublication) + '</li><li>Date limite de remise : ' + esc(c.dateLimiteRemise) + '</li></ul>' +
-    '<p class="objet">' + esc(c.objet) + '</p><h2>Dossier de consultation (DCE)</h2><ul class="pieces">' +
-    c.pieces.map((p) => '<li><a href="' + p.lien + '">' + esc(p.nom) + '</a></li>').join("") + '</ul>';
+  app.innerHTML = '<h1>' + esc(c[C.k.title]) + '</h1>' + (isCancelled(c) ? '<p class="annulee">Cette consultation a été annulée.</p>' : '') +
+    '<ul class="infos"><li>Référence : ' + esc(get(c, C.ref)) + '</li><li>Acheteur : ' + esc(get(c, C.buyer)) + '</li>' +
+    '<li>Publiée le : ' + esc(c[C.k.published]) + '</li><li>Date limite de remise : ' + esc(c[C.k.deadline]) + '</li></ul>' +
+    '<h2>Dossier de consultation (DCE)</h2><ul class="pieces">' +
+    c[C.k.files].map((p) => '<li><a href="' + p[C.k.fileLink] + '">' + esc(p[C.k.fileName]) + '</a></li>').join("") + '</ul>';
 }
 const m = location.pathname.match(/^\\/ville\\/consultation\\/([^/]+)$/);
 if (m) detail(m[1]); else list(1);
 `;
+}
 
-const SHELL = page(
-  "Marchés publics | Ville de Rivemont",
-  "fr",
-  `<header><a href="/ville/">Ville de Rivemont · Marchés publics</a></header><main id="app"><noscript>Activez JavaScript pour consulter les marchés.</noscript></main><script src="/ville/app.js"></script>`,
-);
+function shell(variant: string): string {
+  const banner = variant === "cookie-banner" ? cookieBanner("Ce site utilise des cookies pour mesurer l'audience.", "Tout accepter") : "";
+  return page(
+    "Marchés publics | Ville de Rivemont",
+    "fr",
+    `${banner}<header><a href="/ville/">Ville de Rivemont · Marchés publics</a></header><main id="app"><noscript>Activez JavaScript pour consulter les marchés.</noscript></main><script src="/ville/app.js"></script>`,
+  );
+}
 
 export const ville: LabPortal = {
   slug: "ville",
@@ -122,27 +189,43 @@ export const ville: LabPortal = {
   kind: "JavaScript app over a JSON API, page-number pagination",
   notes: ["Consultation c-2026149 is cancelled ('annulee': true).", "dateLimiteRemise is Europe/Paris local time without offset."],
   tenders,
+  variants: VARIANTS,
   tenderUrl: (base, t) => `${base}/ville/consultation/${t.id}`,
 
-  handle(_req, res, path, url) {
-    if (path === "/" || path === "" || /^\/consultation\/[^/]+$/.test(path)) return sendHtml(res, SHELL);
+  handle(_req, res, path, url, ctx) {
+    const v = ctx.variant;
+    const list = v === "empty-day" ? [] : tenders;
+    const api = apiBase(v).slice("/ville".length);
+    const k = v === "renamed-keys" ? KEYS_V2 : KEYS_V1;
+    if (path === "/" || path === "" || /^\/consultation\/[^/]+$/.test(path)) return sendHtml(res, shell(v));
     if (path === "/app.js") {
       res.writeHead(200, { "content-type": "text/javascript; charset=utf-8" });
-      return res.end(APP_JS);
+      res.end(appJs(v));
+      return;
     }
-    if (path === "/api/consultations") {
-      const size = Math.min(Math.max(1, Number(url.searchParams.get("taille") ?? PAGE_SIZE) || PAGE_SIZE), 50);
-      const n = Math.max(1, Number(url.searchParams.get("page") ?? 1) || 1);
-      return sendJson(res, { total: tenders.length, page: n, taille: size, resultats: tenders.slice((n - 1) * size, n * size).map(apiItem) });
+    if (path === api) {
+      let start: number;
+      let size: number;
+      if (v === "new-pagination") {
+        size = Math.min(Math.max(1, Number(url.searchParams.get("limit") ?? 4) || 4), 50);
+        start = Math.max(0, Number(url.searchParams.get("offset") ?? 0) || 0);
+      } else {
+        size = Math.min(Math.max(1, Number(url.searchParams.get("taille") ?? PAGE_SIZE) || PAGE_SIZE), 50);
+        start = (Math.max(1, Number(url.searchParams.get("page") ?? 1) || 1) - 1) * size;
+      }
+      const body: Record<string, unknown> = { [k.total]: list.length, [k.list]: list.slice(start, start + size).map((t) => apiItem(t, v)) };
+      if (v === "new-pagination") Object.assign(body, { offset: start, limit: size });
+      else Object.assign(body, { page: Math.floor(start / size) + 1, taille: size });
+      return sendJson(res, body);
     }
-    const one = path.match(/^\/api\/consultations\/([^/]+)$/);
-    if (one) {
-      const t = tenders.find((x) => x.id === one[1]);
-      return t ? sendJson(res, apiItem(t)) : sendJson(res, { erreur: "introuvable" }, 404);
+    const one = path.startsWith(api + "/") ? path.slice(api.length + 1) : null;
+    if (one && !one.includes("/")) {
+      const t = list.find((x) => x.id === one);
+      return t ? sendJson(res, apiItem(t, v)) : sendJson(res, { erreur: "introuvable" }, 404);
     }
-    const file = path.match(/^\/api\/consultations\/([^/]+)\/pieces\/([^/]+)$/);
+    const file = one?.match(/^([^/]+)\/pieces\/([^/]+)$/);
     if (file) {
-      const f = tenders.find((x) => x.id === file[1])?.files.find((x) => x.name === decodeURIComponent(file[2]!));
+      const f = list.find((x) => x.id === file[1])?.files.find((x) => x.name === decodeURIComponent(file[2]!));
       return f ? sendFile(res, f.name, f.bytes) : notFound(res);
     }
     notFound(res);
