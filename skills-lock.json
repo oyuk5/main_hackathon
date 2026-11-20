@@ -1,96 +1,12 @@
 {
   "version": 2,
   "skills": {
-    "agents": {
-      "source": "elevenlabs/skills",
-      "commit": "97478d1b23b9a6795f85bf8b6e33a4677fa1f869",
-      "sourceType": "github",
-      "skillPath": "agents/SKILL.md",
-      "computedHash": "ded9f37c6c1c2dff86035c7fda8c37c0c80b6a0d9d1ed1f22528eedf97b63f59"
-    },
-    "deploy-to-vercel": {
-      "source": "vercel-labs/agent-skills",
-      "commit": "1a2c79d4e6c4a2283dc2c614b6538cbe1ed5ca62",
-      "sourceType": "github",
-      "skillPath": "skills/deploy-to-vercel/SKILL.md",
-      "computedHash": "66b99dfa063b1c405155e9bffd99c04ca3e312e81b168d540b757bb194b7400a"
-    },
     "frontend-design": {
       "source": "anthropics/skills",
       "commit": "e4bb5d960d87126ff3b3a8af1a104b7db67560ba",
       "sourceType": "github",
       "skillPath": "skills/frontend-design/SKILL.md",
       "computedHash": "83485963700bcf11d5bf78118facb301676b69d918fee2e45a95e7f1a2840f6c"
-    },
-    "n8n-code-javascript": {
-      "source": "czlonkowski/n8n-skills",
-      "commit": "ecdeca6f760b56bb1b11c0a7c961f11b69cb87d5",
-      "sourceType": "github",
-      "skillPath": "skills/n8n-code-javascript/SKILL.md",
-      "computedHash": "a368c1f091318e4d4aeca5398cb88acdd1d3d47dc3223ff06476d93e39f5baff"
-    },
-    "n8n-error-handling": {
-      "source": "czlonkowski/n8n-skills",
-      "commit": "ecdeca6f760b56bb1b11c0a7c961f11b69cb87d5",
-      "sourceType": "github",
-      "skillPath": "skills/n8n-error-handling/SKILL.md",
-      "computedHash": "a2dfe226c5830359ec3611c0fec97522ac29b5d3fdedee65173c4ad653188808"
-    },
-    "n8n-expression-syntax": {
-      "source": "czlonkowski/n8n-skills",
-      "commit": "ecdeca6f760b56bb1b11c0a7c961f11b69cb87d5",
-      "sourceType": "github",
-      "skillPath": "skills/n8n-expression-syntax/SKILL.md",
-      "computedHash": "639ef38b7f5b1a07739f17c831c9148756ad73ca4b9b9643c15fbaa89e2d000c"
-    },
-    "n8n-node-configuration": {
-      "source": "czlonkowski/n8n-skills",
-      "commit": "ecdeca6f760b56bb1b11c0a7c961f11b69cb87d5",
-      "sourceType": "github",
-      "skillPath": "skills/n8n-node-configuration/SKILL.md",
-      "computedHash": "ea61ae4e06b49268669219a318f82b4fa383116dcc7a5885a85157661b243950"
-    },
-    "n8n-workflow-patterns": {
-      "source": "czlonkowski/n8n-skills",
-      "commit": "ecdeca6f760b56bb1b11c0a7c961f11b69cb87d5",
-      "sourceType": "github",
-      "skillPath": "skills/n8n-workflow-patterns/SKILL.md",
-      "computedHash": "0f664bd7c18407e687c76f5cda245fef015f23bd6ba0ec57d4d40563146092b8"
-    },
-    "realtime": {
-      "source": "elevenlabs/skills",
-      "commit": "97478d1b23b9a6795f85bf8b6e33a4677fa1f869",
-      "sourceType": "github",
-      "skillPath": "realtime/SKILL.md",
-      "computedHash": "8e31cd0fe0f10c17bad926431d993b61a52368498df43b8f1f89479543ffd6d3"
-    },
-    "supabase": {
-      "source": "supabase/agent-skills",
-      "commit": "c9be0e931b7930f7d02126d04774d904c381e7d7",
-      "sourceType": "github",
-      "skillPath": "skills/supabase/SKILL.md",
-      "computedHash": "2fbff32fd63b7d31585cacf0ed43e5bf8d05dd20d6c0c751d256cb967a00eec1"
-    },
-    "supabase-postgres-best-practices": {
-      "source": "supabase/agent-skills",
-      "commit": "c9be0e931b7930f7d02126d04774d904c381e7d7",
-      "sourceType": "github",
-      "skillPath": "skills/supabase-postgres-best-practices/SKILL.md",
-      "computedHash": "3eb972c2d7c818e544e35cc33ea8d7147d4d78ae08142ef40037b0fbac7a2505"
-    },
-    "text-to-speech": {
-      "source": "elevenlabs/skills",
-      "commit": "97478d1b23b9a6795f85bf8b6e33a4677fa1f869",
-      "sourceType": "github",
-      "skillPath": "text-to-speech/SKILL.md",
-      "computedHash": "fec523d1f12af3c06c94783129f2d556fafc9309ee3f13578170f7ef33c5f97e"
-    },
-    "vercel-react-best-practices": {
-      "source": "vercel-labs/agent-skills",
-      "commit": "1a2c79d4e6c4a2283dc2c614b6538cbe1ed5ca62",
-      "sourceType": "github",
-      "skillPath": "skills/react-best-practices/SKILL.md",
-      "computedHash": "7991ed4fbecdac23f47c1a40c243e00a212a9e7f3604db93959b3ae11dffe299"
     },
     "webapp-testing": {
       "source": "anthropics/skills",
