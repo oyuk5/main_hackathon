@@ -221,3 +221,38 @@ test("an aborted delivery leaves the baseline alone", async () => {
   assert.deepEqual(store.getBaseline(p), before);
   assert.equal(out.pendingNew, 0);
 });
+
+test("a full read of a date window does not close an open tender published before the window", async () => {
+  const p = newPortal();
+  await deliver(p, read([tender(1, 0), tender(8, 0), tender(9, 0)]), ctx());
+  // The portal now only lists the last days: T1 (published Nov 1) fell out of the window.
+  await deliver(p, read([tender(8, 0), tender(9, 0)]), ctx());
+  assert.equal(byId(p).T1!.status, "open");
+  // T9 is inside the window seen by the read, so missing does mean gone.
+  await deliver(p, read([tender(8, 0)]), ctx());
+  assert.equal(byId(p).T9!.status, "closed");
+});
+
+test("a tender whose refs this read did not look for is held back when new, kept as it was when known", async () => {
+  const p = newPortal();
+  const known = { ...tender(1, 1), referenceNumber: "2026/001" };
+  await deliver(p, read([known]), ctx());
+  const before = byId(p).T1!;
+  assert.equal(before.documents.length, 1);
+
+  // Detail cap: T1 comes with list values only and no refs; T2 is new and in the same state.
+  const skipped = (t: ExtractedTender): ExtractedTender => ({ ...t, documentRefs: [], referenceNumber: undefined, documentRefsPending: true });
+  const out = await deliver(p, read([skipped(known), skipped(tender(2, 1))]), ctx());
+  const after = byId(p);
+  assert.equal(after.T2, undefined, "a new tender without its documents must not be served");
+  assert.deepEqual(after.T1!.documents, before.documents, "a known tender keeps its documents");
+  assert.equal(after.T1!.referenceNumber, "2026/001", "a known tender keeps its detail values");
+  assert.equal(after.T1!.lastChangedAt, before.lastChangedAt, "nothing changed");
+  assert.equal(out.pendingNew, 2, "a pending read brings the next read forward");
+
+  // The next read has the details again: nothing is fetched twice, T2 arrives with its document.
+  const next = await deliver(p, read([known, tender(2, 1)]), ctx());
+  assert.equal(byId(p).T2!.documents.length, 1);
+  assert.equal(byId(p).T1!.lastChangedAt, before.lastChangedAt);
+  assert.equal(next.pendingNew, 0);
+});

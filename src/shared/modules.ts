@@ -72,6 +72,12 @@ export type ExtractedTender = Omit<Tender, "documents" | "lastChangedAt" | "stat
   /** Set when the portal says the tender was cancelled. Otherwise status is derived. */
   withdrawn?: boolean;
   documentRefs: DocumentRef[];
+  /**
+   * True when this read did not look for the tender's documents (detail cap, or the document list
+   * could not be read), so an empty `documentRefs` means "unknown", not "none". The platform then
+   * holds a new tender back and keeps a known tender's last documents and detail values.
+   */
+  documentRefsPending?: boolean;
 };
 
 export interface FieldFill {

@@ -288,6 +288,20 @@ function sanitize(et: ExtractedTender, documents: TenderDocument[], status: Tend
   return t;
 }
 
+/**
+ * For a tender whose details this read skipped: values the list did not give keep their stored
+ * value, so the tender does not flip between "changed" and back on every read.
+ */
+function withStoredValues(et: ExtractedTender, last: TenderT): ExtractedTender {
+  const merged: Record<string, unknown> = { ...et };
+  const keys = ["title", "buyerName", "publicationDate", "submissionDeadline", "referenceNumber", "description", "procedureType", "contractNature", "cpvCodes", "placeOfPerformance"] as const;
+  for (const k of keys) {
+    if ((merged[k] === undefined || merged[k] === null) && last[k] !== undefined && last[k] !== null) merged[k] = last[k];
+  }
+  if (merged.withdrawn === undefined && last.status === "withdrawn") merged.withdrawn = true;
+  return merged as ExtractedTender;
+}
+
 /** Exported for tests only. */
 export async function deliver(portalId: string, read: OkRead, ctx: PortalContext): Promise<{ summary: string; pendingNew: number }> {
   const now = nowWithOffset();
@@ -326,19 +340,32 @@ export async function deliver(portalId: string, read: OkRead, ctx: PortalContext
   const plan = planDocuments(
     unique.map((et) => {
       const row = rows.get(et.id);
-      const need: Need = !row ? "new" : row.refs_hash === refsHashOf.get(et.id) ? "none" : row.refs_hash === "" ? "retry" : "changed";
+      // Refs not looked for in this read (documentRefsPending) say nothing new: no fetch planned.
+      const need: Need = et.documentRefsPending
+        ? "none"
+        : !row ? "new" : row.refs_hash === refsHashOf.get(et.id) ? "none" : row.refs_hash === "" ? "retry" : "changed";
       return { id: et.id, need, refs: et.documentRefs.length, open: statusOf(et) === "open", publicationDate: et.publicationDate ?? null };
     }),
     config.docRefsPerRead,
   );
 
-  for (const et of unique) {
+  let pendingRefs = 0;
+  for (let et of unique) {
     if (ctx.signal.aborted) break;
     const row = rows.get(et.id);
     const refsHash = refsHashOf.get(et.id)!;
     let documents: TenderDocument[];
     let storedRefsHash = refsHash;
-    if (row && row.refs_hash === refsHash) {
+    if (et.documentRefsPending) {
+      // This read did not look at the tender's details: an empty refs list means "unknown".
+      // A new tender waits; a known one keeps its documents, refs hash and detail-only values.
+      pendingRefs += 1;
+      if (!row) continue;
+      const last = JSON.parse(row.json) as TenderT;
+      documents = last.documents;
+      storedRefsHash = row.refs_hash;
+      et = withStoredValues(et, last);
+    } else if (row && row.refs_hash === refsHash) {
       documents = (JSON.parse(row.json) as TenderT).documents;
     } else if (plan.fetch.has(et.id)) {
       const got = await documentFetcher.fetchAll(et.documentRefs, ctx);
@@ -366,8 +393,13 @@ export async function deliver(portalId: string, read: OkRead, ctx: PortalContext
   // Aborted (DELETE): stop before closing tenders or moving the baseline.
   if (ctx.signal.aborted) return { summary: "Stopped.", pendingNew: 0 };
   const wholeList = sawWholeList(store.currentRecipe(portalId)?.list.pagination, read.diagnostics.listPages, ctx.signal.aborted);
+  const oldestSeen = unique
+    .map((et) => et.publicationDate)
+    .filter((d): d is string => !!d && Tender.shape.publicationDate.safeParse(d).success)
+    .reduce<string | null>((min, d) => (min === null || d < min ? d : min), null);
   for (const t of store.listTenders(portalId)) {
-    if (!seen.has(t.id) && t.status === "open" && mayClose({ wholeList, submissionDeadline: t.submissionDeadline, now: Date.now(), toEpoch })) {
+    const close = mayClose({ wholeList, submissionDeadline: t.submissionDeadline, now: Date.now(), toEpoch, publicationDate: t.publicationDate, oldestSeen });
+    if (!seen.has(t.id) && t.status === "open" && close) {
       const closed: TenderT = { ...t, status: "closed", lastChangedAt: now };
       store.upsertTender(portalId, closed, hashTender(closed), store.getTenderRow(portalId, t.id)?.refs_hash ?? "", now);
     }
@@ -383,7 +415,7 @@ export async function deliver(portalId: string, read: OkRead, ctx: PortalContext
 
   const open = store.listTenders(portalId).filter((t) => t.status === "open").length;
   const at = formatWithOffset(new Date()).slice(11, 16);
-  const pendingNew = ctx.signal.aborted ? 0 : plan.pendingNew;
+  const pendingNew = ctx.signal.aborted ? 0 : plan.pendingNew + pendingRefs;
   const waiting = pendingNew > 0 ? `; documents for ${count(pendingNew, "more tender")} are on their way` : "";
   return { summary: `Serving ${count(open, "open tender")} (${fresh} new, ${changed} changed)${waiting}. Last read ${at}, all checks passed.`, pendingNew };
 }
