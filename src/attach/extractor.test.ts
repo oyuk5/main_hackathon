@@ -1,10 +1,11 @@
 import { test, before, after, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
+import fs from "node:fs";
 import type { AddressInfo } from "node:net";
-import { extractor, clearDetailCache } from "./extractor.js";
+import { extractor, clearDetailCache, localDate } from "./extractor.js";
 import type { PortalContext, ReadOutcome } from "../shared/modules.js";
-import type { Recipe } from "../shared/recipe.js";
+import { Recipe } from "../shared/recipe.js";
 
 // ------------------------------------------------------------ fake portal
 
@@ -415,4 +416,177 @@ test("an aborted signal stops the read", async () => {
   assert.equal(res.kind, "error");
   assert.match((res as { reason: string }).reason, /cancelled/);
   assert.ok(fetches <= 2);
+});
+
+// ------------------------------------------------------------ date placeholders
+
+test("localDate uses the zone's calendar day, not UTC", () => {
+  // 23:30 UTC on 31 Dec is already 1 Jan in Amsterdam, and still 31 Dec in New York.
+  const late = new Date(Date.UTC(2026, 11, 31, 23, 30));
+  assert.equal(localDate("Europe/Amsterdam", 0, late), "2027-01-01");
+  assert.equal(localDate("America/New_York", 0, late), "2026-12-31");
+  assert.equal(localDate("Europe/Amsterdam", 7, late), "2026-12-25");
+  // Across the March DST change and a month boundary.
+  assert.equal(localDate("Europe/Berlin", 30, new Date(Date.UTC(2026, 2, 30, 10))), "2026-02-28");
+});
+
+test("{today} and {daysAgo:N} fill the list url, headers, body and const fields", async () => {
+  let seen: { url: URL; body: string; header: string | undefined } | null = null;
+  const srv = http.createServer((req, res) => {
+    let body = "";
+    req.on("data", (c) => (body += c));
+    req.on("end", () => {
+      seen = { url: new URL(req.url ?? "/", base), body, header: req.headers["x-since"] as string | undefined };
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ items: [{ id: "T-1" }] }));
+    });
+  });
+  await new Promise<void>((resolve) => srv.listen(0, "127.0.0.1", resolve));
+  const srvBase = `http://127.0.0.1:${(srv.address() as AddressInfo).port}`;
+  try {
+    const zone = "Pacific/Kiritimati"; // UTC+14: differs from the UTC date for most of the day
+    const res = ok(
+      await extractor.read(
+        recipe({
+          tier: "jsonApi",
+          timeZone: zone,
+          list: {
+            request: { url: `${srvBase}/l?from={today}&pub={daysAgo:7}&p={page}`, method: "POST", headers: { "x-since": "{daysAgo:1}" }, body: '{"d":"{today}"}' },
+            pagination: { type: "none" },
+            item: "$.items[*]",
+            emptyText: [],
+          },
+          listFields: { id: { jsonPath: "$.id" }, url: { const: "https://x.test/{id}?seen={today}" }, title: { const: "since {daysAgo:3}" } },
+        }),
+        makeCtx(),
+      ),
+    );
+    const s = seen as unknown as { url: URL; body: string; header: string | undefined };
+    assert.equal(s.url.searchParams.get("from"), localDate(zone));
+    assert.equal(s.url.searchParams.get("pub"), localDate(zone, 7));
+    assert.equal(s.header, localDate(zone, 1));
+    assert.equal(s.body, `{"d":"${localDate(zone)}"}`);
+    assert.equal(res.tenders[0]!.url, `https://x.test/T-1?seen=${localDate(zone)}`);
+    assert.equal(res.tenders[0]!.title, `since ${localDate(zone, 3)}`);
+  } finally {
+    srv.close();
+  }
+});
+
+// ------------------------------------------------------------ withdrawn field rule
+
+test("withdrawn field rule: true/'true'/1/regex match withdraw, false/null/missing do not, not in fieldFill", async () => {
+  const items = [
+    { id: "a", w: true },
+    { id: "b", w: false },
+    { id: "c", w: "true" },
+    { id: "d", w: 1 },
+    { id: "e", w: null },
+    { id: "f" },
+    { id: "g", w: "nee" },
+    { id: "h", w: 0 },
+  ];
+  routes.set("/wl", () => ({ type: "application/json", body: JSON.stringify(items) }));
+  const res = ok(
+    await extractor.read(
+      recipe({
+        tier: "jsonApi",
+        list: { request: { url: "/wl", method: "GET" }, pagination: { type: "none" }, item: "$[*]", emptyText: [] },
+        listFields: { id: { jsonPath: "$.id" }, url: { const: "/t/{id}" }, withdrawn: { jsonPath: "$.w" } },
+      }),
+      makeCtx(),
+    ),
+  );
+  const withdrawn = Object.fromEntries(res.tenders.map((t) => [t.id, t.withdrawn]));
+  assert.deepEqual(withdrawn, { a: true, b: undefined, c: true, d: true, e: undefined, f: undefined, g: undefined, h: undefined });
+  for (const t of res.tenders) assert.ok(!("withdrawn" in t) || t.withdrawn === true);
+  assert.equal(res.diagnostics.fieldFill.withdrawn, undefined);
+
+  // Regex on a css cell: the match is the signal; detail rule also works; withdrawnText still works.
+  routes.set("/wh", () => ({ body: table(row("R-1", "/wh/1", "Eins", "01.03.2026", "Status: Aufgehoben") + row("R-2", "/wh/2", "Zwei", "01.03.2026", "Status: offen") + row("R-3", "/wh/3", "Drei", "01.03.2026", "Status: offen")) }));
+  routes.set("/wh/1", () => ({ body: page("<p>ok</p>") }));
+  routes.set("/wh/2", () => ({ body: page('<p class="st">zurückgezogen</p>') }));
+  routes.set("/wh/3", () => ({ body: page("<p>Vergabe eingestellt</p>") }));
+  const html = ok(
+    await extractor.read(
+      recipe({
+        list: { request: { url: "/wh", method: "GET" }, pagination: { type: "none" }, item: "tr.row", emptyText: [] },
+        listFields: { id: { css: "td.ref" }, url: { css: "a", attr: "href" }, withdrawn: { css: "td:last-child", regex: "Aufgehoben" } },
+        detail: { urlFrom: "url", fields: { withdrawn: { css: "p.st", regex: "zurückgezogen" } } },
+        withdrawnText: ["eingestellt"],
+      }),
+      makeCtx(),
+    ),
+  );
+  assert.deepEqual(html.tenders.map((t) => t.withdrawn), [true, true, true]);
+  assert.equal(html.diagnostics.fieldFill.withdrawn, undefined);
+});
+
+test("withdrawn rule change invalidates cached detail results", async () => {
+  routes.set("/wc", () => ({ type: "application/json", body: JSON.stringify([{ id: "x", w: true }]) }));
+  routes.set("/wc/x", () => ({ type: "application/json", body: JSON.stringify({ ok: true }) }));
+  const base1 = {
+    tier: "jsonApi" as const,
+    list: { request: { url: "/wc", method: "GET" as const }, pagination: { type: "none" as const }, item: "$[*]", emptyText: [] },
+    detail: { urlFrom: "/wc/{id}", fields: {} },
+  };
+  const first = ok(await extractor.read(recipe({ ...base1, listFields: { id: { jsonPath: "$.id" }, url: { const: "/wc/{id}" } } }), makeCtx()));
+  assert.equal(first.tenders[0]!.withdrawn, undefined);
+  const second = ok(await extractor.read(recipe({ ...base1, listFields: { id: { jsonPath: "$.id" }, url: { const: "/wc/{id}" }, withdrawn: { jsonPath: "$.w" } } }), makeCtx()));
+  assert.equal(second.tenders[0]!.withdrawn, true);
+  assert.equal(hits.get("/wc/x"), 2, "a changed withdrawn rule must not reuse the cached detail");
+});
+
+// ------------------------------------------------------------ TenderNed recipe on fixtures
+
+test("TenderNed recipe reads the saved fixtures offline: golden 450237 and withdrawn 449873", async () => {
+  const dir = new URL("./recipes/", import.meta.url);
+  const fixture = (name: string) => fs.readFileSync(new URL(`tenderned.fixtures/${name}`, dir), "utf8");
+  const raw = fs.readFileSync(new URL("tenderned.json", dir), "utf8").replaceAll("https://www.tenderned.nl", base);
+  const r = Recipe.parse(JSON.parse(raw));
+  const api = "/papi/tenderned-rs-tns/v2/publicaties";
+  let listQuery: URLSearchParams | null = null;
+  routes.set(api, (u) => {
+    listQuery ??= u.searchParams;
+    const body = u.searchParams.get("page") === "0" ? fixture("list-page0.json") : JSON.stringify({ content: [], totalElements: 3 });
+    return { type: "application/json", body };
+  });
+  routes.set(`${api}/450237`, () => ({ type: "application/json", body: fixture("detail-450237.json") }));
+  routes.set(`${api}/450237/documenten`, () => ({ type: "application/json", body: fixture("documenten-450237.json") }));
+
+  const res = ok(await extractor.read(r, makeCtx()));
+  const q = listQuery as unknown as URLSearchParams;
+  assert.equal(q.get("sluitingsDatumVanaf"), localDate("Europe/Amsterdam"));
+  assert.equal(q.get("publicatieDatumVanaf"), localDate("Europe/Amsterdam", 7));
+  assert.equal(q.get("publicatieType"), "AAO");
+  assert.equal(res.diagnostics.listPages, 2, "page 1 is empty and ends the list");
+  assert.deepEqual(res.tenders.map((t) => t.id), ["450237", "450165", "449873"]);
+
+  const golden = res.tenders.find((t) => t.id === "450237")!;
+  const docs = JSON.parse(fixture("documenten-450237.json")) as { documenten: { links: { download: { href: string } } }[] };
+  assert.deepEqual(golden, {
+    id: "450237",
+    url: "https://www.tenderned.nl/aankondigingen/overzicht/450237",
+    title: "Verkenning route S106",
+    buyerName: "Gemeente Rijswijk",
+    publicationDate: "2026-11-20",
+    submissionDeadline: "2026-12-18T12:00:00+01:00",
+    referenceNumber: "SRA2601",
+    description: golden.description,
+    procedureType: "open",
+    contractNature: "services",
+    cpvCodes: ["71311300", "71311210", "71410000"],
+    documentRefs: docs.documenten.map((d) => ({ url: base + d.links.download.href, via: "http" })),
+  });
+  assert.equal(golden.documentRefs.length, 3);
+  assert.match(golden.description!, /^De gemeente Rijswijk, gemeente Den Haag en MRDH/);
+  assert.equal(golden.withdrawn, undefined);
+
+  const ended = res.tenders.find((t) => t.id === "449873")!;
+  assert.equal(ended.withdrawn, true);
+  assert.equal(ended.title, "Dagelijks onderhoud Vaarwegen (2027-2033)");
+  assert.equal(ended.buyerName, "Provincie Overijssel");
+  assert.equal(res.tenders.find((t) => t.id === "450165")!.withdrawn, undefined);
+  assert.equal(res.diagnostics.fieldFill.withdrawn, undefined);
+  assert.deepEqual(res.diagnostics.fieldFill.title, { filled: 3, total: 3 });
 });

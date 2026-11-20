@@ -6,13 +6,13 @@
   "countryCode": "NL",
   "list": {
     "request": {
-      "url": "https://www.tenderned.nl/papi/tenderned-rs-tns/v2/publicaties?page={page}&size=100&publicatieType=AAO&sluitingsDatumVanaf=2026-11-20",
+      "url": "https://www.tenderned.nl/papi/tenderned-rs-tns/v2/publicaties?page={page}&size=100&publicatieType=AAO&sluitingsDatumVanaf={today}&publicatieDatumVanaf={daysAgo:7}",
       "method": "GET"
     },
     "pagination": {
       "type": "pageParam",
       "start": 0,
-      "maxPages": 40
+      "maxPages": 10
     },
     "item": "$.content[*]",
     "emptyText": []
@@ -49,6 +49,9 @@
     "contractNature": {
       "jsonPath": "$.typeOpdracht.omschrijving",
       "parse": "contractNature"
+    },
+    "withdrawn": {
+      "jsonPath": "$.isVroegtijdigeBeeindiging"
     }
   },
   "detail": {
@@ -76,8 +79,5 @@
     },
     "via": "http"
   },
-  "withdrawnText": [
-    "Vroegtijdige beëindiging",
-    "\"isVroegtijdigeBeeindiging\":true"
-  ]
+  "withdrawnText": []
 }

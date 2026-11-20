@@ -13,14 +13,19 @@ Fixtures in `tenderned.fixtures/`: 3 list items (two open AAO, one ended early),
    (that is how the withdrawn ones come in). `sluitingsDatumVanaf=YYYY-MM-DD` keeps tenders whose deadline is on or after
    that date. `typePublicatie=`, `sort=` and `sluitingsDatumVanaf=today` don't work (ignored, ignored, 404).
    Repeat `publicatieType=` to ask for several types; a comma list gives 422.
-   **The date is fixed at 2026-11-20** because `RequestSpec.url` only knows `{page}/{offset}/{pageSize}`.
-   That's safe: tenders whose deadline passes later stay in the list and become `closed` by deadline. The list
-   grows by about 35 a day, so fix this after the hackathon (see the schema section).
-   Without the date filter, a `maxPages` cap would drop older open tenders (long DAS/qualification
-   systems run until 2029–2050), and they would wrongly turn `closed` because "no longer listed".
+   The URL uses `sluitingsDatumVanaf={today}` (the Extractor fills in today's date in Europe/Amsterdam;
+   the literal word `today` gives 404).
+   **DEMO LIMIT: only calls published in the last 7 days.** `publicatieDatumVanaf=YYYY-MM-DD` works
+   (inclusive; checked 2026-11-20: 2,927 open AAO without it, 204 with `2026-11-13`, last page all
+   `2026-11-13`). `publicatieDatumVan=` is ignored. The URL adds `&publicatieDatumVanaf={daysAgo:7}`,
+   because a full first read of all 2,927 takes about 8 h at 1 req/s (team lead's decision).
+   **Known problem:** open tenders published more than 7 days ago are never delivered, and a tender we
+   stored earlier drops out of the list once it is older than 7 days although it is still open. If the
+   watcher treats "no longer listed" as `closed`, those tenders wrongly become `closed`. Remove the
+   `publicatieDatumVanaf` parameter after the demo (long DAS/qualification systems run until 2029–2050).
 2. **Size and pages.** The API's maximum `size` is 100 (101 gives 400). Open AAO total (`totalElements`) = **2,927**
    (about 1,100 published in the last 6 weeks, the rest long-running DAS/qualification systems), so 30 pages.
-   `maxPages` 40 leaves room for growth. Results are newest-published first.
+   With the 7-day demo limit it is about 200 (3 pages); `maxPages` 10 leaves room. Results are newest-published first.
    Cost: a list pass is about 30 requests (≈ 35 s). A first full attach also needs per tender 1 detail +
    1 documenten + N files (3–12 seen) ≈ 2,927 × ~10 ≈ 30k requests ≈ 8 h at 1 req/s. The Extractor must
    deliver list fields first and fetch details/documents gradually, newest first. Steady state ≈ 35 new
@@ -42,9 +47,9 @@ Fixtures in `tenderned.fixtures/`: 3 list items (two open AAO, one ended early),
    ZIPs too (a 45 MB `Bijlage 10` seen). The list includes the notice PDF itself (category ANK).
 5. **Withdrawn.** Signals: `isVroegtijdigeBeeindiging: true` and `typePublicatie.code/omschrijving =
    VBE / "Vroegtijdige beëindiging"` on the list item. The detail's `isVroegtijdigBeeindigd` was `null` on open
-   tenders. `withdrawnText` matches either `Vroegtijdige beëindiging` or the literal `"isVroegtijdigeBeeindiging":true`.
-   This works only if the Extractor matches withdrawnText against the item's serialized JSON for jsonApi
-   recipes. It's fragile (a description could contain the phrase), so see the schema section.
+   tenders. The recipe uses the `withdrawn` field rule `{"jsonPath": "$.isVroegtijdigeBeeindiging"}`
+   (true marks the tender withdrawn). `withdrawnText` is empty: it matches all text of the item, including
+   the description, so a phrase match there could wrongly withdraw a tender.
 6. **url.** `link.href` is already the human page `https://www.tenderned.nl/aankondigingen/overzicht/{id}`
    (detail's `urlDigitaalSysteem` is the same), so it's kept. Fallback if it ever changes:
    `{"const": "https://www.tenderned.nl/aankondigingen/overzicht/{id}"}`.
@@ -59,11 +64,9 @@ Onderhandelingsprocedure zonder voorafgaande oproep tot mededinging → negotiat
 dialoog → other · Open House → other · Marktconsultatie → other (or leave out). Some items have no procedure
 (`code NA`), so leave it out. Werken → works · Diensten → services · Leveringen → supplies.
 
-## Recommended recipe.ts changes (not made)
-- A `{today}` (portal-local `YYYY-MM-DD`) placeholder in `RequestSpec.url`, so the URL can be
-  `…&sluitingsDatumVanaf={today}`.
-- A `withdrawn` FieldRule (e.g. `{"jsonPath": "$.isVroegtijdigeBeeindiging"}` → truthy means withdrawn) instead
-  of text matching on JSON.
+## Schema features used
+- `{today}` / `{daysAgo:N}` placeholders (portal-local `YYYY-MM-DD`) in `RequestSpec`.
+- The `withdrawn` field rule instead of text matching on JSON.
 
 ## Golden records (hand-checked against list + detail)
 | id | title | buyerName | publicationDate | submissionDeadline | referenceNumber |

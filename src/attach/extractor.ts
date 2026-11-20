@@ -5,10 +5,13 @@
  * (1 request per second per portal). When a value is unclear it is left null or out.
  *
  * Recipe semantics (see the report in docs or the tests for examples):
- * - list.request.url/body/headers may contain {page}, {offset}, {pageSize}.
+ * - list.request.url/body/headers may contain {page}, {offset}, {pageSize}, {today}, {daysAgo:N}.
+ *   {today} is today's date (YYYY-MM-DD) in the recipe's timeZone; {daysAgo:N} is N days before it.
  * - list.item is a CSS selector (html, feed) or a JSONPath (jsonApi) over the list page.
  * - Field selectors are relative to the item (list) or the whole page (detail).
- *   `const` may use {field} templates of values extracted so far.
+ *   `const` may use {field} templates of values extracted so far, plus {today} and {daysAgo:N}.
+ * - A field named `withdrawn` is a flag, not a tender field: true, "true", 1 (or any regex match when the
+ *   rule has a regex) sets ExtractedTender.withdrawn = true. It is not in diagnostics.fieldFill.
  * - detail.urlFrom is a field name ("url") or a URL template ("https://x/{id}").
  * - documents.hops each yield one URL (const template, css link, jsonPath); files yield all file links.
  */
@@ -247,6 +250,28 @@ function scopeText(scope: Scope): string {
 
 type Values = Record<string, unknown>;
 
+/**
+ * Calendar date in `zone`, `daysAgo` days before today, as YYYY-MM-DD. Uses Intl, never toISOString(),
+ * so the date flips at local midnight of the portal, not at UTC midnight.
+ */
+export function localDate(zone: string, daysAgo = 0, now: Date = new Date()): string {
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone: zone, year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(now);
+  const get = (t: string) => Number(parts.find((p) => p.type === t)?.value);
+  // Pure calendar arithmetic on a UTC noon anchor; no instant is formatted in UTC for output.
+  const d = new Date(Date.UTC(get("year"), get("month") - 1, get("day") - daysAgo, 12));
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
+}
+
+const DATE_PLACEHOLDER = /^(?:today|daysAgo:(\d{1,4}))$/;
+
+/** Value of {today} / {daysAgo:N}, or null when `name` is not a date placeholder. */
+function datePlaceholder(name: string, zone: string): string | null {
+  const m = DATE_PLACEHOLDER.exec(name);
+  if (!m) return null;
+  return localDate(zone, m[1] === undefined ? 0 : Number(m[1]));
+}
+
 function templateValue(v: unknown): string | null {
   if (v === null || v === undefined) return null;
   if (Array.isArray(v)) return v.length ? v.map(String).join(",") : null;
@@ -255,11 +280,11 @@ function templateValue(v: unknown): string | null {
   return s === "" ? null : s;
 }
 
-/** Replaces {name} with values. Returns null when a placeholder has no value. */
-function fillTemplate(template: string, values: Values, encode: boolean): string | null {
+/** Replaces {name} with values, and {today} / {daysAgo:N} with dates in `zone`. Returns null when a placeholder has no value. */
+function fillTemplate(template: string, values: Values, encode: boolean, zone: string): string | null {
   let missing = false;
-  const out = template.replace(/\{([\w.]+)\}/g, (_, name: string) => {
-    const v = templateValue(values[name]);
+  const out = template.replace(/\{([\w.]+(?::\d+)?)\}/g, (_, name: string) => {
+    const v = templateValue(values[name]) ?? datePlaceholder(name, zone);
     if (v === null) {
       missing = true;
       return "";
@@ -365,7 +390,7 @@ function resolveSelector(st: ReadState, sel: Selector, scope: Scope, values: Val
   const all = opts.all ?? sel.all ?? false;
   let raw: unknown[] = [];
   if (sel.const !== undefined) {
-    const v = fillTemplate(sel.const, values, false);
+    const v = fillTemplate(sel.const, values, false, st.recipe.timeZone);
     raw = v === null ? [] : [v];
   } else if (sel.jsonPath !== undefined) {
     if (scope.kind === "json") raw = jsonQuery(sel.jsonPath, scope.value);
@@ -486,6 +511,21 @@ function parseField(field: string, rule: FieldRule, raws: unknown[], recipe: Rec
   return null;
 }
 
+/** The `withdrawn` flag rule: only clear yes-values count; anything else leaves the tender as is. */
+const WITHDRAWN_FIELD = "withdrawn";
+
+function withdrawnFlag(rule: FieldRule, raws: unknown[]): true | null {
+  for (const r of raws) {
+    if (r === true || r === 1) return true;
+    if (typeof r !== "string") continue;
+    const s = r.trim().toLowerCase();
+    if (s === "true" || s === "1") return true;
+    // With a regex, the match itself is the signal (e.g. regex "Aufgehoben" over a status cell).
+    if (rule.regex !== undefined && s !== "") return true;
+  }
+  return null;
+}
+
 function hasValue(v: unknown): boolean {
   if (v === null || v === undefined) return false;
   if (Array.isArray(v)) return v.length > 0;
@@ -501,7 +541,7 @@ function extractFields(st: ReadState, rules: Record<string, FieldRule>, scope: S
   for (const [field, rule] of ordered) {
     try {
       const raws = resolveSelector(st, rule, scope, { ...base, ...out });
-      out[field] = parseField(field, rule, raws, st.recipe, scope.url);
+      out[field] = field === WITHDRAWN_FIELD ? withdrawnFlag(rule, raws) : parseField(field, rule, raws, st.recipe, scope.url);
     } catch (e) {
       out[field] = null;
       warnOnce(st, `field:${field}`, `Field ${field} could not be read: ${e instanceof Error ? e.message : String(e)}.`);
@@ -663,8 +703,8 @@ function listRequest(recipe: Recipe, ctx: PortalContext, index: number): { url: 
     offset: pg.type === "offsetParam" ? index * pg.pageSize : 0,
     pageSize: pg.type === "offsetParam" ? pg.pageSize : "",
   };
-  const fill = (s: string, encode: boolean) => s.replace(/\{(page|offset|pageSize)\}/g, (_, k: string) => {
-    const v = String(vars[k] ?? "");
+  const fill = (s: string, encode: boolean) => s.replace(/\{(page|offset|pageSize|today|daysAgo:\d{1,4})\}/g, (_, k: string) => {
+    const v = datePlaceholder(k, recipe.timeZone) ?? String(vars[k] ?? "");
     return encode ? encodeURIComponent(v) : v;
   });
   const req = recipe.list.request;
@@ -814,7 +854,7 @@ async function run(st: ReadState, started: number): Promise<ReadOutcome> {
   const ids = new Set<string>();
   let dropped = 0;
   let budget = MAX_DETAIL_FETCHES;
-  const recipeKey = sha256(JSON.stringify([recipe.detail, recipe.documents, recipe.timeZone, recipe.withdrawnText]));
+  const recipeKey = sha256(JSON.stringify([recipe.detail, recipe.documents, recipe.timeZone, recipe.withdrawnText, recipe.listFields[WITHDRAWN_FIELD] ?? null]));
 
   for (const item of items) {
     checkAbort(ctx);
@@ -829,7 +869,7 @@ async function run(st: ReadState, started: number): Promise<ReadOutcome> {
       let detailUrl: string | null = null;
       if (recipe.detail) {
         const from = recipe.detail.urlFrom ?? "url";
-        const t = from.includes("{") ? fillTemplate(from, values, true) : templateValue(values[from]);
+        const t = from.includes("{") ? fillTemplate(from, values, true, recipe.timeZone) : templateValue(values[from]);
         detailUrl = t ? absoluteUrl(t, item.scope.url) : null;
       }
       const tenderUrl = typeof values.url === "string" ? values.url : null;
@@ -895,7 +935,7 @@ async function run(st: ReadState, started: number): Promise<ReadOutcome> {
     if (ids.has(id)) continue;
     ids.add(id);
     const tender = toTender(recipe, id, url, values, refs);
-    if (detailWithdrawn || hasWithdrawnText(recipe, scopeText(item.scope))) tender.withdrawn = true;
+    if (values[WITHDRAWN_FIELD] === true || detailWithdrawn || hasWithdrawnText(recipe, scopeText(item.scope))) tender.withdrawn = true;
     tenders.push(tender);
     tenderValues.push({ ...values, id, url });
   }
@@ -903,6 +943,7 @@ async function run(st: ReadState, started: number): Promise<ReadOutcome> {
 
   const fieldNames = new Set<string>([...REQUIRED_FIELDS, ...Object.keys(recipe.listFields), ...Object.keys(recipe.detail?.fields ?? {})]);
   const fieldFill: Record<string, FieldFill> = {};
+  fieldNames.delete(WITHDRAWN_FIELD);
   for (const f of fieldNames) {
     fieldFill[f] = { filled: tenderValues.filter((v) => hasValue(v[f])).length, total: tenders.length };
   }

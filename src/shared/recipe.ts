@@ -7,7 +7,10 @@
  */
 import { z } from "zod";
 
-/** Where a value comes from. Exactly one of css / jsonPath / regex / const. */
+/**
+ * Where a value comes from. One of css / jsonPath / const / label picks the source (label may be
+ * combined with css to narrow the scope). regex can refine any of them; alone it runs over the scope's text.
+ */
 export const Selector = z
   .object({
     css: z.string().optional(),
@@ -32,7 +35,11 @@ export const FieldRule = Selector.extend({
 export type FieldRule = z.infer<typeof FieldRule>;
 
 export const RequestSpec = z.object({
-  /** May contain {page}, {offset}, {pageSize}. */
+  /**
+   * url, headers and body may contain {page}, {offset}, {pageSize}, and dates in the recipe's timeZone:
+   * {today} = today as YYYY-MM-DD, {daysAgo:N} = the date N days before today (e.g. "published since").
+   * Const selectors may use {today} / {daysAgo:N} too.
+   */
   url: z.string(),
   method: z.enum(["GET", "POST"]).default("GET"),
   headers: z.record(z.string(), z.string()).optional(),
@@ -73,7 +80,11 @@ export const Recipe = z.object({
     /** Text that means "no tenders right now", so empty is not mistaken for broken. */
     emptyText: z.array(z.string()).default([]),
   }),
-  /** Field rules applied to each list item. */
+  /**
+   * Field rules applied to each list item. A rule named `withdrawn` (here or in detail.fields) is a flag,
+   * not a tender field: a value of true, "true" or 1 (or any match when the rule has a regex) marks the
+   * tender withdrawn; false, null or missing leaves it alone. It is left out of the tender and of fieldFill.
+   */
   listFields: z.record(z.string(), FieldRule),
   /** Field rules applied to the tender's own page, fetched for new or changed items only. */
   detail: z
