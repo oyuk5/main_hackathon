@@ -4,8 +4,9 @@
  */
 import type { AttachOutcome, Cartographer, PortalContext, ReadOutcome } from "../shared/modules.js";
 import type { Recipe } from "../shared/recipe.js";
-import { extractor } from "./extractor.js";
+import { extractor, readSample } from "./extractor.js";
 import { attachWithModel } from "./cartographer.js";
+import { attachFromFamily, familyStore, fingerprint, firstPage, rememberFamily, type FamilyStore } from "./families.js";
 import { pickGolden } from "./golden.js";
 import { findKnownRecipe, type KnownRecipe } from "./known.js";
 
@@ -35,11 +36,59 @@ export async function attachKnown(known: KnownRecipe, ctx: PortalContext, read: 
   }
 }
 
+export interface AttachDeps {
+  store: () => FamilyStore;
+  model: (ctx: PortalContext) => Promise<AttachOutcome>;
+  sample: (r: Recipe, c: PortalContext) => Promise<ReadOutcome>;
+  read: (r: Recipe, c: PortalContext) => Promise<ReadOutcome>;
+}
+
+const defaultDeps: AttachDeps = {
+  store: familyStore,
+  model: (ctx) => attachWithModel(ctx),
+  sample: (r, c) => readSample(r, c),
+  read: (r, c) => extractor.read(r, c),
+};
+
+/**
+ * Attach order: a known recipe for this exact host, then the recipe of the portal's software family
+ * (no model call), then the model Cartographer. A model-learned recipe becomes the family's template.
+ */
+export async function attachPortal(ctx: PortalContext, deps: AttachDeps = defaultDeps): Promise<AttachOutcome> {
+  ctx.log("Looking at the portal for the first time.");
+  const known = findKnownRecipe(ctx.url);
+  if (known) return attachKnown(known, ctx, deps.read);
+
+  let page;
+  try {
+    page = await firstPage(ctx);
+  } catch {
+    return { kind: "failed", reason: "The attach was cancelled." };
+  }
+  const family = fingerprint(page) ?? fingerprint({ url: ctx.url, html: "" });
+  if (family) {
+    const template = deps.store().load(family.id);
+    if (template) {
+      const out = await attachFromFamily(ctx, family, template, page.url, deps);
+      if (out.kind !== "miss") return out;
+      ctx.log(`The ${family.name} family recipe does not fit this portal (${out.reason}); asking the model instead.`, "warn");
+    } else {
+      ctx.log(`This portal runs ${family.name}; no family recipe yet, so the model learns it.`);
+    }
+  }
+
+  const out = await deps.model(ctx);
+  if (out.kind !== "ok") return out;
+  const fam = family ?? fingerprint({ url: out.recipe.list.request.url, html: "" });
+  if (fam) {
+    out.recipe.family = fam.id;
+    // A template whose documents rule found nothing would hand the next portal tenders without files.
+    if (out.read.tenders.some((t) => t.documentRefs.length > 0)) rememberFamily(deps.store(), fam, out.recipe, [page.url, ctx.url], ctx.log);
+    else ctx.log(`Not keeping this recipe for the ${fam.name} family: it found no document links, so it is not complete enough to reuse.`);
+  }
+  return out;
+}
+
 export const cartographer: Cartographer = {
-  async attach(ctx) {
-    ctx.log("Looking at the portal for the first time.");
-    const known = findKnownRecipe(ctx.url);
-    if (known) return attachKnown(known, ctx);
-    return attachWithModel(ctx);
-  },
+  attach: (ctx) => attachPortal(ctx),
 };

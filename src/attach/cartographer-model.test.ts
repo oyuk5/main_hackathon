@@ -3,7 +3,7 @@ import { after, before, beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
-import { attachWithModel, compressHtml, compressJson, judgeSample, largestObjectArray, look, MAX_RECIPE_ROUNDS, type CartographerStep } from "./cartographer.js";
+import { attachWithModel, checkFilesRule, compressHtml, documentsStart, tenderPageView, compressJson, judgeSample, largestObjectArray, look, MAX_RECIPE_ROUNDS, type CartographerStep } from "./cartographer.js";
 import { cartographer } from "./index.js";
 import { clearDetailCache, extractor } from "./extractor.js";
 import type { ExtractedTender, PortalContext, ReadOutcome } from "../shared/modules.js";
@@ -245,7 +245,13 @@ test("judgeSample catches row numbers, one url for all, links back to the list, 
   assert.ok(inverted.errors.some((e) => e.includes("deadline before their publication date")));
 
   const clean = judgeSample(r, okRead([1, 2, 3].map((i) => t(i))), "https://p.test/list");
-  assert.deepEqual(clean, { errors: [], warnings: [] });
+  assert.deepEqual(clean, { errors: [], warnings: [], docs: [] });
+
+  // A file found on every tender is the site's (a help PDF), not the tender's.
+  const help = { url: "https://p.test/uploads/help.pdf", via: "http" as const };
+  const siteWide = judgeSample(r, okRead([1, 2, 3].map((i) => t(i, { documentRefs: [help, { url: `https://p.test/f/${i}.pdf`, via: "http" }] }))), "https://p.test/list");
+  assert.equal(siteWide.errors.length, 0);
+  assert.match(siteWide.docs.join(" "), /help\.pdf on every tender: that is a file of the site/);
 });
 
 test("judgeSample: an empty list with the portal's 'no results' text is not an error", () => {
@@ -379,4 +385,110 @@ test("a first draft without a documents rule gets a hint to map the files", asyn
   assert.equal((await attachWithModel(ctx)).kind, "ok");
   assert.equal(ctx.prompts.length, 2);
   assert.match(ctx.prompts[1]!, /There is no documents rule/);
+});
+
+// A tender page like many real ones: a big layout with a help PDF on every page, and the tender's own
+// files in a table with icon-only download buttons whose links have no file name.
+const tenderWithFiles = (i: number) =>
+  page(`<header><a href="/m/uploads/help.pdf">Instrukcja.pdf</a><a href="/m/about">O nas</a></header>
+  <main><h1>Sanierung ${i}</h1><p>${"Opis zamówienia. ".repeat(200)}</p>
+  <table class="files"><tbody>
+  <tr><td>SWZ.pdf</td><td><a class="btn file-download" href="//localhost:${new URL(base).port}/m/file/get/a${i}" aria-label="Pobierz"><i class="icon"></i></a></td></tr>
+  <tr><td>Załączniki.zip</td><td><a class="btn file-download" href="/m/file/get/b${i}" aria-label="Pobierz"><i class="icon"></i></a></td></tr>
+  </tbody></table></main>`);
+
+test("tenderPageView lists file-like links grouped by place, with the markup around the biggest group", () => {
+  const v = tenderPageView(tenderWithFiles(1), `${base}/m/t/100`, 200, "text/html");
+  assert.equal(v.fileLinks, 3);
+  assert.match(v.text, /2× .*a\.btn\.file-download: "\(no text\)" \[aria-label="Pobierz"\] href="\/\/localhost:\d+\/m\/file\/get\/a1" \(resolves to http:\/\/localhost:\d+\/m\/file\/get\/a1\)/);
+  assert.match(v.text, /1× .*Instrukcja\.pdf/);
+  assert.match(v.text, /Markup around the largest group[\s\S]*<table class="files">[\s\S]*SWZ\.pdf/);
+  assert.ok(!v.text.includes("Opis zamówienia. Opis zamówienia. Opis"), "the long page text is not sent");
+
+  const none = tenderPageView(page('<h1>T</h1><a href="/m/t/1/docs">Unterlagen anzeigen</a><a href="/m/home">Start</a>'), `${base}/m/t/1`, 200);
+  assert.equal(none.fileLinks, 1, "a 'documents' tab link counts: it is where hops lead");
+  const bare = tenderPageView(page('<h1>T</h1><a href="/m/home">Start</a>'), `${base}/m/t/1`, 200);
+  assert.equal(bare.fileLinks, 0);
+  assert.match(bare.text, /No link on it looks like a file/);
+
+  const json = tenderPageView('{"files":[{"href":"/f/1.pdf"}]}', `${base}/api/t/1`, 200, "application/json");
+  assert.match(json.text, /It is JSON/);
+});
+
+test("documentsStart follows the recipe: detail urlFrom field or template, else the tender url", () => {
+  const r = goodRecipe();
+  const tender = { id: "T-1", url: "https://p.test/t/1", title: "x", buyerName: null, publicationDate: null, submissionDeadline: null, documentRefs: [] } as ExtractedTender;
+  assert.equal(documentsStart(r, tender), "https://p.test/t/1");
+  assert.equal(documentsStart({ ...r, detail: { urlFrom: "https://p.test/api/{id}", fields: {} } }, tender), "https://p.test/api/T-1");
+});
+
+test("a missing documents rule: the model sees one tender's page, and the second draft is held while it shows files", async () => {
+  portal(6);
+  for (let i = 0; i < 6; i++) routes.set(`/m/t/${100 + i}`, () => ({ body: tenderWithFiles(100 + i) }));
+  const noDocs = { ...goodRecipe(), documents: null };
+  const helpToo = { ...goodRecipe(), documents: { hops: [], files: { css: "a[href*='file'], a[href$='.pdf']", attr: "href", all: true }, via: "http" as const } };
+  const right = { ...goodRecipe(), documents: { hops: [], files: { css: "table.files a.file-download", attr: "href", all: true }, via: "http" as const } };
+  const ctx = scripted(`${base}/m/list`, [step("recipe", { recipe: noDocs }), step("recipe", { recipe: helpToo }), step("recipe", { recipe: right })]);
+  const out = await attachWithModel(ctx);
+  assert.equal(out.kind, "ok", JSON.stringify(out));
+  assert.equal(ctx.prompts.length, 3);
+  assert.match(ctx.prompts[1]!, /There is no documents rule/);
+  assert.match(ctx.prompts[1]!, /The page where documents start for the first tender: .*\/m\/t\/100/);
+  assert.match(ctx.prompts[1]!, /a\.btn\.file-download/);
+  assert.match(ctx.prompts[2]!, /help\.pdf on every tender/, "a site-wide file is caught in the second draft");
+  assert.equal(ctx.prompts[2]!.match(/The page where documents start/g)?.length, 1, "the tender page is shown once");
+  if (out.kind !== "ok") return;
+  const refs = out.read.tenders.find((x) => x.id === "V-100")!.documentRefs.map((d) => d.url);
+  assert.deepEqual(refs, [`${base}/m/file/get/a100`, `${base}/m/file/get/b100`]);
+});
+
+test("a recipe without documents is accepted from the third draft on, and from the second when no page shows files", async () => {
+  portal(6);
+  for (let i = 0; i < 6; i++) routes.set(`/m/t/${100 + i}`, () => ({ body: page(`<h1>Sanierung ${i}</h1><p>Unterlagen beim Amt.</p>`) }));
+  const noDocs = { ...goodRecipe(), documents: null };
+  const ctx = scripted(`${base}/m/list`, [step("recipe", { recipe: noDocs }), step("recipe", { recipe: noDocs })]);
+  const out = await attachWithModel(ctx);
+  assert.equal(out.kind, "ok");
+  assert.equal(ctx.prompts.length, 2);
+  assert.match(ctx.prompts[1]!, /No link on it looks like a file/);
+  assert.ok(ctx.logs.some((l) => /no working documents rule/.test(l)));
+
+  clearDetailCache();
+  for (let i = 0; i < 6; i++) routes.set(`/m/t/${100 + i}`, () => ({ body: tenderWithFiles(100 + i) }));
+  const stubborn = scripted(`${base}/m/list`, [step("recipe", { recipe: noDocs }), step("recipe", { recipe: noDocs }), step("recipe", { recipe: noDocs })]);
+  assert.equal((await attachWithModel(stubborn)).kind, "ok");
+  assert.equal(stubborn.prompts.length, 3);
+});
+
+test("checkFilesRule says exactly how a files selector fares on the tender page that was shown", () => {
+  const body = tenderWithFiles(1);
+  const withCss = (css: string) => ({ ...goodRecipe(), documents: { hops: [], files: { css, attr: "href", all: true }, via: "http" as const } });
+  // The links are written protocol-relative or root-relative, so a prefix on the resolved address misses them.
+  assert.match(checkFilesRule(withCss("a[href^='http://localhost']"), { url: `${base}/m/t/1`, body })!, /matches no element/);
+  assert.match(checkFilesRule(withCss("table.files a.file-download"), { url: `${base}/m/t/1`, body })!, /matches 2 element\(s\); the first gives "\/\/localhost:\d+\/m\/file\/get\/a1"/);
+  assert.equal(checkFilesRule({ ...withCss("a"), documents: { hops: [{ css: "a.tab" }], files: { css: "a" }, via: "http" } }, { url: "x", body }), null);
+});
+
+test("a malformed first answer does not use up the documents hint; a wrong files selector is checked against the shown page", async () => {
+  portal(6);
+  for (let i = 0; i < 6; i++) routes.set(`/m/t/${100 + i}`, () => ({ body: tenderWithFiles(100 + i) }));
+  const wrong = { ...goodRecipe(), documents: { hops: [], files: { css: "a[href^='http://localhost']", attr: "href", all: true }, via: "http" as const } };
+  const right = { ...goodRecipe(), documents: { hops: [], files: { css: "a.file-download", attr: "href", all: true }, via: "http" as const } };
+  const bad = new SyntaxError("Unexpected token");
+  const ctx = scripted(`${base}/m/list`, [bad, step("recipe", { recipe: wrong }), step("recipe", { recipe: right })]);
+  const out = await attachWithModel(ctx);
+  assert.equal(out.kind, "ok", JSON.stringify(out));
+  assert.equal(ctx.prompts.length, 3);
+  assert.match(ctx.prompts[2]!, /The documents rule found no file on any of/);
+  assert.match(ctx.prompts[2]!, /documents\.files\.css "a\[href\^='http:\/\/localhost'\]" matches no element/);
+  assert.match(ctx.prompts[2]!, /href="\/\/localhost:\d+\/m\/file\/get\/a100"/, "the model sees the href as written");
+  assert.ok(ctx.logs.some((l) => /not a valid step/.test(l)), "the malformed answer is in the run log");
+});
+
+test("a step that leaves out the fields its action does not use is still valid", async () => {
+  portal(6);
+  const ctx = scripted(`${base}/m/list`, [{ action: "recipe", recipe: goodRecipe() } as unknown as CartographerStep]);
+  const out = await attachWithModel(ctx);
+  assert.equal(out.kind, "ok", JSON.stringify(out));
+  assert.equal(ctx.prompts.length, 1);
 });

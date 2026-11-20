@@ -31,10 +31,12 @@ const BROWSER_LOAD_MS = 45_000;
 export const CartographerStep = z.object({
   action: z.enum(["recipe", "navigate", "give_up"]),
   /** For navigate: the absolute address of the page that lists the tenders. */
-  navigateTo: z.string().nullable(),
+  // Defaults, because the model often leaves out the fields its action does not use (the response
+  // format is not strict), and a whole round was lost to that.
+  navigateTo: z.string().nullable().default(null),
   /** One plain sentence: why this step. Shown in the run log. */
-  reason: z.string(),
-  recipe: Recipe.nullable(),
+  reason: z.string().default(""),
+  recipe: Recipe.nullable().default(null),
 });
 export type CartographerStep = z.infer<typeof CartographerStep>;
 
@@ -58,11 +60,12 @@ export interface CapturedJson {
   data: unknown;
 }
 
-async function fetchText(ctx: PortalContext, url: string): Promise<{ url: string; status: number; text: string }> {
+async function fetchText(ctx: PortalContext, url: string): Promise<{ url: string; status: number; text: string; contentType: string }> {
   const signal = AbortSignal.any([ctx.signal, AbortSignal.timeout(REQUEST_TIMEOUT_MS)]);
   const res = await ctx.http.fetch(url, { signal });
   const bytes = new Uint8Array(await res.arrayBuffer());
-  return { url: res.url || url, status: res.status, text: decode(bytes, res.headers.get("content-type") ?? "") };
+  const contentType = res.headers.get("content-type") ?? "";
+  return { url: res.url || url, status: res.status, text: decode(bytes, contentType), contentType };
 }
 
 /** Loads the page in the browser and keeps the JSON the page itself fetched: often a clean API. */
@@ -342,7 +345,7 @@ Recipe rules (schemaVersion is 1):
 - Field names: id (the portal's own stable identifier, never a row number), url (the tender's OWN page, not a summary or search page), title, buyerName (the public body that buys), publicationDate, submissionDeadline, referenceNumber (the buyer's file number), description, procedureType, contractNature, cpvCodes (all:true), postalCode, city, countryCode, withdrawn (a value that is true when cancelled).
 - parse: date | datetime | cpv | url | procedureType | contractNature | postalCode | text. Dates in any European format are fine; add "format" (e.g. "dd.MM.yyyy HH:mm") only if unusual. The deadline needs a time; if the page shows only a date, still map it (it will become null, never a guess).
 - detail: { urlFrom: "url" (a field name) or a template like "https://site/api/{id}", fields: {...} } for values only on the tender's own page. Use it when the list lacks buyer, deadline, reference or CPV.
-- documents: { hops: [selectors leading to the page that lists files], files: selector with all:true for the file links, via: "http" }. Start: the detail page if any, else the tender page. Use null when you cannot see how files are listed.
+- documents: { hops: [selectors leading to the page that lists files], files: selector with all:true for the file links, via: "http" }. It starts on the detail page if there is one, else on the tender's own page (url); the extractor follows HTTP redirects and keeps cookies. files.css matches the download links (attr defaults to "href"); pick the tender's own file list (e.g. a table of attachments), never links that every page has (help, terms, manuals). Use hops only when the files are on another page (a "documents" tab). Tenders without files are fine. After your first draft you are shown one tender's own page with the links that look like files; use it. Use null only when the tender pages list no files at all.
 - withdrawnText: words that mean the buyer cancelled the tender.
 - A WRONG VALUE IS WORSE THAN A MISSING ONE. Leave a field out rather than guess; never map a field to something that only looks similar.
 - Only open tenders: if the portal lists awards or past notices too, use a filter in the request or a JSONPath filter like "$.items[?(@.status=='open')]". If its default list shows current tenders, use it as is: closed ones are recognised later by their deadline.
@@ -373,23 +376,29 @@ export interface Judgement {
   errors: string[];
   /** Missing values worth a second look; they block only the first draft. */
   warnings: string[];
+  /**
+   * Documents not mapped, or mapped to the wrong files. They block the first draft, and the second too
+   * when the tender's own page shows links that look like files.
+   */
+  docs: string[];
 }
 
 /** Turns a dry-run into exact, actionable problems for the model. Pure; no network. */
 export function judgeSample(recipe: Recipe, read: ReadOutcome, listUrl: string): Judgement {
   const errors: string[] = [];
   const warnings: string[] = [];
-  if (read.kind !== "ok") return { errors: [`The dry-run did not read: ${read.reason}`], warnings };
+  const docs: string[] = [];
+  if (read.kind !== "ok") return { errors: [`The dry-run did not read: ${read.reason}`], warnings, docs };
   const t = read.tenders;
   const d = read.diagnostics;
   if (t.length === 0) {
-    if (d.emptyStateText) return { errors, warnings: [`The portal says "${d.emptyStateText}": no tenders right now, so fields could not be checked.`] };
+    if (d.emptyStateText) return { errors, warnings: [`The portal says "${d.emptyStateText}": no tenders right now, so fields could not be checked.`], docs };
     errors.push(
       d.itemsSeen === 0
         ? `list.item "${recipe.list.item}" matched nothing on ${d.listPages} list page(s) (${d.requests} requests). Check the selector against the page and the request address.`
         : `list.item matched ${d.itemsSeen} elements, but none had both an id and an absolute url. Check the id and url rules.`,
     );
-    return { errors, warnings };
+    return { errors, warnings, docs };
   }
   for (const f of REQUIRED) {
     const fill = d.fieldFill[f] ?? { filled: 0, total: t.length };
@@ -406,9 +415,18 @@ export function judgeSample(recipe: Recipe, read: ReadOutcome, listUrl: string):
     else if (fill.filled < fill.total / 2) warnings.push(`${f} found on only ${fill.filled} of ${fill.total} tenders.`);
   }
   if (!recipe.documents) {
-    warnings.push("There is no documents rule, so every tender would be served without its files. Find where the tender's own page lists its documents (links to PDF/ZIP or a 'documents' tab) and add documents.hops/files.");
+    docs.push("There is no documents rule, so every tender would be served without its files. Find where the tender's own page lists its documents (links to PDF/ZIP or a 'documents' tab) and add documents.hops/files.");
   } else if (t.every((x) => x.documentRefs.length === 0 && !x.documentRefsPending)) {
-    warnings.push(`The documents rule found no file on any of ${t.length} tenders. Check documents.hops and documents.files against the tender's own page.`);
+    docs.push(`The documents rule found no file on any of ${t.length} tenders. Check documents.hops and documents.files against the tender's own page.`);
+  } else {
+    const withRefs = t.filter((x) => x.documentRefs.length > 0);
+    if (withRefs.length >= 3) {
+      const shared = withRefs[0]!.documentRefs.map((r) => r.url).filter((u) => withRefs.every((x) => x.documentRefs.some((r) => r.url === u)));
+      if (shared.length)
+        docs.push(
+          `The documents rule returns ${shared.slice(0, 2).join(" and ")} on every tender: that is a file of the site (help, terms, manual), not of one tender. Narrow documents.files to the tender's own file list so it is left out.`,
+        );
+    }
   }
   const ids = t.map((x) => x.id);
   if (new Set(ids).size < ids.length) errors.push("Some tenders share an id; the id must be the portal's own unique identifier.");
@@ -422,7 +440,135 @@ export function judgeSample(recipe: Recipe, read: ReadOutcome, listUrl: string):
   if (odd.length) errors.push(`${odd.length} deadlines are implausible (e.g. ${odd[0]!.submissionDeadline}); the deadline rule reads the wrong value.`);
   const inverted = t.filter((x) => x.publicationDate && x.submissionDeadline && x.submissionDeadline.slice(0, 10) < x.publicationDate);
   if (inverted.length) errors.push(`${inverted.length} tenders have a deadline before their publication date; one of the two rules reads the wrong value.`);
-  return { errors, warnings };
+  return { errors, warnings, docs };
+}
+
+// ------------------------------------------------------------ one tender's own page, for documents
+
+const FILE_EXT = /\.(pdf|zip|rar|7z|gz|tar|docx?|xlsx?|odt|ods|odg|rtf|txt|xml|csv|p7s|p7m|xades|asice|dwg|dxf|jpe?g|png|tiff?)(?:$|[?#])/i;
+const FILE_WORDS =
+  /download|herunterlad|t[ée]l[ée]charg|descarg|scaric|pobierz|st[aá]hn|let[öo]lt|ladda|lataa|\bfiles?\b|\/file|datei|fichier|plik|attach|anlage|unterlage|dokument|document|bijlage|allegat|anexo|anhang|za[łl][aą]cznik|piece|pièce/i;
+
+export interface TenderPageView {
+  /** Text for the model. */
+  text: string;
+  /** How many links on the page look like files or downloads. */
+  fileLinks: number;
+  /** The page itself, kept to check later drafts' documents.files against it without another request. */
+  page?: { url: string; body: string };
+}
+
+/**
+ * How a draft's documents.files selector fares on the tender page the model was shown: the exact
+ * number of matches and what the first one links to. Null when it cannot be checked (hops, JSON). Pure.
+ */
+export function checkFilesRule(recipe: Recipe, page: { url: string; body: string }): string | null {
+  const rule = recipe.documents;
+  if (!rule || (rule.hops ?? []).length > 0 || !rule.files.css || rule.files.label !== undefined || rule.files.const !== undefined) return null;
+  const t = page.body.trimStart();
+  if (t.startsWith("{") || t.startsWith("[")) return null;
+  const $ = cheerio.load(page.body);
+  let n = 0;
+  let first = "";
+  try {
+    const found = $(rule.files.css);
+    n = found.length;
+    const attr = rule.files.attr ?? "href";
+    first = found.first().attr(attr) ?? found.first().find(`[${attr}]`).first().attr(attr) ?? "";
+  } catch (e) {
+    return `documents.files.css "${rule.files.css}" is not a valid selector: ${(e as Error).message.slice(0, 120)}.`;
+  }
+  return n === 0
+    ? `On the tender page you were shown (${page.url}), documents.files.css "${rule.files.css}" matches no element. Compare it with the file links listed there (href exactly as written).`
+    : `On the tender page you were shown (${page.url}), documents.files.css "${rule.files.css}" matches ${n} element(s); the first gives ${first ? `"${first.slice(0, 120)}"` : `no ${rule.files.attr ?? "href"}`}.`;
+}
+
+/** Where the Extractor starts looking for documents: the detail page if the recipe has one, else the tender's url. */
+export function documentsStart(recipe: Recipe, t: ExtractedTender): string | null {
+  const from = recipe.detail?.urlFrom;
+  if (!from || from === "url") return t.url || null;
+  const rec = t as unknown as Record<string, unknown>;
+  if (!from.includes("{")) return typeof rec[from] === "string" ? (rec[from] as string) : t.url || null;
+  let missing = false;
+  const url = from.replace(/\{(\w+)\}/g, (_, k: string) => {
+    const v = rec[k];
+    if (typeof v !== "string" && typeof v !== "number") missing = true;
+    return encodeURIComponent(String(v ?? ""));
+  });
+  return missing ? null : url;
+}
+
+/**
+ * One tender's own page for the model, focused on what the documents rule needs: links that look like
+ * files or downloads, grouped by where they sit, and the markup around the biggest group. Pure.
+ */
+export function tenderPageView(body: string, url: string, status: number, contentType = ""): TenderPageView {
+  const head = `The page where documents start for the first tender: ${url} (HTTP ${status}).`;
+  const trimmed = body.trimStart();
+  if (/json/i.test(contentType) || trimmed.startsWith("{") || trimmed.startsWith("[")) {
+    try {
+      return { text: `${head} It is JSON (use jsonPath in documents.files, or hops to an HTML page):\n${compressJson(JSON.parse(body), 3000)}`, fileLinks: 0 };
+    } catch {
+      // not JSON after all
+    }
+  }
+  const $ = cheerio.load(body);
+  $("script,style,noscript,svg,template").remove();
+  type Hit = { el: Element; href: string; raw: string; chain: string; label: string };
+  const hits: Hit[] = [];
+  $("a[href], [data-href], [data-url], [download]").each((_, n) => {
+    const el = n as Element;
+    const raw = $(el).attr("href") ?? $(el).attr("data-href") ?? $(el).attr("data-url") ?? "";
+    if (!raw || /^(#|mailto:|tel:|javascript:)/i.test(raw.trim())) return;
+    let href: string;
+    try {
+      href = new URL(raw.trim(), url).toString();
+    } catch {
+      return;
+    }
+    if (!/^https?:/.test(href)) return;
+    const text = $(el).text().replace(/\s+/g, " ").trim();
+    const attrs = [$(el).attr("class"), $(el).attr("title"), $(el).attr("aria-label"), $(el).attr("download")].filter(Boolean).join(" ");
+    let path = href;
+    try {
+      path = new URL(href).pathname;
+    } catch {
+      // keep the whole address
+    }
+    if (!FILE_EXT.test(path) && !FILE_EXT.test(text) && !FILE_WORDS.test(`${path} ${attrs} ${text}`) && $(el).attr("download") === undefined) return;
+    // Ancestors in short; the link itself with every class, since its own class is usually the best selector.
+    const own = `${el.tagName}${$(el).attr("id") ? `#${$(el).attr("id")}` : ""}${($(el).attr("class") ?? "").trim().split(/\s+/).filter(Boolean).map((c) => `.${c}`).join("")}`;
+    const chain = [...$(el).parents().toArray().slice(0, 3).reverse().map((e) => describe($, e as Element)), own].join(" > ");
+    const extra = ["title", "aria-label", "download"].map((a) => ($(el).attr(a) ? `${a}="${$(el).attr(a)!.slice(0, 50)}"` : "")).filter(Boolean).join(" ");
+    hits.push({ el, href, raw: raw.trim(), chain, label: `"${text.slice(0, 60) || "(no text)"}"${extra ? ` [${extra}]` : ""}` });
+  });
+  if (hits.length === 0) {
+    const links = linkList(body, url, 40);
+    return {
+      text: `${head} No link on it looks like a file. If the files are on another page (a "documents" tab), add documents.hops to reach it; if this page needs JavaScript or a login for its files, set documents to null.\nLinks on the page:\n${links.join("\n")}\nPage (compressed):\n${compressHtml(body, 4000)}`,
+      fileLinks: 0,
+    };
+  }
+  const groups = new Map<string, Hit[]>();
+  for (const h of hits) groups.set(h.chain, [...(groups.get(h.chain) ?? []), h]);
+  const sorted = [...groups.values()].sort((a, b) => b.length - a.length);
+  // The address as written in the page matters: an attribute selector like a[href^='/x'] sees only that.
+  const shown = (h: Hit) => `${h.label} href="${h.raw.slice(0, 120)}"${h.raw !== h.href ? ` (resolves to ${h.href.slice(0, 120)})` : ""}`;
+  const lines = sorted.slice(0, 15).map((g) => `- ${g.length}× ${g[0]!.chain}: ${g.slice(0, 2).map(shown).join(" | ")}`);
+  // The markup around the biggest group: the nearest ancestor that holds all of its links.
+  const big = sorted[0]!;
+  let around: Element = big[0]!.el;
+  for (let i = 0; i < 10; i++) {
+    const p = $(around).parent().get(0) as Element | undefined;
+    if (!p || p.type !== "tag" || p.tagName === "body" || p.tagName === "html") break;
+    around = p;
+    if (["table", "ul", "ol", "dl", "section", "article"].includes(p.tagName) && big.every((h) => $.contains(p, h.el))) break;
+  }
+  const context = compressHtml(`<html><body>${$.html(around)}</body></html>`, 3000).replace(/^<!-- title:  -->\n/, "");
+  return {
+    text: `${head}\nLinks on it that look like files or downloads, grouped by where they sit (count × element path: examples, with href exactly as written in the page). Prefer the links' own classes or their container for documents.files.css; an attribute selector must match the href as written, not as resolved. A file that every tender page shows (help, terms, manual) is not a tender document:\n${lines.join("\n")}\nMarkup around the largest group (compressed):\n${context}`,
+    fileLinks: hits.length,
+  };
 }
 
 function showSample(read: ReadOutcome): string {
@@ -442,6 +588,8 @@ export interface ModelAttachDeps {
   read: (recipe: Recipe, ctx: PortalContext) => Promise<ReadOutcome>;
   /** The first items the list selector matches, raw: what the field rules ran against. */
   items: (recipe: Recipe, ctx: PortalContext) => Promise<{ status: number; items: string[]; pageStart: string }>;
+  /** One page as served (the tender's own page, for documents). Defaults to one `ctx.http` request. */
+  page?: (ctx: PortalContext, url: string) => Promise<{ url: string; status: number; text: string; contentType: string }>;
 }
 
 const defaultDeps: ModelAttachDeps = {
@@ -449,7 +597,22 @@ const defaultDeps: ModelAttachDeps = {
   sample: (r, c) => readSample(r, c),
   read: (r, c) => extractor.read(r, c),
   items: (r, c) => sampleItems(r, c),
+  page: fetchText,
 };
+
+/** One tender's own page for the documents rule, fetched once per attach. Never throws (except on abort). */
+async function showTenderPage(deps: ModelAttachDeps, recipe: Recipe, read: ReadOutcome, ctx: PortalContext): Promise<TenderPageView | null> {
+  if (read.kind !== "ok" || read.tenders.length === 0) return null;
+  const start = documentsStart(recipe, read.tenders[0]!);
+  if (!start) return null;
+  try {
+    const got = await (deps.page ?? fetchText)(ctx, start);
+    return { ...tenderPageView(got.text, got.url, got.status, got.contentType), page: { url: got.url, body: got.text } };
+  } catch (e) {
+    if (ctx.signal.aborted) throw e;
+    return { text: `Opening the first tender's page ${start} failed: ${(e as Error).message}.`, fileLinks: 0 };
+  }
+}
 
 /** Shows the model the item its rules ran against, compressed. Never throws. */
 async function showItems(deps: ModelAttachDeps, recipe: Recipe, ctx: PortalContext): Promise<string> {
@@ -501,6 +664,12 @@ export async function attachWithModel(ctx: PortalContext, deps: ModelAttachDeps 
   /** True once any draft read at least one tender: then a login box on the page is not what stops us. */
   let everRead = false;
   let rounds = 0;
+  /** The first tender's own page goes to the model once per list page, for the documents rule. */
+  let tenderPageShown = false;
+  let fileLinksSeen = false;
+  let tenderPage: { url: string; body: string } | null = null;
+  /** Drafts that were dry-run (rounds also count malformed answers and refused navigations). */
+  let drafts = 0;
   let lastProblem = "the model did not propose a usable recipe";
 
   while (rounds < MAX_RECIPE_ROUNDS) {
@@ -518,6 +687,7 @@ export async function attachWithModel(ctx: PortalContext, deps: ModelAttachDeps 
       if (!malformed) return { kind: "failed", reason: msg };
       rounds += 1;
       lastProblem = msg;
+      ctx.log(`The model's answer was not a valid step (round ${rounds} of ${MAX_RECIPE_ROUNDS}): ${msg.slice(0, 160)}`, "warn");
       history.push(`Your previous answer was not a valid step: ${msg}. Answer again with the exact JSON shape.`);
       continue;
     }
@@ -555,18 +725,23 @@ export async function attachWithModel(ctx: PortalContext, deps: ModelAttachDeps 
       hint = blockHint(current.raw, current.status) ?? hint;
       if (current.status === 401 || current.status === 403) return { kind: "blocked", reason: `${capital(blockHint(current.raw, current.status)!)}.` };
       history.length = 0; // a new page: earlier feedback was about the old one
+      tenderPageShown = false;
+      fileLinksSeen = false;
+      tenderPage = null;
       continue;
     }
 
     // action === "recipe"
     rounds += 1;
     if (!step.recipe) {
+      ctx.log(`The model chose a recipe but sent none (round ${rounds} of ${MAX_RECIPE_ROUNDS}).`, "warn");
       history.push("You chose recipe but sent no recipe.");
       continue;
     }
     const recipe = Recipe.parse(step.recipe);
     if (recipe.tier === "browser") {
       lastProblem = "the portal seems to need the browser tier, which the extractor does not support yet";
+      ctx.log(`The model proposed a browser-tier recipe, which is not supported (round ${rounds} of ${MAX_RECIPE_ROUNDS}).`, "warn");
       history.push(`Round ${rounds}: tier "browser" is not supported. Use the JSON call the page makes, a feed, or the served HTML.`);
       continue;
     }
@@ -575,8 +750,28 @@ export async function attachWithModel(ctx: PortalContext, deps: ModelAttachDeps 
     if (sample.kind === "blocked" && !/robots\.txt/i.test(sample.reason)) return { kind: "blocked", reason: `${capital(sample.reason)}` };
     if (sample.kind === "ok" && sample.tenders.length > 0) everRead = true;
     const judged = judgeSample(recipe, sample, current.url);
-    const blocking = rounds === 1 ? [...judged.errors, ...judged.warnings] : judged.errors;
+    // Documents are easy to forget and invisible on the list page: the model sees one tender's own
+    // page once, and when it shows links that look like files, a missing or wrong documents rule
+    // blocks the second draft too. After that a recipe without documents is accepted.
+    let docsView = "";
+    drafts += 1;
+    if (judged.docs.length && !tenderPageShown && (drafts <= 2 || judged.errors.length > 0) && sample.kind === "ok" && sample.tenders.length > 0) {
+      const view = await showTenderPage(deps, recipe, sample, ctx);
+      if (view) {
+        tenderPageShown = true;
+        fileLinksSeen = view.fileLinks > 0;
+        docsView = view.text;
+        tenderPage = view.page ?? null;
+      }
+    }
+    // Later drafts: check the files selector against the page already shown, exactly, at no cost.
+    const filesCheck = judged.docs.length && tenderPage ? checkFilesRule(recipe, tenderPage) : null;
+    if (filesCheck) judged.docs.push(filesCheck);
+    // Counted by drafts that were dry-run, so a malformed answer does not use up the hints.
+    const docsBlock = drafts === 1 || (drafts === 2 && fileLinksSeen) ? judged.docs : [];
+    const blocking = drafts === 1 ? [...judged.errors, ...judged.warnings, ...docsBlock] : [...judged.errors, ...docsBlock];
     if (blocking.length === 0) {
+      if (judged.docs.length) ctx.log(`The recipe has no working documents rule: ${judged.docs[0]}`, "warn");
       ctx.log("The draft read cleanly; reading the whole list once.");
       const full = await deps.read(recipe, ctx);
       if (full.kind === "ok" && full.tenders.length > 0) {
@@ -598,7 +793,7 @@ export async function attachWithModel(ctx: PortalContext, deps: ModelAttachDeps 
     ctx.log(`Draft ${rounds} needs fixes: ${blocking.slice(0, 2).join(" ")}`, "warn");
     const itemView = sample.kind === "ok" || sample.kind === "error" ? await showItems(deps, recipe, ctx) : "";
     history.push(
-      `Round ${rounds}: your recipe was dry-run on the first list page.\nRecipe:\n${JSON.stringify(recipe)}\nProblems to fix:\n- ${blocking.join("\n- ")}\n${showSample(sample)}\n${itemView}\nAnswer with a corrected full recipe.`,
+      `Round ${rounds}: your recipe was dry-run on the first list page.\nRecipe:\n${JSON.stringify(recipe)}\nProblems to fix:\n- ${blocking.join("\n- ")}\n${showSample(sample)}\n${itemView}${docsView ? `\n${docsView}` : ""}\nAnswer with a corrected full recipe.`,
     );
   }
 
