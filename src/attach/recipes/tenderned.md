@@ -78,3 +78,6 @@ dialoog → other · Open House → other · Marktconsultatie → other (or leav
 Further values: 450237 services/open, CPV 71311300, 71311210, 71410000, 3 documents. 450165 supplies/open, CPV 34144700,
 34136000, 34144900, 10 documents. 450192 services/open, CPV 90000000, 12 documents. 449873 (Provincie Overijssel,
 "Dagelijks onderhoud Vaarwegen (2027-2033)") is `withdrawn` (VBE, ended early).
+
+## referenceNumber: UUIDs dropped (Fri 18:10)
+Some live `referentieNummer` values are UUIDs (e.g. on 450074). They look like system ids, not the buyer's file number, so the rule has a regex that drops UUID-shaped values and keeps the rest (`SRA2601`, `26.0979351`). A wrong value is worse than a missing one.

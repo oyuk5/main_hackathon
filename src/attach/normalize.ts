@@ -313,8 +313,11 @@ export function parseDateTime(v: unknown, timeZone: string, format?: string): st
 
   let time = hit.time ? { ...hit.time, end: hit.end } : null;
   if (!time) {
-    // Prefer a time after the date, then one before it.
-    const after = s.slice(hit.end);
+    // Prefer a time after the date, then one before it. A time after the next date belongs to that
+    // date, and "15.02.2027" must not be read as 15:02, so the search stops where another date starts.
+    let after = s.slice(hit.end);
+    const nextDate = findDate(after);
+    if (nextDate) after = after.slice(0, nextDate.start);
     const t1 = findTime(after);
     if (t1 && t1.start <= NEAR) time = { h: t1.h, mi: t1.mi, s: t1.s, end: hit.end + t1.end };
     else {
@@ -342,7 +345,10 @@ export function parseDateTime(v: unknown, timeZone: string, format?: string): st
     return safeFormat(new Date(instant), timeZone);
   }
   try {
-    return localWallTime(ymd(y, m, d), `${pad2(h)}:${pad2(time.mi)}:${pad2(time.s)}`, timeZone);
+    const wall = `${pad2(h)}:${pad2(time.mi)}:${pad2(time.s)}`;
+    const out = localWallTime(ymd(y, m, d), wall, timeZone);
+    // A wall time inside the spring-forward gap does not exist; never serve a shifted time.
+    return out.slice(0, 19) === `${ymd(y, m, d)}T${wall}` ? out : null;
   } catch {
     return null;
   }
@@ -430,8 +436,11 @@ export function mapProcedureType(v: unknown): "open" | "restricted" | "negotiate
   if (!w) return undefined;
   const exact = w.trim();
   if (exact === "other" || exact === "innovation") return "other";
-  for (const [re, val] of PROCEDURE_RULES) if (re.test(w)) return val;
-  return undefined;
+  const hits = new Set(PROCEDURE_RULES.filter(([re]) => re.test(w)).map(([, val]) => val));
+  // Restricted and "other" names often contain an open word ("nicht offenes", "Open House"): they win over open.
+  if (hits.has("restricted") || hits.has("other")) hits.delete("open");
+  // Text naming two procedures ("Offenes Verfahren oder Verhandlungsverfahren") is not one value: leave it out.
+  return hits.size === 1 ? [...hits][0] : undefined;
 }
 
 const NATURE_RULES: [RegExp, "works" | "services" | "supplies"][] = [

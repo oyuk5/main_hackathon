@@ -111,19 +111,28 @@ function warnOnce(st: ReadState, key: string, message: string): void {
   st.ctx.log(message, "warn");
 }
 
-function charsetOf(contentType: string, bytes: Uint8Array): string {
+/** The declared charset (header, meta tag or XML declaration), or null when the page declares none. */
+function charsetOf(contentType: string, bytes: Uint8Array): string | null {
   const fromHeader = /charset\s*=\s*"?([\w-]+)/i.exec(contentType)?.[1];
   if (fromHeader) return fromHeader;
   const head = new TextDecoder("latin1").decode(bytes.subarray(0, 2048));
-  return /<meta[^>]+charset\s*=\s*["']?([\w-]+)/i.exec(head)?.[1] ?? /encoding\s*=\s*["']([\w-]+)/i.exec(head)?.[1] ?? "utf-8";
+  return /<meta[^>]+charset\s*=\s*["']?([\w-]+)/i.exec(head)?.[1] ?? /encoding\s*=\s*["']([\w-]+)/i.exec(head)?.[1] ?? null;
 }
 
 function decode(bytes: Uint8Array, contentType: string): string {
   const charset = charsetOf(contentType, bytes);
+  if (charset) {
+    try {
+      return new TextDecoder(charset).decode(bytes);
+    } catch {
+      // Unknown label: fall through to detection.
+    }
+  }
+  // Nothing declared: UTF-8 if the bytes are valid UTF-8, else the usual legacy Western encoding.
   try {
-    return new TextDecoder(charset).decode(bytes);
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
   } catch {
-    return new TextDecoder("utf-8").decode(bytes);
+    return new TextDecoder("windows-1252").decode(bytes);
   }
 }
 
