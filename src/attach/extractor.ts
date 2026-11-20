@@ -691,8 +691,35 @@ function findEmptyText(recipe: Recipe, doc: Doc): string | undefined {
     // Return the words as the page shows them when the case mapping kept lengths.
     return lower.length === pageText.length ? pageText.slice(i, i + want.length) : t.trim();
   }
+  // An attach learns on a full list, so it rarely sees the portal's own "nothing today" message.
+  // Fall back to common wording, only on a page with no list items, outside the page chrome, and
+  // only when the page is short: a long page with 0 items more likely means the list rule broke.
+  if (doc.kind !== "json" && pageText.length <= GENERIC_EMPTY_MAX_PAGE_CHARS) {
+    const m = GENERIC_EMPTY.exec(pageText);
+    if (m) return m[0].trim();
+  }
   return undefined;
 }
+
+const GENERIC_EMPTY_MAX_PAGE_CHARS = 3000;
+
+/** "No tenders / no results right now" in the languages of European portals. A sentence-sized match. */
+export const GENERIC_EMPTY = new RegExp(
+  [
+    String.raw`\bbrak (aktualnych |żadnych )?(przetargów|ogłoszeń|postępowań|zamówień|wyników)[^.!\n]{0,40}`,
+    String.raw`\b(keine|derzeit keine|zurzeit keine) (aktuellen |laufenden )?(ausschreibungen|vergaben|bekanntmachungen|ergebnisse|einträge|treffer)[^.!\n]{0,40}`,
+    String.raw`\b(aucun|aucune) (appel d'offres|appels d'offres|avis|consultation|marché|résultat|annonce)s?[^.!\n]{0,40}`,
+    String.raw`\b(geen|er zijn geen) (aanbestedingen|resultaten|opdrachten|publicaties)[^.!\n]{0,40}`,
+    String.raw`\bno (hay|existen|se han encontrado) (licitaciones|resultados|anuncios|contratos)[^.!\n]{0,40}`,
+    String.raw`\bnessun[oa]? (gara|gare|bando|bandi|risultato|avviso)[^.!\n]{0,40}`,
+    String.raw`\b(ingen|inga) (udbud|upphandlingar|anbud|resultater|resultat|träffar)[^.!\n]{0,40}`,
+    String.raw`\bnão (há|existem|foram encontrad[oa]s) (concursos|procedimentos|resultados|anúncios)[^.!\n]{0,40}`,
+    String.raw`\bžádné (zakázky|výsledky)[^.!\n]{0,40}`,
+    String.raw`\bno (open |current |active )?(tenders|notices|opportunities|results|contracts)( found| available| at the moment| right now| to display)[^.!\n]{0,40}`,
+    String.raw`\bthere are (currently )?no (open |current |active )?(tenders|notices|opportunities|contracts)[^.!\n]{0,40}`,
+  ].join("|"),
+  "iu",
+);
 
 const STATUS_TEXT: Record<number, string> = {
   401: "Unauthorized",

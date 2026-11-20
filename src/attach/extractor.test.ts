@@ -368,6 +368,17 @@ test("empty state text is reported with zero tenders", async () => {
   assert.deepEqual(blank.diagnostics.fieldFill.id, { filled: 0, total: 0 });
 });
 
+test("common 'no tenders' wording counts as empty even when the recipe learned none, on short pages only", async () => {
+  const none = (path: string) => recipe({ ...simple(path), list: { ...simple(path).list, emptyText: [] } });
+  routes.set("/brak", () => ({ body: page(`<h1>Aktualne przetargi</h1><p class="brak">Brak aktualnych przetargów.</p>`) }));
+  assert.equal(ok(await extractor.read(none("/brak"), makeCtx())).diagnostics.emptyStateText, "Brak aktualnych przetargów");
+  routes.set("/aucun", () => ({ body: page(`<p>Aucun avis en cours pour le moment.</p>`) }));
+  assert.match(ok(await extractor.read(none("/aucun"), makeCtx())).diagnostics.emptyStateText ?? "", /^Aucun avis/);
+  // A long page with 0 items more likely means the list rule broke: no fallback there.
+  routes.set("/long", () => ({ body: page(`<p>Brak wyników.</p>${"<p>Lorem ipsum dolor sit amet, consectetur adipiscing elit.</p>".repeat(80)}`) }));
+  assert.equal(ok(await extractor.read(none("/long"), makeCtx())).diagnostics.emptyStateText, undefined);
+});
+
 test("403 is blocked, a login form is blocked, a captcha is blocked, 503 is unreachable", async () => {
   routes.set("/forbidden", () => ({ status: 403, body: "no" }));
   routes.set("/login", () => ({ body: page('<form action="/login"><input name="user"><input type="password" name="pw"></form>') }));
