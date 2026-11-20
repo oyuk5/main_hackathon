@@ -15,20 +15,20 @@
   /* Headings, the wordmark and figures: a slightly condensed grotesque, like lettering on a chart. */
   --font-display: "Archivo Variable", "Inter", ui-sans-serif, system-ui, sans-serif;
 
-  /* Light theme: powdery peach cream with little blue light, easy on the eyes over a long shift.
-     State colours are warmed to match: rust-brick for problems, sage for serving. */
-  --color-paper: #fdf8f2;
-  --color-sea: #f7eee3;
-  --color-mist: #f2e7da;
-  --color-land: #eee1cf;
-  --color-land-watched: #e3d1ba;
-  --color-shallow: #f3e9dd;
-  --color-shallow-deep: #eadcca;
-  --color-grat: #e4d6c3;
-  --color-ink: #2b231c;
-  --color-slate: #5c5045;
-  --color-faint: #6f6257;
-  --color-hairline: #e7d9c7;
+  /* Light theme: warm apricot sandstone (Sahara, Grand Canyon) with little blue light, easy on the eyes.
+     State colours are warmed to match: canyon red for problems, sage for serving. */
+  --color-paper: #fff7ee;
+  --color-sea: #fbe8d4;
+  --color-mist: #f8dec4;
+  --color-land: #f4d1ad;
+  --color-land-watched: #eab78a;
+  --color-shallow: #fae3cc;
+  --color-shallow-deep: #f3d0ae;
+  --color-grat: #eec8a2;
+  --color-ink: #2e1e14;
+  --color-slate: #5f4434;
+  --color-faint: #735242;
+  --color-hairline: #f0d0ae;
 
   --color-docker: #1d5b72;
   --color-docker-solid: #1d5b72;
@@ -38,13 +38,13 @@
   --color-serving: #276f49;
   --color-healing: #b8800f;
   --color-healing-text: #7f5607;
-  --color-failed: #b13a2a;
+  --color-failed: #a8361d;
   --color-integrating: #6d52b5;
 
-  --color-serving-wash: #e7f0e2;
-  --color-healing-wash: #f6ead2;
-  --color-failed-wash: #f7e2d9;
-  --color-integrating-wash: #ece6f1;
+  --color-serving-wash: #e6ebd2;
+  --color-healing-wash: #f9e3bd;
+  --color-failed-wash: #fad6c6;
+  --color-integrating-wash: #efe0ea;
 }
 
 @layer base {
