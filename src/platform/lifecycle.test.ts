@@ -284,7 +284,7 @@ for (const failure of ["missing golden match", "dropped attachments"] as const) 
     let restored = false;
     const probe = t.mock.method(extractor, "read", async () => restored ? initial.read : { kind: "error", reason: "The list moved." });
     const repair = t.mock.method(medic, "repair", async ({ baseline }: Parameters<typeof medic.repair>[0]) => {
-      assert.deepEqual(baseline.publishedDocumentCounts, { T1: 1 });
+      assert.deepEqual((baseline as { publishedDocumentCounts?: unknown }).publishedDocumentCounts, { T1: 1 });
       return { kind: "ok", recipe: initial.recipe, read: candidate, summary: "Found the list." };
     });
     const id = await add(url);
