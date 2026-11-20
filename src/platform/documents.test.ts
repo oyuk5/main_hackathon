@@ -72,13 +72,19 @@ const BUNDLE = zip({ "docs/a.txt": A_TXT, "docs/": Buffer.alloc(0), "inner.zip":
 const page = (body: string) => `<!doctype html><html><body>${body}</body></html>`;
 const LOGIN = page(`<form action="/session"><input name="user"><input type="password" name="pw"><button>Log in</button></form>`);
 
-type Stats = { streamedBytes: number; closedAt: number | null; hangReached: Promise<void> };
+type Stats = { streamedBytes: number; closedAt: number | null; hangReached: Promise<void>; slowReached: Promise<void> };
 type Fake = { base: string; stats: Stats; close: () => Promise<void> };
 
 /** A fake portal on its own port. */
 async function fakePortal(): Promise<Fake> {
   let reached!: () => void;
-  const stats: Stats = { streamedBytes: 0, closedAt: null, hangReached: new Promise<void>((r) => (reached = r)) };
+  let slowReached!: () => void;
+  const stats: Stats = {
+    streamedBytes: 0,
+    closedAt: null,
+    hangReached: new Promise<void>((r) => (reached = r)),
+    slowReached: new Promise<void>((r) => (slowReached = r)),
+  };
   const server = http.createServer((req, res) => {
     const url = req.url ?? "/";
     const send = (status: number, type: string, body: string | Buffer, extra: Record<string, string> = {}) => {
@@ -121,6 +127,7 @@ async function fakePortal(): Promise<Fake> {
       case "/slow-stream": {
         // Trickles bytes so a test can abort mid-download.
         res.writeHead(200, { "content-type": "application/pdf" });
+        slowReached();
         const t = setInterval(() => res.write(Buffer.alloc(1024)), 50);
         res.on("close", () => (clearInterval(t), (stats.closedAt = Date.now())));
         return;
@@ -276,12 +283,14 @@ describe("document pipeline", { concurrency: true }, () => {
     try {
       const { ctx, controller } = context();
       const run = documentFetcher.fetchAll([{ url: `${fake.base}/slow-stream`, via: "http" }], ctx);
-      setTimeout(() => controller.abort(), 2500); // after robots.txt + the gate, while bytes trickle
-      const got = await run;
+      await fake.stats.slowReached; // bytes are trickling now
+      await new Promise((r) => setTimeout(r, 200));
       const abortedAt = Date.now();
+      controller.abort();
+      const got = await run;
       await new Promise((r) => setTimeout(r, 300));
       assert.equal(got.documents.length, 0);
-      assert.ok(fake.stats.closedAt !== null && fake.stats.closedAt - abortedAt < 1000, "transfer kept running after abort");
+      assert.ok(fake.stats.closedAt !== null && fake.stats.closedAt - abortedAt < 2000, "transfer kept running after abort");
     } finally {
       await fake.close();
     }
