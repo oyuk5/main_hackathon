@@ -63,7 +63,7 @@ function route(lab: Lab, req: IncomingMessage, res: ServerResponse): void {
   const truth = path.match(/^\/_truth\/([a-z]+)\.json$/);
   if (truth) {
     const p = portals.find((x) => x.slug === truth[1]);
-    return p ? sendJson(res, truthOf(p, base)) : notFound(res);
+    return p ? sendJson(res, truthOf(p, base, lab.variants.get(p.slug) ?? "v1")) : notFound(res);
   }
   if (path === "/_lab/state") {
     return sendJson(res, {
@@ -71,6 +71,7 @@ function route(lab: Lab, req: IncomingMessage, res: ServerResponse): void {
         slug: p.slug,
         url: `${base}/${p.slug}/`,
         variant: lab.variants.get(p.slug) ?? "v1",
+        variants: { v1: "The original portal.", ...p.variants },
         requests: lab.traffic.get(p.slug)?.requests ?? 0,
         maxPerSecond: lab.traffic.get(p.slug)?.maxPerSecond ?? 0,
       })),
@@ -79,9 +80,11 @@ function route(lab: Lab, req: IncomingMessage, res: ServerResponse): void {
   if (path === "/_lab/variant" && req.method === "POST") {
     const slug = url.searchParams.get("portal") ?? "";
     const v = url.searchParams.get("v") ?? "v1";
-    if (!portals.some((p) => p.slug === slug)) return sendJson(res, { error: `unknown portal ${slug}` }, 404);
+    const p = portals.find((x) => x.slug === slug);
+    if (!p) return sendJson(res, { error: `unknown portal ${slug}` }, 404);
+    if (v !== "v1" && !(v in p.variants)) return sendJson(res, { error: `unknown variant ${v}`, variants: ["v1", ...Object.keys(p.variants)] }, 400);
     lab.variants.set(slug, v);
-    return sendJson(res, { portal: slug, variant: v });
+    return sendJson(res, { portal: slug, variant: v, change: v === "v1" ? "The original portal." : p.variants[v] });
   }
 
   const slug = path.split("/")[1] ?? "";
