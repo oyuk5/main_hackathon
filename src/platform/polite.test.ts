@@ -3,7 +3,8 @@ import { after, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
-import { closeSharedBrowser, parseRobots, politeBrowser, politeHttp, robotsAllow } from "./polite.js";
+import { closeSharedBrowser, gate, parseRobots, politeBrowser, politeHttp, robotsAllow, robotsAllows } from "./polite.js";
+import { fakePortal } from "./testkit.js";
 
 describe("robots.txt rules", () => {
   const allowed = (txt: string, path: string, token = "watchtowerbot") => robotsAllow(parseRobots(txt, token), path);
@@ -80,5 +81,63 @@ describe("robots.txt enforcement", () => {
     } finally {
       await p.close();
     }
+  });
+});
+
+describe("per-portal gate", () => {
+  it("spaces requests to one host by at least a second, and leaves other hosts alone", async () => {
+    const host = `gate-test-${Date.now()}.example`;
+    const t0 = Date.now();
+    await gate(host);
+    await gate(host);
+    await gate(host);
+    const same = Date.now() - t0;
+    assert.ok(same >= 2000, `three requests to one host took only ${same} ms`);
+    const t1 = Date.now();
+    await Promise.all([gate(`a-${host}`), gate(`b-${host}`), gate(`c-${host}`)]);
+    assert.ok(Date.now() - t1 < 200, "different hosts must not wait for each other");
+  });
+
+  it("an abort while waiting rejects at once", async () => {
+    const host = `abort-test-${Date.now()}.example`;
+    await gate(host);
+    const c = new AbortController();
+    const t0 = Date.now();
+    const waiting = gate(host, c.signal);
+    setTimeout(() => c.abort(), 50);
+    await assert.rejects(waiting, /aborted/);
+    assert.ok(Date.now() - t0 < 500);
+  });
+});
+
+describe("robots.txt edge cases", () => {
+  it("a robots.txt that answers 500 allows everything", async () => {
+    const p = await fakePortal({ "/robots.txt": (_q, res) => res.writeHead(500).end("broken") });
+    try {
+      assert.equal(await robotsAllows(`${p.base}/tenders`), true);
+    } finally {
+      await p.close();
+    }
+  });
+
+  it("an unreachable portal's robots.txt counts as allowed (the real request will fail on its own)", async () => {
+    assert.equal(await robotsAllows("http://127.0.0.1:9/tenders"), true);
+  });
+
+  it("robots.txt is fetched once per portal, even for parallel requests", async () => {
+    const p = await fakePortal({ "/robots.txt": (_q, res) => res.end("User-agent: *\nDisallow: /x\n") });
+    try {
+      await Promise.all([robotsAllows(`${p.base}/a`), robotsAllows(`${p.base}/b`), robotsAllows(`${p.base}/c`)]);
+      assert.equal(p.hits.filter((h) => h === "/robots.txt").length, 1);
+    } finally {
+      await p.close();
+    }
+  });
+
+  it("matches query strings and ignores rules for other bots", () => {
+    const txt = "User-agent: Googlebot\nDisallow: /\n\nUser-agent: *\nDisallow: /*?print=1\n";
+    const rules = parseRobots(txt, "watchtowerbot");
+    assert.equal(robotsAllow(rules, "/tender/1?print=1"), false);
+    assert.equal(robotsAllow(rules, "/tender/1"), true);
   });
 });

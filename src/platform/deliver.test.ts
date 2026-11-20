@@ -88,3 +88,123 @@ test("a known tender whose documents changed keeps its old documents until its t
   await deliver("p2", read([changed, tender(7, 1), tender(8, 1), tender(9, 1)]), ctx());
   assert.equal(store.listTenders("p2").find((t) => t.id === "T1")!.documents.length, 2, "T1 gets its new documents in the next read");
 });
+
+// ------------------------------------------------------------ edge cases
+
+let portalNo = 0;
+function newPortal(): string {
+  const id = `edge${++portalNo}`;
+  store.insertPortal({ id, url: `https://${id}.example/`, state: "integrating", reason: "Attaching.", createdAt: "2026-11-20T18:00:00+01:00" });
+  return id;
+}
+const byId = (p: string) => Object.fromEntries(store.listTenders(p).map((t) => [t.id, t]));
+
+test("the first of two tenders with the same id wins", async () => {
+  const p = newPortal();
+  await deliver(p, read([{ ...tender(1, 0), title: "First" }, { ...tender(1, 0), title: "Second" }]), ctx());
+  assert.equal(store.listTenders(p).length, 1);
+  assert.equal(byId(p).T1!.title, "First");
+});
+
+test("withdrawn and passed-deadline tenders get their status; a deadline without offset is dropped, not trusted", async () => {
+  const p = newPortal();
+  await deliver(
+    p,
+    read([
+      { ...tender(1, 0), withdrawn: true },
+      { ...tender(2, 0), submissionDeadline: "2025-01-10T12:00:00+01:00" },
+      { ...tender(3, 0), submissionDeadline: "2025-01-10T12:00:00" },
+    ]),
+    ctx(),
+  );
+  const t = byId(p);
+  assert.equal(t.T1!.status, "withdrawn");
+  assert.equal(t.T2!.status, "closed");
+  assert.equal(t.T3!.submissionDeadline, null, "a time without offset must not be served");
+  assert.equal(t.T3!.status, "open", "an untrusted deadline must not close a tender");
+});
+
+test("tenders without a usable id or address are left out, the rest are served", async () => {
+  const p = newPortal();
+  const out = await deliver(p, read([{ ...tender(1, 0), id: "" }, { ...tender(2, 0), url: "/relative/path" }, tender(3, 0)]), ctx());
+  assert.deepEqual(Object.keys(byId(p)), ["T3"]);
+  assert.match(out.summary, /^Serving 1 open tender \(1 new, 0 changed\)\./);
+});
+
+test("invalid optional fields are dropped, not served", async () => {
+  const p = newPortal();
+  await deliver(p, read([{ ...tender(1, 0), cpvCodes: ["4500000-7"], procedureType: "Openbaar" as never, title: "" }]), ctx());
+  const t = byId(p).T1!;
+  assert.equal(t.cpvCodes, undefined);
+  assert.equal(t.procedureType, undefined);
+  assert.equal(t.title, null, "an empty title is a missing title");
+});
+
+test("a failed document fetch is retried in the next read and then recovers", async () => {
+  const p = newPortal();
+  let fail = true;
+  const flaky = http.createServer((req, res) => {
+    if (req.url === "/robots.txt") return void res.writeHead(404).end();
+    if (fail) return void res.writeHead(503).end("busy");
+    res.writeHead(200, { "content-type": "application/pdf", "content-disposition": 'attachment; filename="ok.pdf"' }).end("%PDF ok");
+  });
+  await new Promise<void>((r) => flaky.listen(0, "127.0.0.1", r));
+  const url = `http://127.0.0.1:${(flaky.address() as AddressInfo).port}/doc.pdf`;
+  try {
+    const t = { ...tender(1, 0), documentRefs: [{ url, via: "http" as const }] };
+    await deliver(p, read([t]), ctx());
+    assert.equal(byId(p).T1!.documents.length, 0, "first try failed");
+    assert.equal(store.getTenderRow(p, "T1")!.refs_hash, "", "marked for retry");
+    fail = false;
+    const again = await deliver(p, read([t]), ctx());
+    assert.equal(byId(p).T1!.documents.length, 1, "second read fetched it");
+    assert.notEqual(store.getTenderRow(p, "T1")!.refs_hash, "");
+    assert.match(again.summary, /\(0 new, 1 changed\)/);
+  } finally {
+    flaky.close();
+  }
+});
+
+test("lastChangedAt stays the same when nothing changed", async () => {
+  const p = newPortal();
+  await deliver(p, read([tender(1, 0)]), ctx());
+  const first = byId(p).T1!.lastChangedAt;
+  await new Promise((r) => setTimeout(r, 1100));
+  const out = await deliver(p, read([tender(1, 0)]), ctx());
+  assert.equal(byId(p).T1!.lastChangedAt, first);
+  assert.match(out.summary, /\(0 new, 0 changed\)/);
+});
+
+test("a tender missing after a full read is closed; after a capped read it stays open", async () => {
+  const { Recipe } = await import("../shared/recipe.js");
+  const recipe = Recipe.parse({
+    schemaVersion: 1,
+    tier: "jsonApi",
+    timeZone: "Europe/Amsterdam",
+    list: { request: { url: "https://x.example/api?page={page}" }, pagination: { type: "pageParam", start: 0, maxPages: 2 }, item: "$.items[*]" },
+    listFields: { id: { jsonPath: "$.id" } },
+  });
+  const capped = newPortal();
+  store.saveRecipe(capped, recipe, "attach", "test", "2026-11-20T18:00:00+01:00");
+  await deliver(capped, read([tender(1, 0), tender(2, 0)]), ctx());
+  const cappedRead = read([tender(1, 0)]);
+  cappedRead.diagnostics.listPages = 2; // hit maxPages: older tenders were not seen
+  await deliver(capped, cappedRead, ctx());
+  assert.equal(byId(capped).T2!.status, "open");
+
+  const full = newPortal();
+  store.saveRecipe(full, recipe, "attach", "test", "2026-11-20T18:00:00+01:00");
+  await deliver(full, read([tender(1, 0), tender(2, 0)]), ctx());
+  await deliver(full, read([tender(1, 0)]), ctx()); // 1 page of 2 allowed: the whole list
+  assert.equal(byId(full).T2!.status, "closed");
+});
+
+test("an abort in the middle of delivery closes nothing", async () => {
+  const p = newPortal();
+  await deliver(p, read([tender(1, 0), tender(2, 0)]), ctx());
+  const c = new AbortController();
+  c.abort();
+  const aborted = { http: politeHttp(c.signal), browser: politeBrowser(c.signal), signal: c.signal, log: () => {} } as unknown as PortalContext;
+  await deliver(p, read([]), aborted);
+  assert.deepEqual(store.listTenders(p).map((t) => t.status), ["open", "open"]);
+});

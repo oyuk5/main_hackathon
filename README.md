@@ -56,6 +56,7 @@ Each portal is always in one of four states, with a one-sentence `reason` an ope
 | `DOC_REFS_PER_READ` | no | 300 | Document downloads per read at most; on a big portal the rest follow in reads one minute apart. |
 | `MIN_REQUEST_GAP_MS` | no | 1100 | Gap between two requests to one portal; never below 1000. |
 | `MAX_FILE_BYTES` | no | 262144000 (250 MB) | Largest document kept. |
+| `BROWSER_STEP_MS` | no | 20000 | How long a browser download waits for a page, a click target or the file. |
 | `USER_AGENT` | no | `WatchtowerBot/0.1 (...)` | How we identify ourselves to portals. |
 | `TZ_DISPLAY` | no | `Europe/Berlin` | Time zone for times the system itself writes. |
 | `LOG_LEVEL` | no | `warn` | Server log level. |

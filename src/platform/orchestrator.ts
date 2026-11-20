@@ -292,16 +292,29 @@ export async function deliver(portalId: string, read: OkRead, ctx: PortalContext
   let fresh = 0;
   let changed = 0;
 
-  // One entry per tender id, first occurrence wins.
+  // One entry per tender id, first occurrence wins. A tender without a usable id or address cannot
+  // be served (the contract requires both), so it is left out and logged, never sent half-valid.
   const unique: ExtractedTender[] = [];
+  let unusable = 0;
   for (const et of read.tenders) {
+    if (!Tender.shape.id.safeParse(et.id).success || !Tender.shape.url.safeParse(et.url).success) {
+      unusable += 1;
+      continue;
+    }
     if (seen.has(et.id)) continue;
     seen.add(et.id);
     unique.push(et);
   }
+  if (unusable > 0) ctx.log(`Left out ${count(unusable, "tender")} without a usable id or address.`, "warn");
 
-  const statusOf = (et: ExtractedTender): TenderT["status"] =>
-    et.withdrawn ? "withdrawn" : et.submissionDeadline && toEpoch(et.submissionDeadline) < Date.now() ? "closed" : "open";
+  // Status comes from the same deadline the API shows: one without an offset is dropped by
+  // sanitize, so it must not make a tender "closed" either.
+  const validDeadline = (et: ExtractedTender) =>
+    et.submissionDeadline && Tender.shape.submissionDeadline.safeParse(et.submissionDeadline).success ? et.submissionDeadline : null;
+  const statusOf = (et: ExtractedTender): TenderT["status"] => {
+    const deadline = validDeadline(et);
+    return et.withdrawn ? "withdrawn" : deadline && toEpoch(deadline) < Date.now() ? "closed" : "open";
+  };
 
   // Documents are fetched again only when the refs change, or when the last fetch had problems
   // (stored with an empty refs hash). Which tenders get their turn in this read: see budget.ts.

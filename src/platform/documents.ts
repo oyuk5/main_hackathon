@@ -28,7 +28,7 @@ fs.mkdirSync(filesDir, { recursive: true });
 fs.mkdirSync(tmpDir, { recursive: true });
 
 /** How long the browser path waits for a page, a click target, or a download to start. */
-const BROWSER_STEP_MS = 20_000;
+const BROWSER_STEP_MS = Math.max(1000, Number(process.env.BROWSER_STEP_MS) || 20_000);
 /** How much of an HTML answer we read to tell a login page from a captcha or a summary page. */
 const HTML_SNIFF_BYTES = 256 * 1024;
 
@@ -152,7 +152,9 @@ async function readTextCapped(res: Response, max: number): Promise<string> {
 
 function openZip(file: string): Promise<yauzl.ZipFile> {
   return new Promise((resolve, reject) =>
-    yauzl.open(file, { lazyEntries: true, autoClose: false }, (err, zip) => (err || !zip ? reject(err ?? new Error("cannot open")) : resolve(zip))),
+    // decodeStrings: false so one entry named "../x" does not make yauzl reject the whole archive;
+    // we decode names ourselves and only ever keep the last path segment.
+    yauzl.open(file, { lazyEntries: true, autoClose: false, decodeStrings: false }, (err, zip) => (err || !zip ? reject(err ?? new Error("cannot open")) : resolve(zip))),
   );
 }
 
@@ -173,6 +175,13 @@ function nextEntry(zip: yauzl.ZipFile): Promise<yauzl.Entry | null> {
   });
 }
 
+/** Entry name from raw bytes: UTF-8 when the ZIP says so (bit 11), else CP437, which matches Latin-1 for ASCII. */
+function entryName(entry: yauzl.Entry): string {
+  const raw = entry.fileName as unknown as Buffer | string;
+  if (typeof raw === "string") return raw;
+  return raw.toString((entry.generalPurposeBitFlag & 0x800) !== 0 ? "utf8" : "latin1");
+}
+
 function entryStream(zip: yauzl.ZipFile, entry: yauzl.Entry): Promise<Readable> {
   return new Promise((resolve, reject) => zip.openReadStream(entry, (e, s) => (e || !s ? reject(e ?? new Error("unreadable")) : resolve(s))));
 }
@@ -189,8 +198,9 @@ async function unzip(file: string, zipName: string, depth: number, signal: Abort
   try {
     for (let entry = await nextEntry(zip); entry; entry = await nextEntry(zip)) {
       if (signal.aborted) break;
-      const name = safeName(entry.fileName);
-      if (entry.fileName.endsWith("/") || !name) continue;
+      const raw = entryName(entry);
+      const name = safeName(raw);
+      if (/[\\/]$/.test(raw) || !name) continue;
       if (entry.uncompressedSize > config.maxFileBytes) {
         problems.push(`Left out ${name} from ${zipName}: it is over ${capMb()} MB.`);
         continue;
