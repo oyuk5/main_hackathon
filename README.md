@@ -2,21 +2,37 @@
 
 Watchtower connects public-tender portals on its own, watches whether each one still delivers correctly, and repairs itself when a portal changes. Built for Patterno's challenge at the MAIN AI Hackathon 2026.
 
-**Team: start with [docs/ONBOARDING.md](docs/ONBOARDING.md).**
+## Try it in 2 minutes
 
-## Run it
+From the repository root, create `.env` if you don't already have one, then set `OPENAI_API_KEY`, `MODEL_SMART`, and `MODEL_FAST` in it. See [Environment variables](#environment-variables) for provider settings.
 
 ```bash
-cp .env.example .env        # then fill in OPENAI_API_KEY, MODEL_SMART, MODEL_FAST
+test -f .env || cp .env.example .env
 docker build -t watchtower .
 docker run -p 8080:8080 --env-file .env watchtower
 ```
 
-API on http://localhost:8080, dashboard at `/`. The key is passed at run time and never baked into the image.
+Open http://localhost:8080. In a second terminal, register a portal:
+
+```bash
+curl -fsS http://localhost:8080/portals \
+  -H 'Content-Type: application/json' \
+  --data '{"url":"https://www.tenderned.nl/aankondigingen/overzicht"}'
+```
+
+The API returns an ID immediately; the first read runs in the background and can take longer than two minutes. **Portals** shows delivery state, tender counts, and a map; open a row for its run history. **Issues** shows what needs attention, what is being repaired, and what recovered. **Log** shows what happened across portals. The theme switch offers light, dark, or system settings.
+
+**Demo without a model key:** with Node.js 22.13 or later, run the following and open http://localhost:8083. The demo seeds sample portals and repair history without starting the worker. Leave **Read now** untouched to keep the demo on sample data.
+
+```bash
+npm ci
+npm run build:web
+DATA_DIR=/tmp/wt-demo PORT=8083 npx tsx scripts/demo.ts
+```
 
 Local development: `npm install`, `npx playwright install chromium` (once), then `npm run dev` (API) and `npm run dev:web` (dashboard).
 
-Dashboard with sample data and no portal reads: `npm run build:web`, then `PORT=8083 DATA_DIR=/tmp/wt-demo npx tsx scripts/demo.ts` and open http://localhost:8083. It seeds seven portals in every state, including a repair with its recipe change. Pressing "Read now" there starts a real read.
+**Team: start with [docs/ONBOARDING.md](docs/ONBOARDING.md).**
 
 ## How it works
 
@@ -85,7 +101,7 @@ B's separately measured attach run (Platforma Zakupowa): **3 calls, ~21k input a
 
 | Call | Answer |
 |---|---|
-| `POST /portals` `{ "url": ... }` | 201 with the portal; the same address twice gives the same id |
+| `POST /portals` `{ "url": ... }` | 201 with `{ "id": ... }`; the same address twice gives the same id |
 | `GET /portals`, `GET /portals/{id}` | Portals with `state`, `reason`, `tenderCount`, `lastSuccessAt` |
 | `POST /portals/{id}/refresh` | 202 with a `runId` (the running job's, if one runs) |
 | `GET /portals/{id}/tenders[?changedSince=]` | Tenders with their documents |
