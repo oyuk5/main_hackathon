@@ -45,7 +45,7 @@ export function Detail({ id, onClose, onChanged }: { id: string; onClose: () => 
   }, [onClose]);
 
   return (
-    <div className="fixed inset-0 z-20">
+    <div className="fixed inset-0 z-40">
       <div className="backdrop absolute inset-0 bg-ink/25" onClick={onClose} aria-hidden="true" />
       <div
         ref={panel}
@@ -266,7 +266,7 @@ function Event({ run, d, now }: { run: RunRow; d: PortalDetail; now: number }) {
       <div className="flex flex-wrap items-baseline gap-x-3">
         <p className={`text-[14.5px] font-semibold ${text}`}>{title}</p>
         <p className="text-[13px] text-slate">
-          {when(run.started_at, now)}
+          <time dateTime={run.started_at}>{when(run.started_at, now)}</time>
           {run.finished_at && <> in {duration(run.started_at, run.finished_at)}</>}
           {cost > 0 && <>, model cost <span className="num">{usd(cost)}</span></>}
         </p>
