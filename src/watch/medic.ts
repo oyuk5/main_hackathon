@@ -13,7 +13,7 @@ import type {
   RepairOutcome,
   Verdict,
 } from "../shared/modules.js";
-import { buildRepairSummary } from "./recipe-diff.js";
+import { buildRepairSummary, summarizeRecipeChanges } from "./recipe-diff.js";
 import type {
   GoldenVerificationResult,
   SnapshotOutcome,
@@ -21,6 +21,14 @@ import type {
 } from "./types.js";
 
 const DEFAULT_MAX_PATCH_ATTEMPTS = 3;
+const MAX_SAMPLE_TENDERS = 2;
+
+interface AttemptFeedback {
+  attempt: number;
+  changesTried: string;
+  reason: string;
+  sampleTenders: Array<Record<string, unknown>>;
+}
 
 const PatchResponseSchema = z.object({
   recipe: Recipe,
@@ -69,18 +77,33 @@ function formatSnapshotSection(snapshot: SnapshotOutcome): string {
   if (snapshot.kind !== "ok") {
     return `Snapshot status: ${snapshot.kind} (${snapshot.reason})`;
   }
-  return [
+  const sections = [
     `Final URL: ${snapshot.finalUrl} (HTTP ${snapshot.httpStatus}, ${snapshot.contentType})`,
+    snapshot.capturedApiUrls && snapshot.capturedApiUrls.length > 0
+      ? `Discovered JSON API URLs:\n${snapshot.capturedApiUrls.map((u) => `- ${u}`).join("\n")}`
+      : null,
     `Structure summary:\n${snapshot.structureSummary}`,
     `Compressed content:\n${snapshot.compressedContent}`,
-  ].join("\n\n");
+  ];
+  return sections.filter((s): s is string => s !== null).join("\n\n");
+}
+
+function formatAttemptHistory(history: AttemptFeedback[]): string | null {
+  if (history.length === 0) return null;
+  const entries = history.map((item) => {
+    const header = `Attempt ${item.attempt} (${item.changesTried}) failed: ${item.reason}`;
+    return item.sampleTenders.length > 0
+      ? `${header}\nSample extracted tenders:\n${JSON.stringify(item.sampleTenders, null, 2)}`
+      : header;
+  });
+  return `Previous patch attempts failed verification:\n${entries.join("\n\n")}\nFix these issues without repeating failed selectors.`;
 }
 
 function buildRepairPrompt(params: {
   recipe: Recipe;
   triage: TriageReport;
   golden: GoldenRecord[];
-  previousFeedback: string | null;
+  attemptHistory: AttemptFeedback[];
 }): string {
   const sections = [
     `Triage category: ${params.triage.category}`,
@@ -93,11 +116,22 @@ function buildRepairPrompt(params: {
     params.golden.length > 0
       ? `Golden records to preserve:\n${JSON.stringify(params.golden, null, 2)}`
       : null,
-    params.previousFeedback
-      ? `Previous patch attempt failed verification:\n${params.previousFeedback}\nFix these issues in the updated recipe.`
-      : null,
+    formatAttemptHistory(params.attemptHistory),
   ];
   return sections.filter((s): s is string => s !== null).join("\n\n");
+}
+
+function summarizeSampleTenders(read: ReadOutcome): Array<Record<string, unknown>> {
+  if (read.kind !== "ok") return [];
+  return read.tenders.slice(0, MAX_SAMPLE_TENDERS).map((t) => ({
+    id: t.id,
+    url: t.url,
+    title: t.title,
+    buyerName: t.buyerName,
+    publicationDate: t.publicationDate,
+    submissionDeadline: t.submissionDeadline,
+    documentRefsCount: t.documentRefs.length,
+  }));
 }
 
 function describeVerdictFailure(verdict: Verdict): string {
@@ -115,7 +149,7 @@ function describeGoldenFailure(golden: GoldenVerificationResult): string {
 type VerificationResult =
   | { kind: "ok"; read: Extract<ReadOutcome, { kind: "ok" }>; golden: GoldenVerificationResult }
   | { kind: "blocked"; reason: string }
-  | { kind: "retry"; reason: string };
+  | { kind: "retry"; reason: string; sampleTenders: Array<Record<string, unknown>> };
 
 async function verifyCandidate(
   candidate: Recipe,
@@ -128,12 +162,13 @@ async function verifyCandidate(
   if (verdict.kind === "blocked") {
     return { kind: "blocked", reason: verdict.reason };
   }
+  const sampleTenders = summarizeSampleTenders(read);
   if (verdict.kind !== "healthy" || read.kind !== "ok") {
-    return { kind: "retry", reason: describeVerdictFailure(verdict) };
+    return { kind: "retry", reason: describeVerdictFailure(verdict), sampleTenders };
   }
   const golden = deps.verifyGolden(read.tenders, baseline.golden);
   if (golden.mismatches.length > 0) {
-    return { kind: "retry", reason: describeGoldenFailure(golden) };
+    return { kind: "retry", reason: describeGoldenFailure(golden), sampleTenders };
   }
   return { kind: "ok", read, golden };
 }
@@ -143,7 +178,7 @@ async function requestPatch(
     recipe: Recipe;
     triage: TriageReport;
     golden: GoldenRecord[];
-    previousFeedback: string | null;
+    attemptHistory: AttemptFeedback[];
   },
   ctx: PortalContext,
 ): Promise<PatchResponse> {
@@ -158,14 +193,25 @@ async function requestPatch(
 
 type PatchAttemptOutcome =
   | { kind: "resolved"; outcome: RepairOutcome }
-  | { kind: "retry"; reason: string };
+  | { kind: "retry"; feedback: AttemptFeedback };
+
+function normalizePatchedRecipe(
+  patched: Recipe,
+  original: Recipe,
+  triageCategory: TriageReport["category"],
+): Recipe {
+  if (triageCategory !== "format-changed" && patched.timeZone.trim().length === 0) {
+    return { ...patched, timeZone: original.timeZone };
+  }
+  return patched;
+}
 
 async function executePatchAttempt(params: {
   attempt: number;
   recipe: Recipe;
   baseline: Baseline;
   triage: TriageReport;
-  previousFeedback: string | null;
+  attemptHistory: AttemptFeedback[];
   deps: MedicDeps;
   ctx: PortalContext;
 }): Promise<PatchAttemptOutcome> {
@@ -176,20 +222,24 @@ async function executePatchAttempt(params: {
         recipe: params.recipe,
         triage: params.triage,
         golden: params.baseline.golden,
-        previousFeedback: params.previousFeedback,
+        attemptHistory: params.attemptHistory,
       },
       params.ctx,
     );
   } catch (err) {
     const reason = `Repair model error: ${formatErrorMessage(err)}`;
     params.ctx.log(`Repair attempt ${params.attempt} failed: ${reason}`, "warn");
-    return { kind: "retry", reason };
+    return {
+      kind: "retry",
+      feedback: { attempt: params.attempt, changesTried: "LLM request failed", reason, sampleTenders: [] },
+    };
   }
 
   if (params.ctx.signal.aborted) {
     return { kind: "resolved", outcome: { kind: "failed", reason: "Repair cancelled." } };
   }
-  const verified = await verifyCandidate(patched.recipe, params.baseline, params.deps, params.ctx);
+  const candidateRecipe = normalizePatchedRecipe(patched.recipe, params.recipe, params.triage.category);
+  const verified = await verifyCandidate(candidateRecipe, params.baseline, params.deps, params.ctx);
   if (verified.kind === "blocked") {
     params.ctx.log(`Portal is blocked: ${verified.reason}`, "warn");
     return { kind: "resolved", outcome: { kind: "failed", reason: verified.reason } };
@@ -198,17 +248,25 @@ async function executePatchAttempt(params: {
     const summary = buildRepairSummary({
       llmNote: patched.changeNote,
       before: params.recipe,
-      after: patched.recipe,
+      after: candidateRecipe,
       golden: verified.golden,
     });
     params.ctx.log(summary);
     return {
       kind: "resolved",
-      outcome: { kind: "ok", recipe: patched.recipe, read: verified.read, summary },
+      outcome: { kind: "ok", recipe: candidateRecipe, read: verified.read, summary },
     };
   }
   params.ctx.log(`Repair attempt ${params.attempt} did not pass verification: ${verified.reason}`, "warn");
-  return { kind: "retry", reason: verified.reason };
+  return {
+    kind: "retry",
+    feedback: {
+      attempt: params.attempt,
+      changesTried: summarizeRecipeChanges(params.recipe, candidateRecipe),
+      reason: verified.reason,
+      sampleTenders: verified.sampleTenders,
+    },
+  };
 }
 
 type PatchLoopResult =
@@ -224,16 +282,16 @@ async function runPatchLoop(params: {
 }): Promise<PatchLoopResult> {
   const maxAttempts = params.deps.maxPatchAttempts ?? DEFAULT_MAX_PATCH_ATTEMPTS;
   let lastFailureReason = params.triage.reason;
-  let feedback: string | null = null;
+  const attemptHistory: AttemptFeedback[] = [];
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     if (params.ctx.signal.aborted) {
       return { kind: "resolved", outcome: { kind: "failed", reason: "Repair cancelled." } };
     }
-    const result = await executePatchAttempt({ ...params, attempt, previousFeedback: feedback });
+    const result = await executePatchAttempt({ ...params, attempt, attemptHistory });
     if (result.kind === "resolved") return result;
-    lastFailureReason = result.reason;
-    feedback = result.reason;
+    lastFailureReason = result.feedback.reason;
+    attemptHistory.push(result.feedback);
   }
 
   return { kind: "exhausted", lastFailureReason };

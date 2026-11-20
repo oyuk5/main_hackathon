@@ -148,6 +148,24 @@ describe("compressHtml", () => {
     assert.equal(compressed.includes("Notice 1"), true);
     assert.equal(compressed.includes("Notice 3"), false);
   });
+
+  it("preserves both first tender item and bottom pagination under tight maxChars", () => {
+    const filler = Array.from({ length: 12 }, (_, idx) => `<p>Summary paragraph ${idx + 1} with extra procurement metadata text</p>`).join("");
+    const html = `
+      <main>
+        <div class="tender-item">First Tender Item Title</div>
+        ${filler}
+        <footer><nav class="pagination"><a rel="next" href="?page=2">Next Page</a></nav></footer>
+      </main>
+    `;
+
+    const { compressed } = compressHtml(html, 260);
+
+    assert.ok(compressed.length <= 260);
+    assert.equal(compressed.includes("First Tender Item Title"), true);
+    assert.equal(compressed.includes('rel="next"'), true);
+    assert.equal(compressed.includes("middle truncated"), true);
+  });
 });
 
 describe("compressJson", () => {
@@ -206,6 +224,53 @@ describe("detectBlockInContent", () => {
     `;
 
     assert.equal(detectBlockInContent(normalHtml, 200), null);
+  });
+
+  it("ignores header login forms and passive recaptcha when substantial tender list content exists", () => {
+    const rows = Array.from(
+      { length: 4 },
+      (_, idx) => `<tr class="tender-row"><td>Tender #${idx + 1}</td><td>Buyer ${idx + 1}</td></tr>`,
+    ).join("");
+
+    const headerLoginHtml = `
+      <html>
+        <head><title>Open Tenders</title></head>
+        <body>
+          <header><form action="/login"><input type="password" name="pw"></form></header>
+          <main><table><tbody>${rows}</tbody></table></main>
+        </body>
+      </html>
+    `;
+    assert.equal(detectBlockInContent(headerLoginHtml, 200, "https://portal.example.eu/tenders"), null);
+
+    const passiveCaptchaHtml = `
+      <html>
+        <head><title>Open Tenders</title><script src="https://www.google.com/recaptcha/api.js"></script></head>
+        <body>
+          <div class="g-recaptcha" data-sitekey="abc"></div>
+          <main><table><tbody>${rows}</tbody></table></main>
+        </body>
+      </html>
+    `;
+    assert.equal(detectBlockInContent(passiveCaptchaHtml, 200, "https://portal.example.eu/tenders"), null);
+  });
+
+  it("still flags login redirect URL with password input even when links exist", () => {
+    const links = Array.from({ length: 6 }, (_, idx) => `<a href="/help/${idx}">Help link item ${idx}</a>`).join("");
+    const loginRedirectHtml = `
+      <html>
+        <head><title>Sign in</title></head>
+        <body>
+          <form action="/login"><input type="password" name="password"></form>
+          <main>${links}</main>
+        </body>
+      </html>
+    `;
+
+    assert.match(
+      detectBlockInContent(loginRedirectHtml, 200, "https://portal.example.eu/login") ?? "",
+      /login|password/i,
+    );
   });
 });
 

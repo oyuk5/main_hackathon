@@ -15,6 +15,7 @@ export type SnapshotOutcome =
       contentType: string;
       compressedContent: string;
       structureSummary: string;
+      capturedApiUrls?: string[];
     }
   | { kind: "blocked"; reason: string; httpStatus?: number }
   | { kind: "unreachable"; reason: string; httpStatus?: number };

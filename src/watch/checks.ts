@@ -12,14 +12,13 @@ import type {
 import { toEpoch } from "../shared/time.js";
 import type { GoldenVerificationResult } from "./types.js";
 
-const REQUIRED_FIELDS = [
-  "id",
-  "url",
-  "title",
+const STRICT_REQUIRED_FIELDS = ["id", "url", "title"] as const;
+const NULLABLE_REQUIRED_FIELDS = [
   "buyerName",
   "publicationDate",
   "submissionDeadline",
 ] as const;
+const REQUIRED_FIELDS = [...STRICT_REQUIRED_FIELDS, ...NULLABLE_REQUIRED_FIELDS] as const;
 
 const GOLDEN_FIELDS = [
   "title",
@@ -31,10 +30,12 @@ const GOLDEN_FIELDS = [
 ] as const;
 
 const COUNT_DROP_RATIO = 0.5;
+const COUNT_DROP_MIN_BASELINE = 6;
 const BASELINE_FILL_MIN_SAMPLES = 3;
 const BASELINE_FILL_HIGH_THRESHOLD = 0.8;
 const CURRENT_FILL_COLLAPSE_THRESHOLD = 0.3;
 const ISO_DATE_PREFIX_LENGTH = 10;
+const MIN_FUZZY_TITLE_LENGTH = 8;
 const CPV_CODE_PATTERN = /^\d{8}$/;
 
 type RequiredField = (typeof REQUIRED_FIELDS)[number];
@@ -69,6 +70,68 @@ function compareGoldenFields(record: GoldenRecord, tender: ExtractedTender): str
   return mismatches;
 }
 
+function buildUniqueTenderLookup(
+  tenders: ExtractedTender[],
+  keyFn: (tender: ExtractedTender) => string | null,
+): Map<string, ExtractedTender> {
+  const seen = new Map<string, ExtractedTender | null>();
+  for (const tender of tenders) {
+    const key = keyFn(tender);
+    if (!key) continue;
+    seen.set(key, seen.has(key) ? null : tender);
+  }
+  const unique = new Map<string, ExtractedTender>();
+  for (const [key, tender] of seen) {
+    if (tender) unique.set(key, tender);
+  }
+  return unique;
+}
+
+function findFuzzyGoldenMatch(
+  record: GoldenRecord,
+  byUrl: Map<string, ExtractedTender>,
+  byTitle: Map<string, ExtractedTender>,
+): { tender: ExtractedTender; matchedBy: "url" | "title" } | null {
+  const url = normalizeComparable(record.fields.url);
+  if (url) {
+    const byUrlMatch = byUrl.get(url);
+    if (byUrlMatch && byUrlMatch.id !== record.id) {
+      return { tender: byUrlMatch, matchedBy: "url" };
+    }
+  }
+  const title = normalizeComparable(record.fields.title);
+  if (title && title.length >= MIN_FUZZY_TITLE_LENGTH) {
+    const byTitleMatch = byTitle.get(title);
+    if (byTitleMatch && byTitleMatch.id !== record.id) {
+      return { tender: byTitleMatch, matchedBy: "title" };
+    }
+  }
+  return null;
+}
+
+function detectGoldenIdDrift(
+  tenders: ExtractedTender[],
+  golden: GoldenRecord[],
+): GoldenVerificationResult {
+  const byUrl = buildUniqueTenderLookup(tenders, (t) => normalizeComparable(t.url));
+  const byTitle = buildUniqueTenderLookup(tenders, (t) => {
+    const title = normalizeComparable(t.title);
+    return title && title.length >= MIN_FUZZY_TITLE_LENGTH ? title : null;
+  });
+
+  let checked = 0;
+  const mismatches: string[] = [];
+  for (const record of golden) {
+    const found = findFuzzyGoldenMatch(record, byUrl, byTitle);
+    if (!found) continue;
+    checked += 1;
+    mismatches.push(
+      `Golden tender "${record.id}" appears under a changed ID "${found.tender.id}" (matched by ${found.matchedBy}).`,
+    );
+  }
+  return { checked, matched: 0, mismatches };
+}
+
 export function verifyGoldenRecords(
   tenders: ExtractedTender[],
   golden: GoldenRecord[],
@@ -93,6 +156,10 @@ export function verifyGoldenRecords(
     } else {
       mismatches.push(...recordMismatches);
     }
+  }
+
+  if (golden.length > 0 && checked === 0) {
+    return detectGoldenIdDrift(tenders, golden);
   }
 
   return { checked, matched, mismatches };
@@ -145,6 +212,15 @@ function formatPercent(fill: FieldFill): string {
   return `${Math.round((fill.filled / fill.total) * 100)}%`;
 }
 
+function isStrictRequiredField(field: RequiredField): boolean {
+  return (STRICT_REQUIRED_FIELDS as readonly string[]).includes(field);
+}
+
+function hadMeaningfulBaselineFill(previous: FieldFill | undefined): boolean {
+  if (!previous) return false;
+  return previous.filled >= 2 || (previous.total > 0 && previous.filled / previous.total >= 0.5);
+}
+
 function isBaselineFillCollapsed(current: FieldFill, previous: FieldFill | undefined): boolean {
   if (!previous) return false;
   if (previous.total < BASELINE_FILL_MIN_SAMPLES) return false;
@@ -174,7 +250,9 @@ function checkCountDrop(
   diagnostics: ReadDiagnostics,
   baseline: Baseline,
 ): CheckResult | null {
-  if (baseline.lastGoodCount === null || baseline.lastGoodCount <= 0) return null;
+  if (baseline.lastGoodCount === null || baseline.lastGoodCount < COUNT_DROP_MIN_BASELINE) {
+    return null;
+  }
   if (diagnostics.emptyStateText) return null;
 
   const minimumExpected = baseline.lastGoodCount * COUNT_DROP_RATIO;
@@ -202,16 +280,24 @@ function checkFieldFill(
     const current = diagnostics.fieldFill[field] ?? computeFieldFill(tenders, field);
     if (current.total === 0) continue;
 
+    const previous = baseline.lastGoodFieldFill?.[field];
     if (current.filled === 0) {
-      results.push({
-        name: `field-fill:${field}`,
-        ok: false,
-        detail: `No tender has a ${field}.`,
-      });
+      if (isStrictRequiredField(field) || hadMeaningfulBaselineFill(previous)) {
+        results.push({
+          name: `field-fill:${field}`,
+          ok: false,
+          detail: `No tender has a ${field}.`,
+        });
+      } else {
+        results.push({
+          name: `field-fill:${field}`,
+          ok: true,
+          detail: `Field ${field} not shown by portal (0/${current.total}).`,
+        });
+      }
       continue;
     }
 
-    const previous = baseline.lastGoodFieldFill?.[field];
     if (isBaselineFillCollapsed(current, previous) && previous) {
       results.push({
         name: `field-fill:${field}`,

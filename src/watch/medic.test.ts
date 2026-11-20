@@ -575,4 +575,99 @@ describe("createMedic", () => {
     assert.equal(llmCalls.length, 1);
     assert.equal(attachCalled, false);
   });
+
+  it("includes prior attempt diff and sample extracted tenders in retry prompt", async () => {
+    const before = makeRecipe();
+    const attempt1Recipe = makeRecipe({ list: { ...before.list, item: "div.wrong-card" } });
+    const attempt2Recipe = makeRecipe({ list: { ...before.list, item: "div.good-card" } });
+    let callCount = 0;
+
+    const { ctx, llmCalls } = makeContext({
+      llmHandler: async () => {
+        callCount += 1;
+        return callCount === 1
+          ? { recipe: attempt1Recipe, changeNote: "Tried div.wrong-card" }
+          : { recipe: attempt2Recipe, changeNote: "Switched to div.good-card" };
+      },
+    });
+
+    const medic = createMedic(
+      makeDeps({
+        extractor: {
+          async read(recipe) {
+            if (recipe.list.item === "div.wrong-card") {
+              return makeOkRead([
+                {
+                  ...makeTender("BAD-1"),
+                  title: "Extracted wrong sample title",
+                },
+              ]);
+            }
+            return makeOkRead([makeTender("T-1")]);
+          },
+        },
+        evaluate: (read) =>
+          read.kind === "ok" && read.tenders[0]?.id === "T-1"
+            ? { kind: "healthy", reason: "OK", checks: [] }
+            : { kind: "broken", reason: "Wrong title", checks: [{ name: "golden-records", ok: false, detail: "mismatch" }] },
+        verifyGolden: (tenders) =>
+          tenders[0]?.id === "T-1"
+            ? { checked: 1, matched: 1, mismatches: [] }
+            : { checked: 1, matched: 0, mismatches: ["T-1 missing"] },
+      }),
+    );
+
+    const outcome = await medic.repair(
+      { recipe: before, verdict: makeBrokenVerdict(), baseline: makeBaseline(1) },
+      ctx,
+    );
+
+    assert.equal(outcome.kind, "ok");
+    assert.equal(llmCalls.length, 2);
+    const secondPrompt = llmCalls[1]?.user ?? "";
+    assert.match(secondPrompt, /Attempt 1 \(updated list selector\)/);
+    assert.match(secondPrompt, /Extracted wrong sample title/);
+    assert.match(secondPrompt, /BAD-1/);
+  });
+
+  it("includes capturedApiUrls from snapshot in the repair prompt", async () => {
+    const before = makeRecipe({ tier: "jsonApi" });
+    const goodPatch = makeRecipe({
+      tier: "jsonApi",
+      list: {
+        ...before.list,
+        request: { url: "https://portal.example/api/v2/notices", method: "GET" },
+      },
+    });
+    const snapshot: SnapshotOutcome = {
+      kind: "ok",
+      url: "https://portal.example/api/v1/notices",
+      finalUrl: "https://portal.example/api/v1/notices",
+      httpStatus: 404,
+      contentType: "application/json",
+      compressedContent: '{"error":"Not found"}',
+      structureSummary: "rootKeys=[error]",
+      capturedApiUrls: ["https://portal.example/api/v2/notices"],
+    };
+
+    const { ctx, llmCalls } = makeContext({
+      llmHandler: async () => ({ recipe: goodPatch, changeNote: "Updated API endpoint to v2" }),
+    });
+
+    const medic = createMedic(
+      makeDeps({
+        captureSnapshot: async () => snapshot,
+        triage: async () => makeTriageReport({ category: "url-moved", snapshot }),
+      }),
+    );
+
+    const outcome = await medic.repair(
+      { recipe: before, verdict: makeBrokenVerdict(), baseline: makeBaseline(1) },
+      ctx,
+    );
+
+    assert.equal(outcome.kind, "ok");
+    assert.match(llmCalls[0]?.user ?? "", /Discovered JSON API URLs:/);
+    assert.match(llmCalls[0]?.user ?? "", /https:\/\/portal\.example\/api\/v2\/notices/);
+  });
 });

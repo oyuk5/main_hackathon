@@ -7,44 +7,77 @@ import type { SnapshotOutcome } from "./types.js";
 const DEFAULT_MAX_CHARS = 8000;
 const MAX_REPEATED_SIBLINGS = 2;
 const MAX_JSON_ARRAY_ITEMS = 2;
+const MAX_CAPTURED_API_URLS = 6;
+const HEAD_TRUNCATION_RATIO = 0.65;
 
-const CAPTCHA_PATTERNS: ReadonlyArray<{ pattern: RegExp; reason: string }> = [
+const CHALLENGE_TITLE_PATTERN =
+  /<title[^>]*>[^<]*(just a moment|attention required|captcha|verify you are human)[^<]*<\/title>/i;
+
+const PASSIVE_CAPTCHA_PATTERNS: ReadonlyArray<{ pattern: RegExp; reason: string }> = [
   { pattern: /\bg-recaptcha\b|recaptcha\/api\.js/i, reason: "Portal presents a Google reCAPTCHA challenge." },
   { pattern: /\bh-captcha\b|hcaptcha\.com\/1\/api\.js/i, reason: "Portal presents an hCaptcha challenge." },
   { pattern: /\bcf-turnstile\b|challenges\.cloudflare\.com/i, reason: "Portal presents a Cloudflare Turnstile challenge." },
-  {
-    pattern: /<title[^>]*>[^<]*(just a moment|attention required|captcha|verify you are human)[^<]*<\/title>/i,
-    reason: "Portal presents an anti-bot or CAPTCHA challenge page.",
-  },
 ];
 
+const LOGIN_URL_PATTERN = /\/(login|signin|sign-in|anmelden|connexion|inloggen|auth)(\/|\?|$)/i;
 const PASSWORD_INPUT_PATTERN = /<input\b[^>]*\btype\s*=\s*["']?password["']?/i;
 const LOGIN_FORM_PATTERN =
   /<form\b[^>]*(?:action|id|class|name)\s*=\s*["'][^"']*(?:login|signin|sign-in|anmelden|connexion|auth)[^"']*["'][^>]*>/i;
 
-export function detectBlockInContent(htmlOrText: string, status: number): string | null {
+function isLoginUrl(url: string | undefined): boolean {
+  return Boolean(url && LOGIN_URL_PATTERN.test(url));
+}
+
+function hasSubstantialListContent(html: string): boolean {
+  const $ = cheerio.load(html);
+  $('header, nav, footer, script, style, svg, noscript, form[action*="login" i], form[action*="signin" i]').remove();
+
+  if ($("tr").length >= 3) return true;
+  if ($("main, section, ul, ol").find("li").length >= 3) return true;
+  if ($("article").length >= 3) return true;
+
+  let longLinks = 0;
+  $("a[href]").each((_idx, node) => {
+    if ($(node).text().trim().length >= 8) longLinks += 1;
+  });
+  return longLinks >= 5;
+}
+
+function findPassiveBlockReason(htmlOrText: string): string | null {
+  for (const { pattern, reason } of PASSIVE_CAPTCHA_PATTERNS) {
+    if (pattern.test(htmlOrText)) return reason;
+  }
+  if (PASSWORD_INPUT_PATTERN.test(htmlOrText)) {
+    return "Portal requires login (password form detected).";
+  }
+  if (LOGIN_FORM_PATTERN.test(htmlOrText)) {
+    return "Portal requires login (authentication form detected).";
+  }
+  return null;
+}
+
+export function detectBlockInContent(
+  htmlOrText: string,
+  status: number,
+  finalUrl?: string,
+): string | null {
   if (status === 401) {
     return "HTTP 401 Unauthorized: portal requires authentication.";
   }
   if (status === 403) {
     return "HTTP 403 Forbidden: access denied by portal.";
   }
-
-  for (const { pattern, reason } of CAPTCHA_PATTERNS) {
-    if (pattern.test(htmlOrText)) {
-      return reason;
-    }
+  if (CHALLENGE_TITLE_PATTERN.test(htmlOrText)) {
+    return "Portal presents an anti-bot or CAPTCHA challenge page.";
   }
 
-  if (PASSWORD_INPUT_PATTERN.test(htmlOrText)) {
-    return "Portal requires login (password form detected).";
-  }
+  const candidateReason = findPassiveBlockReason(htmlOrText);
+  if (!candidateReason) return null;
 
-  if (LOGIN_FORM_PATTERN.test(htmlOrText)) {
-    return "Portal requires login (authentication form detected).";
+  if (!isLoginUrl(finalUrl) && hasSubstantialListContent(htmlOrText)) {
+    return null;
   }
-
-  return null;
+  return candidateReason;
 }
 
 export function compressHtml(
@@ -58,7 +91,7 @@ export function compressHtml(
   collapseRepeatedSiblings($);
 
   const normalized = normalizeWhitespace($.html());
-  const compressed = capText(normalized, maxChars, "\n<!-- ...truncated -->");
+  const compressed = capHtmlHeadAndTail(normalized, maxChars);
   return { compressed, structureSummary };
 }
 
@@ -305,6 +338,20 @@ function capText(text: string, maxChars: number, suffix: string): string {
   return `${text.slice(0, budget)}${suffix}`;
 }
 
+function capHtmlHeadAndTail(text: string, maxChars: number): string {
+  if (text.length <= maxChars) {
+    return text;
+  }
+  const marker = "\n<!-- ...middle truncated -->\n";
+  if (maxChars <= marker.length) {
+    return text.slice(0, Math.max(0, maxChars));
+  }
+  const available = maxChars - marker.length;
+  const headLen = Math.floor(available * HEAD_TRUNCATION_RATIO);
+  const tailLen = available - headLen;
+  return `${text.slice(0, headLen)}${marker}${text.slice(text.length - tailLen)}`;
+}
+
 function resolvePlaceholders(template: string): string {
   return template
     .replace(/\{page\}/g, "1")
@@ -346,6 +393,26 @@ async function fetchViaHttp(recipe: Recipe, url: string, ctx: PortalContext): Pr
   return { url, finalUrl, httpStatus: response.status, contentType, body: text };
 }
 
+async function probeJsonEndpoints(ctx: PortalContext): Promise<string[]> {
+  try {
+    return await ctx.browser.withPage(async (page) => {
+      const urls = new Set<string>();
+      page.on("response", (response) => {
+        if (urls.size >= MAX_CAPTURED_API_URLS) return;
+        const ct = (response.headers()["content-type"] ?? "").toLowerCase();
+        if (response.status() < 400 && ct.includes("json")) {
+          urls.add(response.url());
+        }
+      });
+      await page.goto(ctx.url, { waitUntil: "domcontentloaded", timeout: 15_000 });
+      await page.waitForLoadState("networkidle", { timeout: 3_000 }).catch(() => {});
+      return [...urls];
+    });
+  } catch {
+    return [];
+  }
+}
+
 export async function capturePortalSnapshot(
   recipe: Recipe,
   ctx: PortalContext,
@@ -366,7 +433,19 @@ export async function capturePortalSnapshot(
     return { kind: "unreachable", reason: `Network error fetching portal: ${message}` };
   }
 
-  return classifyRawSnapshot(recipe, result);
+  const classified = classifyRawSnapshot(recipe, result);
+  if (
+    classified.kind === "ok" &&
+    recipe.tier === "jsonApi" &&
+    result.httpStatus === 404 &&
+    !ctx.signal.aborted
+  ) {
+    const capturedApiUrls = await probeJsonEndpoints(ctx);
+    if (capturedApiUrls.length > 0) {
+      return { ...classified, capturedApiUrls };
+    }
+  }
+  return classified;
 }
 
 function classifyRawSnapshot(recipe: Recipe, result: RawFetchResult): SnapshotOutcome {
@@ -378,7 +457,7 @@ function classifyRawSnapshot(recipe: Recipe, result: RawFetchResult): SnapshotOu
     };
   }
 
-  const blockReason = detectBlockInContent(result.body, result.httpStatus);
+  const blockReason = detectBlockInContent(result.body, result.httpStatus, result.finalUrl);
   if (blockReason) {
     return {
       kind: "blocked",

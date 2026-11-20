@@ -289,4 +289,73 @@ describe("evaluateRead", () => {
       { kind: "broken", reason: "Selector timed out", checks: [] },
     );
   });
+
+  it("allows nullable required fields on first read when portal omits them", () => {
+    const tenders = [
+      makeTender({ id: "T-1", buyerName: null, publicationDate: null, submissionDeadline: null }),
+      makeTender({ id: "T-2", buyerName: null, publicationDate: null, submissionDeadline: null }),
+    ];
+    const verdict = evaluateRead(makeOkRead(tenders), makeBaseline());
+
+    assert.equal(verdict.kind, "healthy");
+    const pubCheck = verdict.checks.find((c) => c.name === "field-fill:publicationDate");
+    assert.equal(pubCheck?.ok, true);
+    assert.match(pubCheck?.detail ?? "", /not shown by portal/);
+  });
+
+  it("fails when a previously populated nullable field drops to 0%", () => {
+    const tenders = [
+      makeTender({ id: "T-1", publicationDate: null }),
+      makeTender({ id: "T-2", publicationDate: null }),
+    ];
+    const baseline = makeBaseline({
+      lastGoodFieldFill: {
+        publicationDate: { filled: 5, total: 5 },
+      },
+    });
+    const verdict = evaluateRead(makeOkRead(tenders), baseline);
+
+    assert.equal(verdict.kind, "broken");
+    const pubCheck = verdict.checks.find((c) => c.name === "field-fill:publicationDate");
+    assert.equal(pubCheck?.ok, false);
+    assert.equal(pubCheck?.detail, "No tender has a publicationDate.");
+  });
+
+  it("ignores count drops when baseline had fewer than 6 tenders", () => {
+    const tenders = [makeTender({ id: "T-1" }), makeTender({ id: "T-2" })];
+    const verdict = evaluateRead(makeOkRead(tenders), makeBaseline({ lastGoodCount: 5 }));
+
+    assert.equal(verdict.kind, "healthy");
+    assert.equal(verdict.checks.find((c) => c.name === "count-drop"), undefined);
+  });
+
+  it("detects golden ID-format drift when same title or URL appears under a different ID", () => {
+    const tenders = [
+      makeTender({
+        id: "https://portal.example.org/tenders/T-1",
+        url: "https://portal.example.org/tenders/T-1",
+        title: "Road maintenance 2026",
+      }),
+    ];
+    const baseline = makeBaseline({
+      golden: [
+        {
+          id: "T-1",
+          fields: {
+            url: "https://portal.example.org/tenders/T-1",
+            title: "Road maintenance 2026",
+          },
+        },
+      ],
+    });
+
+    const drift = verifyGoldenRecords(tenders, baseline.golden);
+    assert.equal(drift.checked, 1);
+    assert.equal(drift.matched, 0);
+    assert.match(drift.mismatches[0] ?? "", /appears under a changed ID/);
+
+    const verdict = evaluateRead(makeOkRead(tenders), baseline);
+    assert.equal(verdict.kind, "broken");
+    assert.equal(verdict.checks.find((c) => c.name === "golden-records")?.ok, false);
+  });
 });
