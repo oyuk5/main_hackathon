@@ -1,4 +1,4 @@
-import { ClerkProvider, OrganizationSwitcher, SignIn, UserButton, useAuth } from "@clerk/clerk-react";
+import { ClerkProvider, OrganizationSwitcher, SignIn, UserButton, useAuth } from "@clerk/react";
 import { useEffect, useState } from "react";
 import { App } from "./App";
 import { OperatorToken } from "./lib";
@@ -13,6 +13,18 @@ const appearance = {
     colorInputBackground: "var(--color-sea)",
     colorInputText: "var(--color-ink)",
     fontFamily: "var(--font-sans)",
+  },
+  // Clerk cannot derive shades from CSS variables, so the social button falls back to a dark fill
+  // in dark mode. Pin it to the page's own colours in both themes.
+  elements: {
+    socialButtonsBlockButton: {
+      backgroundColor: "var(--color-sea)",
+      color: "var(--color-ink)",
+      border: "1px solid var(--color-hairline)",
+      "&:hover": { backgroundColor: "var(--color-mist)" },
+    },
+    socialButtonsBlockButtonText: { color: "var(--color-ink)" },
+    formFieldInput: { backgroundColor: "var(--color-sea)", color: "var(--color-ink)", border: "1px solid var(--color-hairline)" },
   },
 };
 
