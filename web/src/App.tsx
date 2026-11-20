@@ -8,6 +8,7 @@ import { Chart } from "./Chart";
 import { Detail } from "./Detail";
 import { Log } from "./Log";
 import { Picker } from "./Picker";
+import { Select } from "./Select";
 import { StatusIcon, stateToIconKind } from "./StatusIcon";
 import {
   CHARACTER, STATE_ORDER, countryOf, host, int, plural, usd, useNow, usePoll, when,
@@ -590,19 +591,17 @@ function Portals({
           </svg>
         </button>
 
-        <label className="flex h-9 items-center gap-2 rounded-[4px] border border-hairline bg-paper pl-3 text-[13px] text-slate">
-          Sort
-          <select
-            value={view.sort}
-            onChange={(e) => setView({ ...view, sort: e.target.value as SortKey })}
-            className="h-full rounded-r-[4px] bg-transparent pr-2 font-medium text-ink focus:outline-none cursor-pointer"
-          >
-            <option value="urgent">Most urgent first</option>
-            <option value="stale">Longest without delivery</option>
-            <option value="tenders">Most open tenders</option>
-            <option value="name">Name</option>
-          </select>
-        </label>
+        <Select<SortKey>
+          label="Sort"
+          value={view.sort}
+          onChange={(sort) => setView({ ...view, sort })}
+          options={[
+            { value: "urgent", label: "Most urgent first" },
+            { value: "stale", label: "Longest without delivery" },
+            { value: "tenders", label: "Most open tenders" },
+            { value: "name", label: "Name" },
+          ]}
+        />
 
         {(showFilterBar || view.state !== "all") && (
           <div role="group" aria-label="Show portals that are" className="flex flex-wrap items-center gap-1 sm:ml-2">

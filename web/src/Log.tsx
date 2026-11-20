@@ -5,6 +5,7 @@
 import { useMemo, useState } from "react";
 import { clock, duration, host, plural, usd, usePoll, type PortalRow } from "./lib";
 import { StatusIcon, type StatusIconKind } from "./StatusIcon";
+import { Select } from "./Select";
 
 interface LogRow {
   id: string;
@@ -260,35 +261,41 @@ export function Log({ portals, now }: { portals: PortalRow[]; now: number }) {
         </div>
 
         <div className="flex w-full flex-wrap items-center gap-x-4 gap-y-2 sm:ml-auto sm:w-auto">
-          <label className="flex h-7 items-center gap-2 rounded-[4px] border border-hairline pl-2.5 text-[12.5px] text-slate">
-            Sort
-            <select
-              value={`${sortKey}:${sortDir}`}
-              onChange={(e) => {
-                const [k, d] = e.target.value.split(":") as [SortKey, SortDir];
-                setSortKey(k);
-                setSortDir(d);
-              }}
-              className="h-full bg-transparent pr-1.5 font-medium text-ink focus:outline-none cursor-pointer"
-            >
-              <option value="time:desc">Newest first</option>
-              <option value="time:asc">Oldest first</option>
-              <option value="portal:asc">Portal</option>
-              <option value="outcome:asc">Outcome, problems first</option>
-              <option value="took:desc">Took longest</option>
-              <option value="cost:desc">Highest model cost</option>
-            </select>
-          </label>
+          <Select
+            label="Sort"
+            size="sm"
+            value={`${sortKey}:${sortDir}`}
+            onChange={(v) => {
+              const [k, d] = v.split(":") as [SortKey, SortDir];
+              setSortKey(k);
+              setSortDir(d);
+            }}
+            options={[
+              { value: "time:desc", label: "Newest first" },
+              { value: "time:asc", label: "Oldest first" },
+              { value: "portal:asc", label: "Portal, A to Z" },
+              { value: "portal:desc", label: "Portal, Z to A" },
+              { value: "outcome:asc", label: "Problems first" },
+              { value: "outcome:desc", label: "Passed first" },
+              { value: "took:desc", label: "Took longest" },
+              { value: "took:asc", label: "Quickest" },
+              { value: "cost:desc", label: "Highest model cost" },
+              { value: "cost:asc", label: "Lowest model cost" },
+            ]}
+          />
 
-          <label className="flex items-center gap-2 text-[13px] text-slate cursor-pointer">
-            <input
-              type="checkbox"
-              checked={passing}
-              onChange={(e) => setPassing(e.target.checked)}
-              className="size-4 accent-[var(--color-docker)]"
-            />
+          <button
+            type="button"
+            role="switch"
+            aria-checked={passing}
+            onClick={() => setPassing(!passing)}
+            className="flex items-center gap-2 text-[13px] text-slate hover:text-ink cursor-pointer"
+          >
+            <span className={`relative inline-block h-[18px] w-[30px] shrink-0 rounded-full transition-colors ${passing ? "bg-docker-solid" : "bg-hairline"}`}>
+              <span className={`absolute top-[2px] left-[2px] size-[14px] rounded-full bg-paper shadow-sm transition-transform ${passing ? "translate-x-[12px]" : ""}`} />
+            </span>
             Include reads that passed
-          </label>
+          </button>
         </div>
       </div>
 
