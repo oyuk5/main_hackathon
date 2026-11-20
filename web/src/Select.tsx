@@ -15,12 +15,15 @@ export function Select<T extends string>({
   options,
   onChange,
   size = "md",
+  hideLabelOnPhone = false,
 }: {
   label: string;
   value: T;
   options: Option<T>[];
   onChange: (v: T) => void;
   size?: "sm" | "md";
+  /** Keep the label for screen readers only below 640 px, where long labels push the row to wrap. */
+  hideLabelOnPhone?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
@@ -75,7 +78,7 @@ export function Select<T extends string>({
           open ? "border-docker" : "border-hairline hover:border-slate/50"
         }`}
       >
-        <span className="text-slate">{label}</span>
+        <span className={`text-slate ${hideLabelOnPhone ? "max-sm:sr-only" : ""}`}>{label}</span>
         <span className="font-medium text-ink">{current.label}</span>
         <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true" className={`ml-0.5 shrink-0 text-slate transition-transform ${open ? "rotate-180" : ""}`}>
           <path d="M1.5 3.5 5 7l3.5-3.5" fill="none" stroke="currentColor" strokeWidth="1.5" />

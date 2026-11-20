@@ -2,6 +2,7 @@ import { ClerkProvider, OrganizationSwitcher, SignIn, UserButton, useAuth } from
 import { useEffect, useState } from "react";
 import { App } from "./App";
 import { OperatorToken } from "./lib";
+import { t } from "./i18n";
 
 const appearance = {
   variables: {
@@ -49,7 +50,7 @@ function Gate() {
       <div className="text-center">
         <h1 className="font-display text-3xl font-semibold">Watchtower</h1>
         <p className="mt-2 text-slate">{!isLoaded || (identity && access?.identity !== identity)
-          ? "Checking operator access…" : identity ? "This account could not access the dashboard." : "Sign in to see your portals"}</p>
+          ? t("auth.checking") : identity ? t("auth.denied") : t("auth.signIn")}</p>
       </div>
       {isLoaded && !isSignedIn && <SignIn routing="hash" fallbackRedirectUrl="/" />}
       {identity && access?.identity === identity && !access.ok && (

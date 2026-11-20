@@ -6,13 +6,15 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Strip } from "./Strip";
 import { StatusIcon, stateToIconKind } from "./StatusIcon";
 import {
-  STATE_LABEL, clock, diffRecipes, duration, host, int, plural, usd, useNow, usePoll, when,
+  STATE_LABEL, clock, diffRecipes, duration, host, int, usd, useNow, usePoll, when,
   type PortalDetail, type RunRow,
 } from "./lib";
+import { t, tx, useT, type Key } from "./i18n";
 
 export function Detail({ id, onClose, onChanged }: { id: string; onClose: () => void; onChanged: () => void }) {
   const { data, failing, reload } = usePoll<PortalDetail>(`/internal/portals/${encodeURIComponent(id)}`);
   const now = useNow();
+  useT();
   const panel = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -52,17 +54,17 @@ export function Detail({ id, onClose, onChanged }: { id: string; onClose: () => 
         tabIndex={-1}
         role="dialog"
         aria-modal="true"
-        aria-label={data ? host(data.portal.url) : "Portal"}
+        aria-label={data ? host(data.portal.url) : t("detail.portal")}
         className="drawer absolute inset-y-0 right-0 flex w-full max-w-[680px] flex-col overflow-y-auto bg-paper shadow-[0_0_0_1px_var(--color-hairline),-24px_0_48px_-24px_rgb(0_0_0/0.25)] focus:outline-none"
       >
         <div className="sticky top-0 z-10 flex items-center justify-between gap-2 border-b border-hairline bg-paper/90 px-4 py-3 backdrop-blur sm:px-6">
-          <span className="text-[13px] text-slate">{failing ? "Not updating: the API is not answering" : "Updates every 3 seconds"}</span>
+          <span className="text-[13px] text-slate">{failing ? t("detail.stale") : t("detail.live")}</span>
           <button onClick={onClose} className="px-2 py-1 text-sm text-slate hover:bg-mist hover:text-ink">
-            Close
+            {t("detail.close")}
           </button>
         </div>
         {!data ? (
-          <p className="px-6 py-10 text-slate">{failing ? "This portal no longer exists, or the API is not answering." : "Loading…"}</p>
+          <p className="px-6 py-10 text-slate">{failing ? t("detail.gone") : t("detail.loading")}</p>
         ) : (
           <Body d={data} now={now} onChanged={() => (reload(), onChanged())} onRemoved={() => (onChanged(), onClose())} />
         )}
@@ -83,7 +85,7 @@ function Body({ d, now, onChanged, onRemoved }: { d: PortalDetail; now: number; 
         <div className="flex items-center gap-2 text-[13px] font-medium text-ink">
           <StatusIcon kind={stateToIconKind(p.state)} size={12} />
           <span>{STATE_LABEL[p.state]}</span>
-          {busy && <span className="font-normal text-slate">and {busy.kind === "repair" ? "repairing" : "reading"} now</span>}
+          {busy && <span className="font-normal text-slate">{busy.kind === "repair" ? t("detail.busyRepair") : t("detail.busyRead")}</span>}
         </div>
         <h2 className="mt-2 text-[1.7rem] leading-tight font-semibold tracking-tight break-words text-ink">{host(p.url)}</h2>
         <a href={p.url} target="_blank" rel="noreferrer" className="text-[13px] break-all text-docker hover:underline">
@@ -94,25 +96,25 @@ function Body({ d, now, onChanged, onRemoved }: { d: PortalDetail; now: number; 
       </header>
 
       <dl className="mt-8 grid grid-cols-2 gap-x-6 gap-y-5 border-y border-hairline py-5 sm:grid-cols-4">
-        <Fact label="Open tenders">
+        <Fact label={t("detail.openTenders")}>
           <a href={`/portals/${encodeURIComponent(p.id)}/tenders`} target="_blank" rel="noreferrer" className="num underline decoration-hairline underline-offset-4 hover:decoration-ink">
             {int(p.tenderCount)}
           </a>
         </Fact>
-        <Fact label="Last delivered">{p.lastSuccessAt ? when(p.lastSuccessAt, now) : <span className="text-faint">Not yet</span>}</Fact>
-        <Fact label="How it is read">
-          {recipe ? <>{tierName((recipe.json as { tier?: string }).tier)}, recipe v{recipe.version}</> : <span className="text-faint">Not learned yet</span>}
+        <Fact label={t("detail.lastDelivered")}>{p.lastSuccessAt ? when(p.lastSuccessAt, now) : <span className="text-faint">{t("table.notYet")}</span>}</Fact>
+        <Fact label={t("detail.howRead")}>
+          {recipe ? t("detail.recipe", { tier: tierName((recipe.json as { tier?: string }).tier), v: String(recipe.version) }) : <span className="text-faint">{t("detail.notLearned")}</span>}
         </Fact>
-        <Fact label="Model cost">
+        <Fact label={t("detail.modelCost")}>
           <span className="num">{usd(cost)}</span>
         </Fact>
       </dl>
 
       <section className="mt-8 rounded-[6px] border border-hairline bg-sea p-3" aria-labelledby="activity-title">
-        <h3 id="activity-title" className="mb-2 text-sm font-semibold">Activity in the last 24 hours</h3>
+        <h3 id="activity-title" className="mb-2 text-sm font-semibold">{t("detail.activity")}</h3>
         <Strip runs={d.runs.map((r) => ({ kind: r.kind, result: r.result, startedAt: r.started_at, finishedAt: r.finished_at }))} now={now} />
-        <div className="mt-1 flex justify-between text-xs text-faint"><span>24 h ago</span><span>12 h ago</span><span>Now</span></div>
-        <p className="mt-3 text-xs text-slate">Short marks are reads; tall marks are repairs. Red marks failed.</p>
+        <div className="mt-1 flex justify-between text-xs text-faint"><span>{t("detail.24h")}</span><span>{t("detail.12h")}</span><span>{t("detail.now")}</span></div>
+        <p className="mt-3 text-xs text-slate">{t("detail.marks")}</p>
       </section>
       <History d={d} now={now} />
       <Log events={d.events} />
@@ -131,8 +133,8 @@ function Fact({ label, children }: { label: string; children: React.ReactNode })
   );
 }
 
-const tierName = (t?: string) =>
-  ({ feed: "Feed", jsonApi: "JSON API", html: "Web pages", browser: "Browser" })[t ?? ""] ?? "Unknown";
+const TIERS = ["feed", "jsonApi", "html", "browser"];
+const tierName = (tier?: string) => t(tier && TIERS.includes(tier) ? (`tier.${tier}` as Key) : "tier.unknown");
 
 function Actions({ id, busy, onChanged, onRemoved }: { id: string; busy: boolean; onChanged: () => void; onRemoved: () => void }) {
   const [confirm, setConfirm] = useState(false);
@@ -145,26 +147,26 @@ function Actions({ id, busy, onChanged, onRemoved }: { id: string; busy: boolean
 
   const refresh = async () => {
     const res = await fetch(`/portals/${encodeURIComponent(id)}/refresh`, { method: "POST" }).catch(() => null);
-    setNote(res?.ok ? (busy ? "Already running; following that run." : "Reading now.") : "The read did not start: the API did not answer.");
+    setNote(res?.ok ? (busy ? t("detail.alreadyRunning") : t("detail.readingNow")) : t("detail.readNotStarted"));
     onChanged();
   };
   const remove = async () => {
     if (!confirm) return setConfirm(true);
     const res = await fetch(`/portals/${encodeURIComponent(id)}`, { method: "DELETE" }).catch(() => null);
     if (res?.ok || res?.status === 404) onRemoved();
-    else setNote("The portal was not removed: the API did not answer.");
+    else setNote(t("detail.notRemoved"));
   };
 
   return (
     <div className="mt-5 flex flex-wrap items-center gap-2">
       <button onClick={refresh} className="h-8 rounded-[4px] bg-docker-solid px-3 text-[13px] font-semibold text-white hover:bg-docker-hover cursor-pointer">
-        Read now
+        {t("detail.readNow")}
       </button>
       <button
         onClick={remove}
         className={`h-8 rounded-[4px] border px-3 text-[13px] font-medium cursor-pointer ${confirm ? "border-failed bg-failed text-white" : "border-hairline text-slate hover:border-failed/50 hover:text-failed"}`}
       >
-        {confirm ? "Click again to stop watching" : "Stop watching"}
+        {confirm ? t("detail.confirmStop") : t("detail.stop")}
       </button>
       {note && <span role="status" className="text-[13px] text-slate">{note}</span>}
     </div>
@@ -197,10 +199,10 @@ function History({ d, now }: { d: PortalDetail; now: number }) {
 
   return (
     <section className="mt-10" aria-labelledby="history">
-      <h3 id="history" className="text-sm font-semibold">Run history</h3>
-      <p className="mt-1 text-xs text-faint">Newest first. Consecutive successful reads are grouped.</p>
+      <h3 id="history" className="text-sm font-semibold">{t("detail.history")}</h3>
+      <p className="mt-1 text-xs text-faint">{t("detail.historyNote")}</p>
       {items.length === 0 ? (
-        <p className="mt-3 text-[14px] text-slate">Nothing yet. The first read starts as soon as the portal is added.</p>
+        <p className="mt-3 text-[14px] text-slate">{t("detail.historyEmpty")}</p>
       ) : (
         <ol className="relative mt-4 border-l border-hairline">
           {shown.map((it, i) =>
@@ -210,7 +212,7 @@ function History({ d, now }: { d: PortalDetail; now: number }) {
       )}
       {items.length > 12 && (
         <button onClick={() => setAll(!all)} className="mt-3 ml-5 text-[13px] text-slate underline decoration-hairline underline-offset-4 hover:text-ink">
-          {all ? "Show less" : `Show all ${plural(d.runs.length, "run")}`}
+          {all ? t("detail.showLess") : t("detail.showAll", { n: d.runs.length })}
         </button>
       )}
     </section>
@@ -229,7 +231,7 @@ function Dot({ cls, big }: { cls: string; big?: boolean }) {
 function Quiet({ runs, now }: { runs: RunRow[]; now: number }) {
   const newest = runs[0]!;
   const oldest = runs.at(-1)!;
-  const text = runs.length === 1 ? `Read at ${clock(newest.started_at)} passed every check` : `${int(runs.length)} reads passed every check, ${clock(oldest.started_at)} to ${clock(newest.started_at)}`;
+  const text = runs.length === 1 ? t("detail.quietOne", { t: clock(newest.started_at) }) : t("detail.quietMany", { n: runs.length, a: clock(oldest.started_at), b: clock(newest.started_at) });
   return (
     <li className="relative pb-5 pl-5">
       <Dot cls="bg-faint" />
@@ -246,8 +248,8 @@ function Event({ run, d, now }: { run: RunRow; d: PortalDetail; now: number }) {
   const repair = run.kind === "repair";
   const running = run.result === null;
   const title = repair
-    ? running ? "Repairing" : run.result === "ok" ? "Repaired" : "Repair failed"
-    : running ? "Reading" : run.result === "ok" ? "Read passed" : "Read failed";
+    ? running ? t("run.repairing") : run.result === "ok" ? t("run.repaired") : t("run.repairFailed")
+    : running ? t("run.reading") : run.result === "ok" ? t("run.readPassed") : t("run.readFailed");
   const tone = running ? "bg-integrating" : run.result === "ok" ? (repair ? "bg-serving" : "bg-faint") : "bg-failed";
   const text = "text-ink";
   const cost = d.runCosts?.[run.id] ?? 0;
@@ -267,8 +269,8 @@ function Event({ run, d, now }: { run: RunRow; d: PortalDetail; now: number }) {
         <p className={`text-[14.5px] font-semibold ${text}`}>{title}</p>
         <p className="text-[13px] text-slate">
           <time dateTime={run.started_at}>{when(run.started_at, now)}</time>
-          {run.finished_at && <> in {duration(run.started_at, run.finished_at)}</>}
-          {cost > 0 && <>, model cost <span className="num">{usd(cost)}</span></>}
+          {run.finished_at && t("run.took", { d: duration(run.started_at, run.finished_at) })}
+          {cost > 0 && tx("run.cost", {}, { c: <span className="num">{usd(cost)}</span> })}
         </p>
       </div>
       {run.summary && <p className="mt-1 max-w-[60ch] text-[14.5px] leading-relaxed">{run.summary}</p>}
@@ -291,14 +293,14 @@ function Changes({ changes, from, to }: { changes: ReturnType<typeof diffRecipes
   return (
     <figure className="mt-3 overflow-hidden rounded-lg border border-hairline">
       <figcaption className="border-b border-hairline bg-mist px-3 py-1.5 text-[12.5px] text-slate">
-        What the repair changed, recipe v{from} to v{to}
+        {t("detail.changes", { a: String(from), b: String(to) })}
       </figcaption>
       <dl className="divide-y divide-hairline font-mono text-[12.5px] leading-relaxed">
         {changes.map((c) => (
           <div key={c.path} className="px-3 py-2">
             <dt className="text-slate">{c.path}</dt>
-            {c.before !== null && <dd className="text-failed"><span aria-label="removed">− </span>{c.before}</dd>}
-            {c.after !== null && <dd className="text-serving"><span aria-label="added">+ </span>{c.after}</dd>}
+            {c.before !== null && <dd className="text-failed"><span aria-label={t("detail.removed")}>− </span>{c.before}</dd>}
+            {c.after !== null && <dd className="text-serving"><span aria-label={t("detail.addedAria")}>+ </span>{c.after}</dd>}
           </div>
         ))}
       </dl>
@@ -315,9 +317,9 @@ function Log({ events }: { events: PortalDetail["events"] }) {
   return (
     <section className="mt-8 border-t border-hairline pt-6">
       <button onClick={() => setOpen(!open)} aria-expanded={open} className="flex w-full items-baseline justify-between text-left">
-        <h3 className="text-sm font-semibold">Run log</h3>
+        <h3 className="text-sm font-semibold">{t("detail.runLog")}</h3>
         <span className="text-[13px] text-slate">
-          {plural(events.length, "entry", "entries")}{warnings ? `, ${plural(warnings, "warning")}` : ""}. {open ? "Hide" : "Show"}
+          {t("detail.entries", { n: events.length, w: warnings })} {open ? t("detail.hide") : t("detail.show")}
         </span>
       </button>
       {open && (
@@ -336,17 +338,17 @@ function Log({ events }: { events: PortalDetail["events"] }) {
 
 function Usage({ d }: { d: PortalDetail }) {
   if (d.ledger.length === 0) return null;
-  const names: Record<string, string> = { attach: "Learning the portal", repair: "Repairs", check: "Checks", triage: "Triage" };
+  const names: Record<string, string> = { attach: t("usage.attach"), repair: t("usage.repair"), check: t("usage.check"), triage: t("usage.triage") };
   return (
     <section className="mt-8 border-t border-hairline pt-6">
-      <h3 className="text-sm font-semibold">Model usage</h3>
+      <h3 className="text-sm font-semibold">{t("usage.title")}</h3>
       <table className="mt-3 w-full text-[14px]">
         <thead className="text-[12.5px] text-slate">
           <tr>
-            <th scope="col" className="pb-1.5 text-left font-medium">For</th>
-            <th scope="col" className="pb-1.5 text-right font-medium">Calls</th>
-            <th scope="col" className="pb-1.5 text-right font-medium">Tokens in, out</th>
-            <th scope="col" className="pb-1.5 text-right font-medium">Cost</th>
+            <th scope="col" className="pb-1.5 text-left font-medium">{t("usage.for")}</th>
+            <th scope="col" className="pb-1.5 text-right font-medium">{t("usage.calls")}</th>
+            <th scope="col" className="pb-1.5 text-right font-medium">{t("usage.tokens")}</th>
+            <th scope="col" className="pb-1.5 text-right font-medium">{t("usage.cost")}</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-hairline">
@@ -359,8 +361,8 @@ function Usage({ d }: { d: PortalDetail }) {
             </tr>
           ))}
           <tr>
-            <td className="py-1.5 text-slate" colSpan={3}>Regular reads</td>
-            <td className="num py-1.5 text-right text-slate">$0</td>
+            <td className="py-1.5 text-slate" colSpan={3}>{t("usage.regular")}</td>
+            <td className="num py-1.5 text-right text-slate">{usd(0)}</td>
           </tr>
         </tbody>
       </table>
@@ -373,8 +375,8 @@ function RecipeView({ recipe }: { recipe: PortalDetail["recipes"][number] }) {
   return (
     <section className="mt-8 border-t border-hairline pt-6">
       <button onClick={() => setOpen(!open)} aria-expanded={open} className="flex w-full items-baseline justify-between text-left">
-        <h3 className="text-sm font-semibold">Recipe v{recipe.version}</h3>
-        <span className="text-[13px] text-slate">{open ? "Hide" : "Show"}</span>
+        <h3 className="text-sm font-semibold">{t("detail.recipeTitle", { v: String(recipe.version) })}</h3>
+        <span className="text-[13px] text-slate">{open ? t("detail.hide") : t("detail.show")}</span>
       </button>
       <p className="mt-1 max-w-[60ch] text-[14px] text-slate">{recipe.note}</p>
       {open && (

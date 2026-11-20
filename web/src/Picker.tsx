@@ -5,6 +5,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { StatusIcon, stateToIconKind } from "./StatusIcon";
 import { STATE_ORDER, host, type PortalRow } from "./lib";
+import { t } from "./i18n";
 
 export function Picker({ all, picked, setPicked }: { all: PortalRow[]; picked: string[] | null; setPicked: (ids: string[] | null) => void }) {
   const [open, setOpen] = useState(false);
@@ -27,7 +28,7 @@ export function Picker({ all, picked, setPicked }: { all: PortalRow[]; picked: s
 
   const chosen = useMemo(() => new Set(picked ?? all.map((p) => p.id)), [picked, all]);
   const count = all.filter((p) => chosen.has(p.id)).length;
-  const label = picked === null || count === all.length ? "All portals" : count === 1 ? host(all.find((p) => chosen.has(p.id))!.url) : `${count} of ${all.length} portals`;
+  const label = picked === null || count === all.length ? t("picker.all") : count === 1 ? host(all.find((p) => chosen.has(p.id))!.url) : t("picker.some", { c: count, n: all.length });
   const q = find.trim().toLowerCase();
   const sorted = useMemo(() => all.map((p) => ({ ...p, name: host(p.url) }))
     .sort((a, b) => STATE_ORDER[a.state] - STATE_ORDER[b.state] || a.name.localeCompare(b.name)), [all]);
@@ -58,26 +59,26 @@ export function Picker({ all, picked, setPicked }: { all: PortalRow[]; picked: s
         <div className="absolute left-0 z-30 mt-1.5 w-[min(300px,calc(100vw-2rem))] rounded-[6px] border border-hairline bg-paper shadow-[0_8px_24px_rgb(0_0_0/0.25)] sm:right-0 sm:left-auto">
           {all.length > 8 && (
             <div className="border-b border-hairline p-2">
-              <label htmlFor="picker-find" className="sr-only">Find a portal</label>
+              <label htmlFor="picker-find" className="sr-only">{t("picker.find")}</label>
               <input
                 id="picker-find"
                 autoFocus
                 value={find}
                 onChange={(e) => setFind(e.target.value)}
-                placeholder="Find a portal"
+                placeholder={t("picker.find")}
                 className="h-8 w-full rounded-[4px] border border-hairline bg-sea px-2.5 text-[13px] text-ink placeholder:text-faint focus:border-docker focus:bg-paper"
               />
             </div>
           )}
           <div className="flex items-center justify-between border-b border-hairline px-3 py-2 text-[12.5px]">
-            <span className="text-slate">{count} of {all.length} shown</span>
+            <span className="text-slate">{t("picker.shown", { c: count, n: all.length })}</span>
             <span className="flex gap-3">
-              <button type="button" onClick={() => setPicked(null)} className="font-semibold text-docker hover:underline cursor-pointer">All</button>
-              <button type="button" onClick={() => setPicked([])} className="font-semibold text-docker hover:underline cursor-pointer">None</button>
+              <button type="button" onClick={() => setPicked(null)} className="font-semibold text-docker hover:underline cursor-pointer">{t("picker.allBtn")}</button>
+              <button type="button" onClick={() => setPicked([])} className="font-semibold text-docker hover:underline cursor-pointer">{t("picker.none")}</button>
             </span>
           </div>
           <ul className="max-h-[320px] overflow-y-auto py-1">
-            {list.length === 0 && <li className="px-3 py-2 text-[13px] text-slate">No portals match your search.</li>}
+            {list.length === 0 && <li className="px-3 py-2 text-[13px] text-slate">{t("picker.noMatch")}</li>}
             {list.map((p) => (
               <li key={p.id}>
                 <div className="flex items-center gap-2.5 px-3 py-1.5 hover:bg-mist">
@@ -88,11 +89,11 @@ export function Picker({ all, picked, setPicked }: { all: PortalRow[]; picked: s
                   </label>
                   <button
                     type="button"
-                    aria-label={`Show only ${p.name}`}
+                    aria-label={t("picker.onlyAria", { name: p.name })}
                     onClick={() => (setPicked([p.id]), setOpen(false), trigger.current?.focus())}
                     className="ml-auto shrink-0 text-[12px] text-docker hover:underline cursor-pointer"
                   >
-                    Only
+                    {t("picker.only")}
                   </button>
                 </div>
               </li>
