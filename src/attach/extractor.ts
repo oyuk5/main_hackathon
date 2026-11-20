@@ -96,6 +96,10 @@ interface ReadState {
   requests: number;
   warned: Set<string>;
   limits?: SampleLimits;
+  /** Tender pages whose documents rule found nothing: the file-like links they show anyway. */
+  docMisses?: string[][];
+  /** Tender pages the documents rule ran on. */
+  docChecked?: number;
 }
 
 /** Limits for a quick dry-run (the Cartographer's sample reads). Regular reads use none. */
@@ -667,8 +671,17 @@ function blockReason(doc: Doc): string | null {
   return null;
 }
 
+/** Page chrome: a "no results" text in a search box, menu or footer says nothing about the list. */
+const CHROME = "header, nav, footer, [role=banner], [role=navigation], [role=contentinfo], [role=search], script, style, noscript, template";
+
 function findEmptyText(recipe: Recipe, doc: Doc): string | undefined {
-  const pageText = doc.kind === "json" ? doc.raw.replace(/\s+/g, " ") : textOf(doc.$.root());
+  let pageText: string;
+  if (doc.kind === "json") pageText = doc.raw.replace(/\s+/g, " ");
+  else {
+    const $c = cheerio.load(doc.$.html(), recipe.tier === "feed" ? { xml: true } : undefined);
+    $c(CHROME).remove();
+    pageText = textOf($c.root());
+  }
   const lower = pageText.toLowerCase();
   for (const t of recipe.list.emptyText ?? []) {
     const want = t.replace(/\s+/g, " ").trim().toLowerCase();
@@ -779,7 +792,71 @@ async function documentRefs(st: ReadState, start: Doc, values: Values): Promise<
   } else {
     for (const v of resolveSelector(st, files, rootScope(doc), values, { defaultAttr: "href", all: true })) add(v);
   }
+  st.docChecked = (st.docChecked ?? 0) + 1;
+  if (refs.length === 0 && doc.kind === "markup") (st.docMisses ??= []).push(fileLikeLinks(doc));
   return refs;
+}
+
+const FILE_HREF = /\.(pdf|zip|7z|rar|docx?|xlsx?|odt|ods|rtf|gaeb|x8[0-9]|d8[0-9])(?:[?#]|$)|\/(download|file|files|attachment|dokument|document)s?\b/i;
+
+/** File-like links on a page outside its chrome (header, menu, footer), as absolute URLs. */
+function fileLikeLinks(doc: Extract<Doc, { kind: "markup" }>): string[] {
+  const $c = cheerio.load(doc.$.html());
+  $c(CHROME).remove();
+  const out = new Set<string>();
+  $c("a[href]").each((_, el) => {
+    const href = $c(el).attr("href") ?? "";
+    if (!FILE_HREF.test(href)) return;
+    const abs = absoluteUrl(href.trim(), doc.url);
+    if (abs) out.add(abs);
+  });
+  return [...out];
+}
+
+/**
+ * A documents rule that misses files the tender pages plainly show: an error, so the read is repaired
+ * instead of serving tenders without their files. Links that every such page shows (a help PDF, terms)
+ * are site-wide and do not count.
+ */
+function documentsRuleProblem(st: ReadState): string | null {
+  const misses = st.docMisses ?? [];
+  const checked = st.docChecked ?? 0;
+  if (checked < 3 || misses.length < Math.max(3, Math.ceil(checked / 2))) return null;
+  const everywhere = misses.reduce<Set<string>>((acc, links, i) => (i === 0 ? new Set(links) : new Set(links.filter((l) => acc.has(l)))), new Set());
+  const showing = misses.filter((links) => links.some((l) => !everywhere.has(l))).length;
+  if (showing < Math.max(3, Math.ceil(checked / 2))) return null;
+  return `Tender pages show file links, but the documents rule found none on ${showing} of ${checked} tenders; the documents rule needs fixing.`;
+}
+
+/** Labels of finished procedures (results, not calls for tenders). Short labels only, never long text. */
+const AWARD_NOTICE = new RegExp(
+  [
+    "contract award notice", "award notice", "notice of award",
+    "bekanntmachung vergebener auftr", "vergebene auftr", "vergebener auftrag", "ex-post-bekanntmachung",
+    "avis d'attribution", "avis d\u2019attribution", "avis d attribution",
+    "anuncio de adjudicaci", "anuncio de formalizaci",
+    "aankondiging van een gegunde opdracht", "gegunde opdracht",
+    "ogłoszenie o udzieleniu zamówienia", "ogłoszenie o wyniku postępowania",
+    "avviso di aggiudicazione", "esito di gara",
+  ].join("|"),
+  "i",
+);
+
+/** True when a short label of the list item (≤ 80 characters) says it is an award notice. */
+function isAwardNotice(scope: Scope, values: Values): boolean {
+  const labels: string[] = [];
+  const title = cleanText(templateValue(values.title));
+  if (title) labels.push(title);
+  if (scope.kind === "json") labels.push(...jsonLeaves(scope.value).filter((t) => t.length <= 80));
+  else
+    scope.el
+      .find("*")
+      .addBack()
+      .each((_, n) => {
+        const t = cleanText(ownText(n as Element));
+        if (t && t.length <= 80) labels.push(t);
+      });
+  return labels.some((l) => AWARD_NOTICE.test(l));
 }
 
 // ------------------------------------------------------------ the read
@@ -818,8 +895,8 @@ async function run(st: ReadState, started: number): Promise<ReadOutcome> {
     } catch (e) {
       if (e instanceof Cancelled) throw e;
       if (i > 0) {
-        ctx.log(`List page ${i + 1} failed (${(e as Error).message}); keeping the pages read so far.`, "warn");
-        break;
+        // A list read halfway must not look complete: missing tenders would be closed. Retry later.
+        return { kind: "unreachable", reason: `List page ${i + 1} could not be read (${(e as Error).message}), so this read is incomplete.` };
       }
       const f = e as FetchFailure;
       if (f.cause === "robots") return { kind: "blocked", reason: "The portal's robots.txt does not allow reading the list page." };
@@ -830,8 +907,14 @@ async function run(st: ReadState, started: number): Promise<ReadOutcome> {
       const problem = firstPageProblem(page);
       if (problem) return problem;
     } else if (page.status < 200 || page.status >= 300) {
-      ctx.log(`List page ${i + 1} answers ${statusLabel(page)}; keeping the pages read so far.`, "warn");
-      break;
+      if (page.status === 404 || page.status === 410) {
+        // Many portals answer 404 past their last page: that is the end of the list.
+        ctx.log(`List page ${i + 1} answers ${statusLabel(page)}; taking that as the end of the list.`);
+        break;
+      }
+      const reason = `List page ${i + 1} answers ${statusLabel(page)}, so this read is incomplete.`;
+      if (page.status >= 500 || page.status === 429 || page.status === 408) return { kind: "unreachable", reason, httpStatus: page.status };
+      return { kind: "error", reason };
     }
     listPages += 1;
     const doc = parseDoc(page, recipe.tier);
@@ -871,6 +954,7 @@ async function run(st: ReadState, started: number): Promise<ReadOutcome> {
   const tenderValues: Values[] = [];
   const ids = new Set<string>();
   let dropped = 0;
+  let awards = 0;
   let budget = MAX_DETAIL_FETCHES;
   const recipeKey = sha256(JSON.stringify([recipe.detail, recipe.documents, recipe.timeZone, recipe.withdrawnText, recipe.listFields[WITHDRAWN_FIELD] ?? null]));
 
@@ -880,6 +964,11 @@ async function run(st: ReadState, started: number): Promise<ReadOutcome> {
     let values: Values = { ...item.values };
     const listId = cleanText(templateValue(values.id));
     if (listId && ids.has(listId)) continue;
+    // Award notices are results of finished procedures: skip them before spending any request.
+    if (isAwardNotice(item.scope, values)) {
+      awards += 1;
+      continue;
+    }
 
     let detailWithdrawn = false;
     let refs: DocumentRef[] = [];
@@ -965,6 +1054,11 @@ async function run(st: ReadState, started: number): Promise<ReadOutcome> {
     tenderValues.push({ ...values, id, url });
   }
   if (dropped > 0) ctx.log(`${dropped} list entries had no id or address and were left out.`, "warn");
+  if (awards > 0) ctx.log(`Left out ${awards} award notices: results of finished procedures, not open tenders.`);
+  // Regular reads only: during a dry-run the Cartographer checks the documents rule itself, against
+  // the tender page it shows the model.
+  const docsProblem = st.limits ? null : documentsRuleProblem(st);
+  if (docsProblem) return { kind: "error", reason: docsProblem, diagnostics: { requests: st.requests, listPages, itemsSeen } };
 
   const fieldNames = new Set<string>([...REQUIRED_FIELDS, ...Object.keys(recipe.listFields), ...Object.keys(recipe.detail?.fields ?? {})]);
   const fieldFill: Record<string, FieldFill> = {};

@@ -479,7 +479,7 @@ test("a malformed first answer does not use up the documents hint; a wrong files
   const out = await attachWithModel(ctx);
   assert.equal(out.kind, "ok", JSON.stringify(out));
   assert.equal(ctx.prompts.length, 3);
-  assert.match(ctx.prompts[2]!, /The documents rule found no file on any of/);
+  assert.match(ctx.prompts[2]!, /The documents rule found no file on any of|Tender pages show file links, but the documents rule found none/);
   assert.match(ctx.prompts[2]!, /documents\.files\.css "a\[href\^='http:\/\/localhost'\]" matches no element/);
   assert.match(ctx.prompts[2]!, /href="\/\/localhost:\d+\/m\/file\/get\/a100"/, "the model sees the href as written");
   assert.ok(ctx.logs.some((l) => /not a valid step/.test(l)), "the malformed answer is in the run log");

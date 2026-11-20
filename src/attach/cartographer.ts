@@ -440,6 +440,11 @@ export function judgeSample(recipe: Recipe, read: ReadOutcome, listUrl: string):
   if (odd.length) errors.push(`${odd.length} deadlines are implausible (e.g. ${odd[0]!.submissionDeadline}); the deadline rule reads the wrong value.`);
   const inverted = t.filter((x) => x.publicationDate && x.submissionDeadline && x.submissionDeadline.slice(0, 10) < x.publicationDate);
   if (inverted.length) errors.push(`${inverted.length} tenders have a deadline before their publication date; one of the two rules reads the wrong value.`);
+  // A deadline on the publication day is rare; on most tenders it means the rule reads the publication date.
+  const both = t.filter((x) => x.publicationDate && x.submissionDeadline);
+  const sameDay = both.filter((x) => x.submissionDeadline!.slice(0, 10) === x.publicationDate);
+  if (both.length >= 2 && sameDay.length >= Math.ceil(both.length * 0.8))
+    errors.push(`The deadline equals the publication date on ${sameDay.length} of ${both.length} tenders: the submissionDeadline rule reads the publication date. Point it at the deadline (Angebotsfrist, date limite, plazo, termin składania, sluitingsdatum …).`);
   return { errors, warnings, docs };
 }
 

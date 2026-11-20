@@ -1,10 +1,11 @@
 # B · Attach
 
-_Updated: Fri 19:15. Only B and B's agent write here. Keep it under 15 lines and true._
+_Updated: Fri 21:40. Only B and B's agent write here. Keep it under 15 lines and true._
 
 **Done**
 - Extractor + normalization, tested; `documentRefsPending`. Known recipe TenderNed. No model call on reads.
 - Model Cartographer (task 3), live: Platforma Zakupowa serving (3 drafts, ~$0.06), Mercell blocked (403), DTVP/PLACSP honest fails. Shows the model one tender page so it maps documents; checks the files selector.
+- A's read-honesty requests: a failed later list page → `unreachable` (404/410 = end of list); "no results" ignored in header/nav/footer; explicit award notices skipped before any request; tender pages with file links the documents rule misses → read error (repair); Cartographer rejects a deadline rule that reads the publication date.
 - Families (task 5): fingerprints cosinex, Healy Hudson, Atexo MPE, Open Nexus, Mercell, PLACSP and 3 SaaS hosts; a model-learned recipe becomes the family template (only if it found document links); the next portal on that software attaches with **no model call** ($0).
 
 **Doing now**
