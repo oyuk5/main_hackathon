@@ -55,6 +55,7 @@ const REPAIR_SYSTEM_PROMPT = [
   "You are Watchtower's Medic. Repair a broken portal extraction Recipe using the live page snapshot and triage report.",
   "Return a complete, valid Recipe (schemaVersion: 1) and a brief plain-English changeNote describing what changed on the portal.",
   "Preserve all golden tender fields accurately. Never invent selectors that are not supported by the live snapshot.",
+  "Never clear list.item or listFields to match an empty list; keep extraction selectors intact and add any no-tenders wording to list.emptyText.",
 ].join(" ");
 
 function formatErrorMessage(err: unknown): string {
@@ -171,6 +172,7 @@ type VerificationResult =
 
 async function verifyCandidate(
   candidate: Recipe,
+  previousRecipe: Recipe,
   baseline: Baseline,
   deps: MedicDeps,
   ctx: PortalContext,
@@ -189,6 +191,20 @@ async function verifyCandidate(
       kind: "retry",
       promptReason: describeVerdictForPrompt(verdict),
       operatorReason: describeVerdictForOperator(verdict),
+      sampleTenders,
+    };
+  }
+  if (
+    read.tenders.length === 0 &&
+    ((previousRecipe.list.item.trim().length > 0 && candidate.list.item.trim().length === 0) ||
+      (Object.keys(previousRecipe.listFields).length > 0 && Object.keys(candidate.listFields).length === 0) ||
+      (previousRecipe.detail !== null && candidate.detail === null) ||
+      (previousRecipe.documents !== null && candidate.documents === null))
+  ) {
+    return {
+      kind: "retry",
+      promptReason: "Do not clear list.item, listFields, detail, or documents when 0 tenders are currently shown. Preserve the existing selectors and add the empty-day wording to list.emptyText instead.",
+      operatorReason: "The patch cleared existing extraction rules instead of preserving them.",
       sampleTenders,
     };
   }
@@ -302,7 +318,7 @@ async function executePatchAttempt(params: {
     return { kind: "resolved", outcome: { kind: "failed", reason: "Repair stopped." } };
   }
   const candidateRecipe = normalizePatchedRecipe(patched.recipe, params.recipe, params.triage.category);
-  const verified = await verifyCandidate(candidateRecipe, params.baseline, params.deps, params.ctx);
+  const verified = await verifyCandidate(candidateRecipe, params.recipe, params.baseline, params.deps, params.ctx);
   if (params.ctx.signal.aborted) {
     return { kind: "resolved", outcome: { kind: "failed", reason: "Repair stopped." } };
   }

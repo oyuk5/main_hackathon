@@ -765,6 +765,8 @@ export async function attachWithModel(ctx: PortalContext, deps: ModelAttachDeps 
   let tenderPage: { url: string; body: string } | null = null;
   /** Drafts that were dry-run (rounds also count malformed answers and refused navigations). */
   let drafts = 0;
+  /** Number of drafts blocked specifically to ask for missing optional fields after core rules worked. */
+  let optionalHints = 0;
   let lastProblem = "the model did not propose a usable recipe";
   /** The fast model answers in seconds and costs a fraction: it tries a correction; if it fails, the smart one takes over. */
   let tier: ModelTier = "smart";
@@ -825,6 +827,7 @@ export async function attachWithModel(ctx: PortalContext, deps: ModelAttachDeps 
       if (current.status === 401 || current.status === 403) return { kind: "blocked", reason: `${capital(blockHint(current.raw, current.status)!)}.` };
       history.length = 0; // a new page: earlier feedback was about the old one
       workingFields.clear();
+      optionalHints = 0;
       tier = "smart";
       tenderPageShown = false;
       fileLinksSeen = false;
@@ -898,18 +901,24 @@ export async function attachWithModel(ctx: PortalContext, deps: ModelAttachDeps 
       }
     }
     // Evidence from what the portal shows: the list page, the JSON calls, the list items, one tender page.
-    let withdrawnBlock: string[] = [];
-    if (sample.kind === "ok" && sample.tenders.length > 0 && drafts <= 2) {
-      const items = await deps.items(recipe, ctx).catch(() => ({ items: [] as string[] }));
-      const texts = [current.raw, current.rendered ?? "", ...current.json.map((j) => JSON.stringify(j.data)), ...items.items, tenderPage?.body ?? ""];
-      // A hint for two drafts: models tend to fix the required fields first and skip it once.
-      const optional = missingOptionalFields(recipe, texts);
-      if (optional) withdrawnBlock.push(optional);
-      const withdrawn = missingWithdrawnRule(recipe, texts);
-      if (withdrawn) withdrawnBlock = [withdrawn];
-    }
-    // Counted by drafts that were dry-run, so a malformed answer does not use up the hints.
     const docsBlock = drafts === 1 || (drafts === 2 && fileLinksSeen) ? judged.docs : [];
+    let withdrawnBlock: string[] = [];
+    if (sample.kind === "ok" && sample.tenders.length > 0) {
+      const wantOptional = optionalHints < 2 && rounds < MAX_RECIPE_ROUNDS;
+      const wantWithdrawn = drafts <= 2;
+      if (wantOptional || wantWithdrawn) {
+        const items = await deps.items(recipe, ctx).catch(() => ({ items: [] as string[] }));
+        const texts = [current.raw, current.rendered ?? "", ...current.json.map((j) => JSON.stringify(j.data)), ...items.items, tenderPage?.body ?? ""];
+        // A hint for up to two clean drafts: don't burn this budget while fixing list/hop errors.
+        const optional = wantOptional ? missingOptionalFields(recipe, texts) : null;
+        if (optional) {
+          withdrawnBlock.push(optional);
+          if (judged.errors.length === 0 && docsBlock.length === 0) optionalHints += 1;
+        }
+        const withdrawn = wantWithdrawn ? missingWithdrawnRule(recipe, texts) : null;
+        if (withdrawn) withdrawnBlock = [withdrawn];
+      }
+    }
     const blocking = drafts === 1 ? [...judged.errors, ...judged.warnings, ...docsBlock, ...withdrawnBlock] : [...judged.errors, ...docsBlock, ...withdrawnBlock];
     if (blocking.length === 0) {
       if (judged.docs.length) ctx.log(`The recipe has no working documents rule: ${judged.docs[0]}`, "warn");

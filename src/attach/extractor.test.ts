@@ -379,6 +379,24 @@ test("common 'no tenders' wording counts as empty even when the recipe learned n
   assert.equal(ok(await extractor.read(none("/long"), makeCtx())).diagnostics.emptyStateText, undefined);
 });
 
+test("JSON API empty array at list.item container marks emptyStateText, while renamed key stays broken", async () => {
+  const apiRecipe = recipe({
+    tier: "jsonApi",
+    list: { request: { url: "/api/empty", method: "GET" }, pagination: { type: "none" }, item: "$.resultats[*]", emptyText: [] },
+    listFields: { id: { jsonPath: "$.id" }, url: { const: "/t/{id}" } },
+  });
+  routes.set("/api/empty", () => ({ type: "application/json", body: JSON.stringify({ total: 0, resultats: [], page: 1 }) }));
+  const emptyRes = ok(await extractor.read(apiRecipe, makeCtx()));
+  assert.equal(emptyRes.tenders.length, 0);
+  assert.ok(emptyRes.diagnostics.emptyStateText);
+
+  // Renamed key: "resultats" missing, only "items" present -> must NOT look empty!
+  routes.set("/api/empty", () => ({ type: "application/json", body: JSON.stringify({ total: 2, items: [{ id: "1" }] }) }));
+  const brokenRes = ok(await extractor.read(apiRecipe, makeCtx()));
+  assert.equal(brokenRes.tenders.length, 0);
+  assert.equal(brokenRes.diagnostics.emptyStateText, undefined);
+});
+
 test("403 is blocked, a login form is blocked, a captcha is blocked, 503 is unreachable", async () => {
   routes.set("/forbidden", () => ({ status: 403, body: "no" }));
   routes.set("/login", () => ({ body: page('<form action="/login"><input name="user"><input type="password" name="pw"></form>') }));

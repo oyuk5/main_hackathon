@@ -24,7 +24,7 @@ import { mayClose, sawWholeList } from "./listing.js";
 import { planDocuments, type Need } from "./budget.js";
 import { dateTimeEpoch, isCalendarDate } from "./calendar.js";
 import { llmFor } from "../llm/client.js";
-import { cartographer, extractor } from "../attach/index.js";
+import { cartographer, evictDetailCacheSample, extractor } from "../attach/index.js";
 import { medic, verifyGoldenRecords, watch } from "../watch/index.js";
 import { formatWithOffset, nowWithOffset, toEpoch } from "../shared/time.js";
 import { Tender, TenderDocument as TenderDocumentSchema } from "../shared/contract.js";
@@ -206,6 +206,7 @@ async function runFlow(portalId: string, url: string, runId: string, controller:
   }
 
   // 2. Regular read: no model call
+  evictDetailCacheSample(portalId, 3);
   let read = await extractor.read(recipe, ctx);
   for (const waitMs of [5_000, 20_000]) {
     if (read.kind !== "unreachable" || controller.signal.aborted) break;
