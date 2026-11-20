@@ -25,6 +25,18 @@ const LANES: { id: Lane; title: string; note: string; empty: string; tone: strin
   { id: "fixed", title: "Fixed by itself", note: "Portals that changed in the last 24 hours and were repaired without help.", empty: "No repairs in the last 24 hours.", tone: "border-t-serving" },
 ];
 
+/** What a person can do about a portal Watchtower cannot fix itself. Null when the reason gives no clue. */
+export function nextStep(reason: string): string | null {
+  const r = reason.toLowerCase();
+  if (r.includes("robots.txt")) return "Ask the portal for permission or an open data feed; Watchtower will not read paths robots.txt forbids.";
+  if (r.includes("login") || r.includes("sign-in")) return "Ask the portal to publish documents without a login; Watchtower never logs in. The last correct tenders stay served.";
+  if (r.includes("captcha")) return "Ask the portal for an API or a feed; Watchtower does not solve captchas.";
+  if (r.includes("403") || r.includes("forbidden")) return "Ask the portal to allow automated reads from Watchtower's address.";
+  if (r.includes("session")) return "Ask the portal for an API or a feed that works without a browser session.";
+  if (r.includes("javascript")) return "Find the portal's data address by hand and add it as the portal's address.";
+  return null;
+}
+
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 const clip = (s: string, max: number) => (s.length > max ? s.slice(0, max - 1).replace(/\s+\S*$/, "") + "…" : s);
 
@@ -166,6 +178,11 @@ function Card({ k, hover, setHover }: { k: Ticket; hover: string | null; setHove
         </span>
         <span className="mt-1.5 block text-[15px] leading-snug font-semibold">{k.title}</span>
         <span className="mt-1 block text-[13.5px] leading-snug text-slate">{k.body}</span>
+        {p.state === "failed" && nextStep(p.reason) && (
+          <span className="mt-2 block rounded-[4px] bg-failed-wash px-2.5 py-1.5 text-[13px] leading-snug text-ink">
+            <span className="font-semibold">To do: </span>{nextStep(p.reason)}
+          </span>
+        )}
         {k.tried && (
           <span className="mt-2 block border-l-2 border-hairline pl-2.5 text-[13px] leading-snug text-slate">
             <span className="font-semibold text-ink">Tried: </span>{k.tried}
