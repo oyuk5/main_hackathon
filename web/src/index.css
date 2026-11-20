@@ -54,65 +54,66 @@
   /* Dark follows the system unless the viewer picked a theme (data-theme on <html>, set by the switch). */
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
-      --color-paper: #0f1318;
-      --color-sea: #0b0f14;
-      --color-mist: #171e26;
-      --color-land: #161d25;
-      --color-land-watched: #1f2a35;
-      --color-shallow: #0f151c;
-      --color-shallow-deep: #121a22;
-      --color-grat: #1c2630;
-      --color-ink: #e6edf3;
-      --color-slate: #8b9aa7;
-      --color-faint: #84939f;
-      --color-hairline: #252e37;
+      /* Dark: desert night. Deep navy sky, sand-coloured text, an apricot accent that mirrors the light theme. */
+      --color-paper: #18233a;
+      --color-sea: #111a2d;
+      --color-mist: #1f2c46;
+      --color-land: #22304a;
+      --color-land-watched: #33455f;
+      --color-shallow: #14203a;
+      --color-shallow-deep: #182640;
+      --color-grat: #253552;
+      --color-ink: #f3e8d8;
+      --color-slate: #c0b2a0;
+      --color-faint: #a9998a;
+      --color-hairline: #2a3a57;
 
-      --color-docker: #5eb3d6;
-      --color-docker-solid: #1f6f91;
-      --color-docker-hover: #8ccbe5;
-      --color-magenta: #5eb3d6;
+      --color-docker: #f2a874;
+      --color-docker-solid: #b0532a;
+      --color-docker-hover: #963f1d;
+      --color-magenta: #f2a874;
 
-      --color-serving: #00b894;
-      --color-healing: #d29922;
-      --color-healing-text: #d29922;
-      --color-failed: #e5534b;
-      --color-integrating: #a68ef2;
+      --color-serving: #7fc79a;
+      --color-healing: #e8b45a;
+      --color-healing-text: #e8b45a;
+      --color-failed: #f08a73;
+      --color-integrating: #b9a4f0;
 
-      --color-serving-wash: rgba(0, 184, 148, 0.12);
-      --color-healing-wash: rgba(210, 153, 34, 0.12);
-      --color-failed-wash: rgba(229, 83, 75, 0.12);
-      --color-integrating-wash: rgba(166, 142, 242, 0.14);
+      --color-serving-wash: rgba(127, 199, 154, 0.13);
+      --color-healing-wash: rgba(232, 180, 90, 0.13);
+      --color-failed-wash: rgba(240, 138, 115, 0.14);
+      --color-integrating-wash: rgba(185, 164, 240, 0.14);
     }
   }
   :root[data-theme="dark"] {
-    --color-paper: #0f1318;
-    --color-sea: #0b0f14;
-    --color-mist: #171e26;
-    --color-land: #161d25;
-    --color-land-watched: #1f2a35;
-    --color-shallow: #0f151c;
-    --color-shallow-deep: #121a22;
-    --color-grat: #1c2630;
-    --color-ink: #e6edf3;
-    --color-slate: #8b9aa7;
-    --color-faint: #84939f;
-    --color-hairline: #252e37;
+    --color-paper: #18233a;
+    --color-sea: #111a2d;
+    --color-mist: #1f2c46;
+    --color-land: #22304a;
+    --color-land-watched: #33455f;
+    --color-shallow: #14203a;
+    --color-shallow-deep: #182640;
+    --color-grat: #253552;
+    --color-ink: #f3e8d8;
+    --color-slate: #c0b2a0;
+    --color-faint: #a9998a;
+    --color-hairline: #2a3a57;
 
-    --color-docker: #5eb3d6;
-    --color-docker-solid: #1f6f91;
-    --color-docker-hover: #8ccbe5;
-    --color-magenta: #5eb3d6;
+    --color-docker: #f2a874;
+    --color-docker-solid: #b0532a;
+    --color-docker-hover: #963f1d;
+    --color-magenta: #f2a874;
 
-    --color-serving: #00b894;
-    --color-healing: #d29922;
-    --color-healing-text: #d29922;
-    --color-failed: #e5534b;
-    --color-integrating: #a68ef2;
+    --color-serving: #7fc79a;
+    --color-healing: #e8b45a;
+    --color-healing-text: #e8b45a;
+    --color-failed: #f08a73;
+    --color-integrating: #b9a4f0;
 
-    --color-serving-wash: rgba(0, 184, 148, 0.12);
-    --color-healing-wash: rgba(210, 153, 34, 0.12);
-    --color-failed-wash: rgba(229, 83, 75, 0.12);
-    --color-integrating-wash: rgba(166, 142, 242, 0.14);
+    --color-serving-wash: rgba(127, 199, 154, 0.13);
+    --color-healing-wash: rgba(232, 180, 90, 0.13);
+    --color-failed-wash: rgba(240, 138, 115, 0.14);
+    --color-integrating-wash: rgba(185, 164, 240, 0.14);
   }
   :root[data-theme="light"] {
     color-scheme: light;

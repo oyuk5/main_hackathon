@@ -157,7 +157,7 @@ function Actions({ id, busy, onChanged, onRemoved }: { id: string; busy: boolean
 
   return (
     <div className="mt-5 flex flex-wrap items-center gap-2">
-      <button onClick={refresh} className="h-8 rounded-[4px] bg-docker-solid px-3 text-[13px] font-semibold text-white hover:bg-docker cursor-pointer">
+      <button onClick={refresh} className="h-8 rounded-[4px] bg-docker-solid px-3 text-[13px] font-semibold text-white hover:bg-docker-hover cursor-pointer">
         Read now
       </button>
       <button

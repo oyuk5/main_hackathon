@@ -269,7 +269,7 @@ function Header({ onAdded }: { onAdded: () => void }) {
           />
           <button
             disabled={sending}
-            className="h-8 shrink-0 rounded-[4px] bg-docker-solid px-3.5 text-[13px] font-semibold text-white transition-colors hover:bg-docker disabled:opacity-60 cursor-pointer"
+            className="h-8 shrink-0 rounded-[4px] bg-docker-solid px-3.5 text-[13px] font-semibold text-white transition-colors hover:bg-docker-hover disabled:opacity-60 cursor-pointer"
           >
             {sending ? "Adding…" : "Watch portal"}
           </button>
