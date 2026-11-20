@@ -13,7 +13,7 @@ import type { AnyNode, Element } from "domhandler";
 import { z } from "zod";
 import type { AttachOutcome, ExtractedTender, PortalContext, ReadOutcome } from "../shared/modules.js";
 import { Recipe } from "../shared/recipe.js";
-import { decode, extractor, readSample } from "./extractor.js";
+import { decode, extractor, readSample, sampleItems } from "./extractor.js";
 import { pickGolden } from "./golden.js";
 
 /** First draft plus at most 3 correction rounds, as the area rules say. */
@@ -24,6 +24,7 @@ const PAGE_CHARS = 14_000;
 const JSON_SAMPLE_CHARS = 3_500;
 const LINKS_MAX = 80;
 const REQUEST_TIMEOUT_MS = 30_000;
+const BROWSER_LOAD_MS = 45_000;
 
 // ------------------------------------------------------------ what the model answers
 
@@ -84,9 +85,12 @@ async function sniff(ctx: PortalContext, url: string): Promise<{ rendered: strin
           }
         })();
       });
-      await page.goto(url, { waitUntil: "domcontentloaded", timeout: REQUEST_TIMEOUT_MS });
-      await page.waitForLoadState("networkidle", { timeout: 15_000 }).catch(() => {});
-      return { rendered: await page.content(), json };
+      // Every request the page makes waits its turn at 1 per second, so a heavy page may not finish
+      // loading in time. Whatever rendered by then is still worth showing.
+      await page.goto(url, { waitUntil: "domcontentloaded", timeout: BROWSER_LOAD_MS }).catch(() => {});
+      await page.waitForLoadState("networkidle", { timeout: 10_000 }).catch(() => {});
+      const rendered = await page.content().catch(() => null);
+      return { rendered: rendered && rendered.length > 200 ? rendered : null, json };
     });
   } catch (e) {
     if (ctx.signal.aborted) throw e;
@@ -180,6 +184,21 @@ export function compressHtml(html: string, maxChars = PAGE_CHARS): string {
       else if ((el.attribs[name] ?? "").length > 160) el.attribs[name] = el.attribs[name]!.slice(0, 160) + "…";
     }
   });
+  // Find the list region before collapsing: the parent with the longest run of similar children.
+  let best: { el: Element; run: number } | null = null;
+  for (const p of $("body *").toArray() as Element[]) {
+    const kids = $(p).children().toArray() as Element[];
+    let i = 0;
+    while (i < kids.length) {
+      const sig = signature($, kids[i]!);
+      let j = i + 1;
+      while (j < kids.length && signature($, kids[j]!) === sig) j++;
+      const textual = $(kids[i]!).text().trim().length > 20;
+      if (j - i >= 3 && textual && (!best || j - i > best.run)) best = { el: p, run: j - i };
+      i = j;
+    }
+  }
+  if (best) $(best.el).attr("data-wt-list", String(best.run));
   // Collapse repeated siblings, deepest first so inner runs are counted before outer ones.
   const parents = $("*").toArray().reverse();
   for (const p of parents) {
@@ -206,9 +225,36 @@ export function compressHtml(html: string, maxChars = PAGE_CHARS): string {
         (n as unknown as { data: string }).data = t.length > 120 ? t.slice(0, 120) + "…" : t;
       }
     });
-  const body = ($("body").html() ?? $.root().html() ?? "").replace(/\n\s*\n+/g, "\n").replace(/>\s+</g, ">\n<");
-  const out = `<!-- title: ${title} -->\n${body}`;
-  return out.length > maxChars ? out.slice(0, maxChars) + "\n<!-- …page cut here -->" : out;
+  const tidy = (h: string) => h.replace(/\n\s*\n+/g, "\n").replace(/>\s+</g, ">\n<");
+  const marked = $("[data-wt-list]").first();
+  let region = "";
+  if (marked.length) {
+    const path = marked
+      .parents()
+      .toArray()
+      .reverse()
+      .map((e) => describe($, e as Element))
+      .concat(describe($, marked.get(0) as Element))
+      .join(" > ");
+    region = `<!-- the longest repeated list on the page (${marked.attr("data-wt-list")} similar items) is inside: ${path} -->\n${tidy($.html(marked))}`;
+    marked.removeAttr("data-wt-list");
+    region = region.replace(/ data-wt-list="\d+"/, "");
+  }
+  const body = tidy($("body").html() ?? $.root().html() ?? "");
+  const whole = `<!-- title: ${title} -->\n${body}`;
+  if (whole.length <= maxChars) return whole;
+  // Too long: the list region first (it is what the recipe needs), then as much of the page as fits.
+  if (region) {
+    const head = `<!-- title: ${title} -->\n${region.slice(0, Math.floor(maxChars * 0.6))}\n<!-- whole page from the top: -->\n`;
+    return head + body.slice(0, Math.max(0, maxChars - head.length)) + "\n<!-- …page cut here -->";
+  }
+  return whole.slice(0, maxChars) + "\n<!-- …page cut here -->";
+}
+
+function describe($: cheerio.CheerioAPI, el: Element): string {
+  const id = $(el).attr("id");
+  const cls = ($(el).attr("class") ?? "").trim().split(/\s+/).filter(Boolean).slice(0, 3);
+  return `${el.tagName}${id ? `#${id}` : ""}${cls.map((c) => `.${c}`).join("")}`;
 }
 
 /** JSON with arrays cut to 2 items and long strings shortened. */
@@ -299,7 +345,8 @@ Recipe rules (schemaVersion is 1):
 - documents: { hops: [selectors leading to the page that lists files], files: selector with all:true for the file links, via: "http" }. Start: the detail page if any, else the tender page. Use null when you cannot see how files are listed.
 - withdrawnText: words that mean the buyer cancelled the tender.
 - A WRONG VALUE IS WORSE THAN A MISSING ONE. Leave a field out rather than guess; never map a field to something that only looks similar.
-- Only open tenders: if the portal lists awards or past notices too, use a filter in the request or a JSONPath filter like "$.items[?(@.status=='open')]".`;
+- Only open tenders: if the portal lists awards or past notices too, use a filter in the request or a JSONPath filter like "$.items[?(@.status=='open')]". If its default list shows current tenders, use it as is: closed ones are recognised later by their deadline.
+- Do not give up because the page view is cut: the repeated list is shown first, with its location. Write the best recipe you can; the dry-run will tell you exactly what to fix.`;
 
 function describeLook(l: Look): string {
   const parts = [`Address: ${l.url} (HTTP ${l.status})`, zoneHint(l.url)];
@@ -349,9 +396,15 @@ export function judgeSample(recipe: Recipe, read: ReadOutcome, listUrl: string):
     const hasRule = f in recipe.listFields || f in (recipe.detail?.fields ?? {});
     if ((f === "id" || f === "url") && fill.filled < fill.total) errors.push(`${f} is missing on ${fill.total - fill.filled} of ${fill.total} tenders.`);
     else if (f === "title" && fill.filled < Math.ceil(fill.total * 0.8)) errors.push(`title found on only ${fill.filled} of ${fill.total} tenders.`);
-    else if (!hasRule && f !== "id" && f !== "url") warnings.push(`There is no rule for ${f}. If the list or the tender page shows it, add one (detail.fields if only the tender page has it).`);
-    else if (hasRule && fill.filled === 0) errors.push(`The ${f} rule matched on none of ${fill.total} tenders. Fix it, or remove it if the portal does not show ${f}.`);
-    else if (hasRule && fill.filled < fill.total / 2) warnings.push(`${f} found on only ${fill.filled} of ${fill.total} tenders.`);
+    // The watch checks reject any read where a required field is empty on every tender, so this must
+    // be fixed in every draft: usually the value is on the tender's own page (detail.fields).
+    else if (fill.filled === 0)
+      errors.push(
+        hasRule
+          ? `The ${f} rule matched on none of ${fill.total} tenders. Fix it; if the list does not show ${f}, read it from the tender's own page with detail.fields.`
+          : `No rule gives ${f}, and every read must have it on at least some tenders. Find it on the list or on the tender's own page (detail.fields).`,
+      );
+    else if (fill.filled < fill.total / 2) warnings.push(`${f} found on only ${fill.filled} of ${fill.total} tenders.`);
   }
   const ids = t.map((x) => x.id);
   if (new Set(ids).size < ids.length) errors.push("Some tenders share an id; the id must be the portal's own unique identifier.");
@@ -383,9 +436,32 @@ export interface ModelAttachDeps {
   look: (ctx: PortalContext, url: string) => Promise<Look>;
   sample: (recipe: Recipe, ctx: PortalContext) => Promise<ReadOutcome>;
   read: (recipe: Recipe, ctx: PortalContext) => Promise<ReadOutcome>;
+  /** The first items the list selector matches, raw: what the field rules ran against. */
+  items: (recipe: Recipe, ctx: PortalContext) => Promise<{ status: number; items: string[]; pageStart: string }>;
 }
 
-const defaultDeps: ModelAttachDeps = { look, sample: (r, c) => readSample(r, c), read: (r, c) => extractor.read(r, c) };
+const defaultDeps: ModelAttachDeps = {
+  look,
+  sample: (r, c) => readSample(r, c),
+  read: (r, c) => extractor.read(r, c),
+  items: (r, c) => sampleItems(r, c),
+};
+
+/** Shows the model the item its rules ran against, compressed. Never throws. */
+async function showItems(deps: ModelAttachDeps, recipe: Recipe, ctx: PortalContext): Promise<string> {
+  try {
+    const got = await deps.items(recipe, ctx);
+    if (got.items.length === 0) return `On the list page (HTTP ${got.status}) list.item matched no element. The page starts with:\n${got.pageStart}`;
+    const first = got.items[0]!;
+    const shown = recipe.tier === "jsonApi" ? compressJson(JSON.parse(first), 2500) : compressHtml(first, 2500).replace(/^<!-- title:  -->\n/, "");
+    return `The first item list.item matched, exactly as your field rules see it (compressed):\n${shown}`;
+  } catch (e) {
+    if (ctx.signal.aborted) throw e;
+    return "";
+  }
+}
+
+const isRobots = (e: unknown) => e instanceof Error && /robots\.txt/i.test(e.message);
 
 function modelFailure(e: unknown): string {
   const m = e instanceof Error ? e.message : String(e);
@@ -396,18 +472,30 @@ function modelFailure(e: unknown): string {
 /** Learns an unknown portal with the model. Returns ok only for a recipe that passed a dry-run and a full read. */
 export async function attachWithModel(ctx: PortalContext, deps: ModelAttachDeps = defaultDeps): Promise<AttachOutcome> {
   let current: Look;
+  const history: string[] = [];
   try {
     current = await deps.look(ctx, ctx.url);
   } catch (e) {
     if (ctx.signal.aborted) return { kind: "failed", reason: "The attach was cancelled." };
-    return { kind: "failed", reason: `The portal could not be reached: ${(e as Error).message}.` };
+    if (!isRobots(e)) return { kind: "failed", reason: `The portal could not be reached: ${(e as Error).message}.` };
+    // robots.txt keeps us off this address; the site's home page may link an allowed list or feed.
+    const home = new URL("/", ctx.url).toString();
+    ctx.log(`robots.txt does not allow ${ctx.url}; looking at the home page for an allowed list or feed.`, "warn");
+    try {
+      current = await deps.look(ctx, home);
+    } catch (e2) {
+      if (ctx.signal.aborted) return { kind: "failed", reason: "The attach was cancelled." };
+      return { kind: "failed", reason: "The portal's robots.txt does not allow reading its tender list, so we stay away." };
+    }
+    history.push(`Note: robots.txt forbids the address the operator gave (${ctx.url}); never use it. You are looking at the home page: find an allowed tender list, search result address or feed (RSS/Atom, open data).`);
   }
   if (current.status >= 500) return { kind: "failed", reason: `The portal answers HTTP ${current.status}; it is not reachable right now.` };
   let hint = blockHint(current.raw, current.status);
   if (current.status === 401 || current.status === 403) return { kind: "blocked", reason: `${capital(hint!)}.` };
 
-  const history: string[] = [];
   let navigations = 0;
+  /** True once any draft read at least one tender: then a login box on the page is not what stops us. */
+  let everRead = false;
   let rounds = 0;
   let lastProblem = "the model did not propose a usable recipe";
 
@@ -432,7 +520,8 @@ export async function attachWithModel(ctx: PortalContext, deps: ModelAttachDeps 
 
     if (step.action === "give_up") {
       ctx.log(`The model gave up: ${step.reason}`, "warn");
-      if (hint) return { kind: "blocked", reason: `${capital(hint)}; ${lower(step.reason)}` };
+      const namesBlock = /log ?in|sign(ed)? ?in|password|account|registr|captcha|anmeld|zaloguj|iniciar sesi/i.test(step.reason);
+      if (hint && !everRead && namesBlock) return { kind: "blocked", reason: `${capital(hint)}; ${lower(step.reason)}` };
       return { kind: "failed", reason: `Could not learn this portal: ${lower(step.reason)}` };
     }
 
@@ -479,7 +568,8 @@ export async function attachWithModel(ctx: PortalContext, deps: ModelAttachDeps 
     }
     ctx.log(`Trying a ${recipe.tier} recipe (draft ${rounds} of ${MAX_RECIPE_ROUNDS}).`);
     const sample = await deps.sample(recipe, ctx);
-    if (sample.kind === "blocked") return { kind: "blocked", reason: `${capital(sample.reason)}` };
+    if (sample.kind === "blocked" && !/robots\.txt/i.test(sample.reason)) return { kind: "blocked", reason: `${capital(sample.reason)}` };
+    if (sample.kind === "ok" && sample.tenders.length > 0) everRead = true;
     const judged = judgeSample(recipe, sample, current.url);
     const blocking = rounds === 1 ? [...judged.errors, ...judged.warnings] : judged.errors;
     if (blocking.length === 0) {
@@ -502,12 +592,13 @@ export async function attachWithModel(ctx: PortalContext, deps: ModelAttachDeps 
     }
     lastProblem = blocking[0]!;
     ctx.log(`Draft ${rounds} needs fixes: ${blocking.slice(0, 2).join(" ")}`, "warn");
+    const itemView = sample.kind === "ok" || sample.kind === "error" ? await showItems(deps, recipe, ctx) : "";
     history.push(
-      `Round ${rounds}: your recipe was dry-run on the first list page.\nRecipe:\n${JSON.stringify(recipe)}\nProblems to fix:\n- ${blocking.join("\n- ")}\n${showSample(sample)}\nAnswer with a corrected full recipe.`,
+      `Round ${rounds}: your recipe was dry-run on the first list page.\nRecipe:\n${JSON.stringify(recipe)}\nProblems to fix:\n- ${blocking.join("\n- ")}\n${showSample(sample)}\n${itemView}\nAnswer with a corrected full recipe.`,
     );
   }
 
-  if (hint) return { kind: "blocked", reason: `${capital(hint)}, and no tender list could be read without it.` };
+  if (hint && !everRead) return { kind: "blocked", reason: `${capital(hint)}, and no tender list could be read without it.` };
   return { kind: "failed", reason: `Could not learn this portal in ${MAX_RECIPE_ROUNDS} drafts: ${lower(lastProblem)}` };
 }
 

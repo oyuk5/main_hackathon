@@ -124,15 +124,16 @@ test("the model sees a compressed page: no scripts, repeated rows collapsed to 2
   assert.match(p, /Domain suggests|does not tell the country/);
 });
 
-test("first draft must also map every required field the portal shows; later drafts only need to be correct", async () => {
+test("a required field empty on every tender must be fixed in every draft (the watch checks reject it)", async () => {
   portal(6);
   const noBuyer = goodRecipe();
   delete noBuyer.listFields.buyerName;
-  const ctx = scripted(`${base}/m/list`, [step("recipe", { recipe: noBuyer }), step("recipe", { recipe: noBuyer })]);
+  const ctx = scripted(`${base}/m/list`, [step("recipe", { recipe: noBuyer }), step("recipe", { recipe: noBuyer }), step("recipe", { recipe: goodRecipe() })]);
   const out = await attachWithModel(ctx);
   assert.equal(out.kind, "ok");
-  assert.equal(ctx.prompts.length, 2);
-  assert.match(ctx.prompts[1]!, /There is no rule for buyerName/);
+  assert.equal(ctx.prompts.length, 3, "the second draft without buyerName is not accepted either");
+  assert.match(ctx.prompts[1]!, /No rule gives buyerName/);
+  assert.match(ctx.prompts[2]!, /No rule gives buyerName/);
 });
 
 test("403 on the first page is blocked without any model call", async () => {
@@ -278,7 +279,7 @@ test("look keeps JSON the page fetched, most list-like first", async () => {
     },
     async waitForLoadState() {},
     async content() {
-      return page("<div id='app'>rendered</div>");
+      return page(`<div id='app'>rendered ${"<p>row</p>".repeat(30)}</div>`);
     },
   };
   const ctx = scripted(`${base}/m/list`, []);
@@ -287,4 +288,75 @@ test("look keeps JSON the page fetched, most list-like first", async () => {
   assert.equal(l.json.length, 1, "only list-like JSON is kept");
   assert.equal(l.json[0]!.url, `${base}/api/search?page=0`);
   assert.match(l.rendered ?? "", /rendered/);
+});
+
+test("feedback shows the model the first item exactly as its rules see it", async () => {
+  portal(6);
+  const noTitle = goodRecipe();
+  noTitle.listFields.title = { css: "h3.title" };
+  const ctx = scripted(`${base}/m/list`, [step("recipe", { recipe: noTitle }), step("recipe", { recipe: goodRecipe() })]);
+  assert.equal((await attachWithModel(ctx)).kind, "ok");
+  assert.match(ctx.prompts[1]!, /The first item list\.item matched, exactly as your field rules see it/);
+  assert.match(ctx.prompts[1]!, /<td class="nr">V-100<\/td>/);
+});
+
+test("a login box in the header does not make a readable portal 'blocked'", async () => {
+  routes.set("/m/list", () => ({
+    body: page(`<header><form><input type="password" name="pw"></form></header><table><tbody>${rows(6)}</tbody></table>`),
+  }));
+  const noTitle = goodRecipe();
+  noTitle.listFields.title = { css: "h3.title" };
+  const ctx = scripted(`${base}/m/list`, Array.from({ length: MAX_RECIPE_ROUNDS }, () => step("recipe", { recipe: noTitle })));
+  const out = await attachWithModel(ctx);
+  assert.equal(out.kind, "failed", "the list was read, so the login box is not the problem");
+  assert.match((out as { reason: string }).reason, /title found on only 0 of/);
+});
+
+test("robots.txt on the given address: look at the home page and tell the model to stay off it", async () => {
+  portal(6);
+  routes.set("/", () => ({ body: page('<a href="/m/list">Ausschreibungen</a>') }));
+  const ctx = scripted(`${base}/m/forbidden`, [step("recipe", { recipe: goodRecipe() })]);
+  const realFetch = ctx.http.fetch;
+  ctx.http = {
+    fetch: (u, init) => (new URL(u).pathname.startsWith("/m/forbidden") ? Promise.reject(new Error("robots.txt disallows /m/forbidden")) : realFetch(u, init)),
+  };
+  const out = await attachWithModel(ctx);
+  assert.equal(out.kind, "ok");
+  assert.match(ctx.prompts[0]!, /robots\.txt forbids the address the operator gave/);
+  assert.match(ctx.prompts[0]!, /Ausschreibungen -> /);
+});
+
+test("look keeps the rendered page when loading times out", async () => {
+  portal(3);
+  const slowPage = {
+    on() {},
+    async goto() {
+      throw new Error("Timeout 45000ms exceeded");
+    },
+    async waitForLoadState() {},
+    async content() {
+      return page(`<div id='app'>${"<p>row</p>".repeat(40)}</div>`);
+    },
+  };
+  const ctx = scripted(`${base}/m/list`, []);
+  ctx.browser = { withPage: (fn) => fn(slowPage as never) };
+  const l = await look(ctx, `${base}/m/list`);
+  assert.match(l.rendered ?? "", /id='app'|id="app"/);
+});
+
+test("a long page puts the repeated list first, with where it lives", () => {
+  const nav = `<nav>${Array.from({ length: 400 }, (_, i) => `<span class="m${i}">Menüpunkt ${i} mit etwas Text</span>`).join("")}</nav>`;
+  const html = page(`${nav}<main id="content"><ul class="tenders">${Array.from({ length: 40 }, (_, i) => `<li class="t"><a href="/t/${i}">Ausschreibung Nummer ${i} Straßenbau</a></li>`).join("")}</ul></main>`);
+  const c = compressHtml(html, 4000);
+  assert.ok(c.length <= 4100);
+  assert.match(c, /longest repeated list on the page \(40 similar items\) is inside: .*main#content > ul\.tenders/);
+  assert.ok(c.indexOf("Ausschreibung Nummer 0") < c.indexOf("Menüpunkt 0"), "the list comes before the long navigation");
+});
+
+test("give up on a page with a login box is 'failed' unless the model names the login", async () => {
+  routes.set("/m/hdr", () => ({ body: page('<header><input type="password"></header><p>Nothing listed here</p>') }));
+  const notBlock = scripted(`${base}/m/hdr`, [step("give_up", { reason: "The list is only shown after a JavaScript search." })]);
+  assert.equal((await attachWithModel(notBlock)).kind, "failed");
+  const block = scripted(`${base}/m/hdr`, [step("give_up", { reason: "Tenders are only shown after you log in." })]);
+  assert.equal((await attachWithModel(block)).kind, "blocked");
 });

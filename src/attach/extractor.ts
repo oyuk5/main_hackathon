@@ -1055,3 +1055,15 @@ async function readWith(recipe: Recipe, ctx: PortalContext, limits?: SampleLimit
     }
   }
 }
+
+/**
+ * The raw markup (or JSON) of the first items the recipe's list selector matches on page 1, for the
+ * Cartographer's feedback: the model sees what its field rules ran against. One request; no model call.
+ */
+export async function sampleItems(recipe: Recipe, ctx: PortalContext, n = 2): Promise<{ status: number; items: string[]; pageStart: string }> {
+  const st: ReadState = { recipe, ctx, requests: 0, warned: new Set() };
+  const { url, init } = listRequest(recipe, ctx, 0);
+  const page = await fetchPage(st, url, init);
+  const doc = parseDoc(page, recipe.tier);
+  return { status: page.status, items: itemsOf(st, doc).slice(0, n).map(rawOf), pageStart: page.text.slice(0, 400) };
+}
