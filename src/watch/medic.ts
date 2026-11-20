@@ -201,6 +201,26 @@ async function verifyCandidate(
       sampleTenders,
     };
   }
+  // A candidate that reproduces none of the known tenders proves nothing; the platform would refuse it.
+  if (read.tenders.length > 0 && baseline.golden.length > 0 && golden.matched === 0) {
+    return {
+      kind: "retry",
+      promptReason: "None of the known (golden) tenders were found with their values. Make sure the list rule still reads the same tenders and their id, title and url.",
+      operatorReason: "The patch matched none of the known tenders.",
+      sampleTenders,
+    };
+  }
+  // A candidate that finds no files for tenders we delivered with files lost the documents rule.
+  const published = (baseline as Baseline & { publishedDocumentCounts?: Readonly<Record<string, number>> }).publishedDocumentCounts ?? {};
+  const lostFiles = read.tenders.filter((t) => (published[t.id] ?? 0) > 0 && t.documentRefs.length === 0 && !t.documentRefsPending);
+  if (lostFiles.length > 0) {
+    return {
+      kind: "retry",
+      promptReason: `The documents rule found no files for ${lostFiles.length} tender(s) that had files before (e.g. ${lostFiles.slice(0, 3).map((t) => `${t.id} had ${published[t.id]}`).join(", ")}). Fix the documents rule against the tender's own page.`,
+      operatorReason: `The patch found no files for ${lostFiles.length} tender${lostFiles.length === 1 ? "" : "s"} that had attachments.`,
+      sampleTenders,
+    };
+  }
   return { kind: "ok", read, golden };
 }
 

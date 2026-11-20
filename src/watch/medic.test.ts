@@ -302,6 +302,35 @@ describe("createMedic", () => {
     assert.equal(llmCalls.length, 0);
   });
 
+  it("retries a patch that loses files or matches no known tender, and tells the model why", async () => {
+    const before = makeRecipe();
+    const patched = makeRecipe({ list: { ...before.list, item: "div.card" } });
+    const { ctx, llmCalls } = makeContext({
+      llmHandler: async () => ({ recipe: patched, changeNote: "List moved to cards" }),
+    });
+    const withFiles = { ...makeTender(), documentRefs: [{ url: "https://portal.example/a.pdf", via: "http" as const }] };
+    const reads = [makeOkRead([makeTender()]), makeOkRead([makeTender("X-9")]), makeOkRead([withFiles])];
+    const golden: GoldenVerificationResult[] = [
+      { checked: 1, matched: 1, mismatches: [] },
+      { checked: 0, matched: 0, mismatches: [] },
+      { checked: 1, matched: 1, mismatches: [] },
+    ];
+    const medic = createMedic(
+      makeDeps({
+        extractor: { read: async () => reads.shift()! },
+        verifyGolden: () => golden.shift()!,
+      }),
+    );
+    const baseline = { ...makeBaseline(1), publishedDocumentCounts: { "T-1": 2 } };
+
+    const outcome = await medic.repair({ recipe: before, verdict: makeBrokenVerdict(), baseline }, ctx);
+
+    assert.equal(outcome.kind, "ok");
+    assert.equal(llmCalls.length, 3);
+    assert.match(llmCalls[1]!.user, /documents rule found no files for 1 tender/);
+    assert.match(llmCalls[2]!.user, /None of the known \(golden\) tenders/);
+  });
+
   it("returns ok with 1-sentence summary when first patch passes evaluate and golden check", async () => {
     const before = makeRecipe();
     const patched = makeRecipe({ list: { ...before.list, item: "div.card" } });
