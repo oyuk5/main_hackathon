@@ -71,6 +71,10 @@ export interface Truth {
   notes: string[];
   /** Ids may be either the portal id or the reference number; match tenders by url. */
   tenders: TruthTender[];
+  /** The state Watchtower should end in after attach. "failed" for portals that block us on purpose. */
+  expect: "serving" | "failed";
+  /** For "failed": what the reason should say, in plain words. */
+  expectReason?: string;
 }
 
 export interface LabPortal {
@@ -81,6 +85,10 @@ export interface LabPortal {
   kind: string;
   notes: string[];
   tenders: LabTender[];
+  /** The state Watchtower should end in after attach (default "serving"). "failed" for portals that block us on purpose. */
+  expect?: "serving" | "failed";
+  /** For expect "failed": what Watchtower's reason should say, in plain words. */
+  expectReason?: string;
   /** Changed versions the mutator can switch to: name → what changes. "v1" is always the original. */
   variants: Record<string, string>;
   /** Absolute URL of a tender's own page. */
@@ -211,6 +219,8 @@ export function truthOf(p: LabPortal, base: string, variant = "v1"): Truth & { v
     timeZone: p.timeZone,
     kind: p.kind,
     notes: p.notes,
+    expect: p.expect ?? "serving",
+    ...(p.expectReason ? { expectReason: p.expectReason } : {}),
     tenders: tenders.map((t) => ({
       id: t.id,
       url: p.tenderUrl(base, t),
