@@ -81,3 +81,6 @@ Further values: 450237 services/open, CPV 71311300, 71311210, 71410000, 3 docume
 
 ## referenceNumber: UUIDs dropped (Fri 18:10)
 Some live `referentieNummer` values are UUIDs (e.g. on 450074). They look like system ids, not the buyer's file number, so the rule has a regex that drops UUID-shaped values and keeps the rest (`SRA2601`, `26.0979351`). A wrong value is worse than a missing one.
+
+## Empty document lists are real (Fri 18:15)
+In the clean-clone run, 51 of 76 served tenders had no documents. Checked 449035: `…/{id}/documenten` returns `{"documenten":[]}` and the notice links to an external platform (`urlDigitaalSysteem` = s2c.mercell.com). Many buyers host files on Mercell, Negometrix or similar, which need an account; we do no logins, so those tenders are served with an empty list. Not a fetch failure.
