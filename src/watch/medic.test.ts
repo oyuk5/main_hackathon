@@ -829,4 +829,50 @@ describe("createMedic", () => {
     assert.match(llmCalls[0]?.user ?? "", /Portal check failed: The portal timed out while loading\./);
     assert.equal(/Snapshot status:/i.test(llmCalls[0]?.user ?? ""), false);
   });
+
+  it("rejects a patch that clears list.item or listFields when returning 0 tenders", async () => {
+    const before = makeRecipe();
+    const destructive = makeRecipe({
+      list: { ...before.list, item: "", emptyText: ["No tenders today"] },
+      listFields: {},
+      documents: null,
+    });
+    const repaired = makeRecipe({
+      list: { ...before.list, emptyText: ["No tenders found", "No tenders today"] },
+    });
+    let attempt = 0;
+    const { ctx, llmCalls } = makeContext({
+      llmHandler: async () => {
+        attempt += 1;
+        return attempt === 1
+          ? { recipe: destructive, changeNote: "Cleared list selectors for empty page" }
+          : { recipe: repaired, changeNote: "Preserved selectors and added empty-day phrase" };
+      },
+    });
+
+    const medic = createMedic(
+      makeDeps({
+        extractor: {
+          async read() {
+            return makeOkRead([]);
+          },
+        },
+        evaluate: () => ({ kind: "healthy", reason: "Portal says no tenders today.", checks: [] }),
+        verifyGolden: () => ({ checked: 0, matched: 0, mismatches: [] }),
+      }),
+    );
+
+    const outcome = await medic.repair(
+      { recipe: before, verdict: makeBrokenVerdict(), baseline: makeBaseline(1) },
+      ctx,
+    );
+
+    assert.equal(outcome.kind, "ok");
+    if (outcome.kind === "ok") {
+      assert.equal(outcome.recipe.list.item, before.list.item);
+      assert.ok(Object.keys(outcome.recipe.listFields).length > 0);
+    }
+    assert.equal(llmCalls.length, 2);
+    assert.match(llmCalls[1]?.user ?? "", /Do not clear list\.item/i);
+  });
 });

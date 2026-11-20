@@ -10,7 +10,7 @@ import { attachFromFamily, familyStore, fingerprint, firstPage, rememberFamily, 
 import { pickGolden } from "./golden.js";
 import { findKnownRecipe, type KnownRecipe } from "./known.js";
 
-export { extractor } from "./extractor.js";
+export { extractor, evictDetailCacheSample } from "./extractor.js";
 export { pickGolden } from "./golden.js";
 
 /** Runs a known recipe and turns the read into an attach outcome. Never calls the model. */

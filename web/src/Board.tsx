@@ -1,11 +1,11 @@
 /**
  * The issues board: every problem as a ticket in one of three lanes, read left to right in order
- * of urgency. Needs a person, Fixing itself, Fixed by itself (last 24 h). Healthy portals live
- * in the Portals tab.
+ * of urgency. Needs a person, Fixing itself, Fixed by itself (last 24 h). The Serving filter
+ * also shows healthy portals that do not have a recent repair.
  * Tickets are built from the overview only; a ticket opens the portal's side panel.
  */
 import { StatusIcon, stateToIconKind } from "./StatusIcon";
-import { CHARACTER, clock, duration, host, int, when, type PortalRow, type RecentRun } from "./lib";
+import { CHARACTER, clock, duration, host, int, when, type PortalRow, type RecentRun, type State } from "./lib";
 import { t, type Key } from "./i18n";
 
 type Lane = "person" | "fixing" | "fixed" | "clear";
@@ -25,6 +25,7 @@ const LANES: { id: Lane; tone: string }[] = [
   { id: "person", tone: "bg-failed" },
   { id: "fixing", tone: "bg-healing" },
   { id: "fixed", tone: "bg-serving" },
+  { id: "clear", tone: "bg-serving" },
 ];
 const laneText = (id: string, part: "title" | "note" | "empty") => t(`lane.${id}.${part}` as Key);
 
@@ -131,24 +132,29 @@ export function openIssues(rows: PortalRow[], now: number): number {
   return lanes.person.length + lanes.fixing.length;
 }
 
-export function Board({ rows, now, hover, setHover }: { rows: PortalRow[]; now: number; hover: string | null; setHover: (id: string | null) => void }) {
+export function Board({ rows, state, now, hover, setHover }: { rows: PortalRow[]; state: State | "all"; now: number; hover: string | null; setHover: (id: string | null) => void }) {
   const lanes = tickets(rows, now);
+  const visibleLanes = LANES.filter(({ id }) => {
+    if (state === "all") return id !== "clear";
+    if (state === "serving") return id === "clear" || id === "fixed";
+    return id === (state === "failed" ? "person" : "fixing");
+  });
   return (
-    <section aria-label={t("board.label")} className="grid gap-5 lg:grid-cols-3">
-      {LANES.map((lane) => (
+    <section aria-label={t("board.label")} className={`grid gap-5 ${state === "all" ? "lg:grid-cols-3" : state === "serving" ? "lg:grid-cols-2" : ""}`}>
+      {visibleLanes.map((lane) => (
         <div key={lane.id} className="flex min-w-0 flex-col rounded-[6px] border border-hairline bg-paper/60 px-3 pt-3 pb-2">
           <header className="pb-3">
             <div className="flex items-baseline justify-between gap-3">
               <h2 className="flex items-center gap-2 text-[15px] font-semibold text-ink">
                 <span aria-hidden="true" className={`size-2 shrink-0 rounded-full ${lane.tone}`} />
-                {laneText(lane.id, "title")}
+                {lane.id === "fixing" && state !== "all" ? CHARACTER[state].words : laneText(lane.id, "title")}
               </h2>
               <span className="num text-[15px] font-semibold text-slate">{lanes[lane.id].length}</span>
             </div>
             <p className="mt-0.5 text-[12.5px] leading-snug text-slate">{laneText(lane.id, "note")}</p>
           </header>
           {lanes[lane.id].length === 0 ? (
-            <p className="rounded-[4px] border border-dashed border-hairline px-4 py-6 text-center text-[13px] text-faint">{laneText(lane.id, "empty")}</p>
+            <p className="rounded-[4px] border border-dashed border-hairline px-4 py-6 text-center text-[13px] text-faint">{lane.id === "fixing" && state === "integrating" ? t("lane.fixing.attachEmpty") : laneText(lane.id, "empty")}</p>
           ) : lane.id === "clear" ? (
             <ul className="rounded-[4px] border border-hairline bg-sea/40">
               {lanes.clear.map((k) => <ClearRow key={k.key} k={k} now={now} hover={hover} setHover={setHover} />)}

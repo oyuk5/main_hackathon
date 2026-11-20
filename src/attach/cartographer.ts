@@ -975,6 +975,8 @@ export async function attachWithModel(ctx: PortalContext, deps: ModelAttachDeps 
   let tenderPage: { url: string; body: string } | null = null;
   /** Drafts that were dry-run (rounds also count malformed answers and refused navigations). */
   let drafts = 0;
+  /** Number of drafts blocked specifically to ask for missing optional fields after core rules worked. */
+  let optionalHints = 0;
   let lastProblem = "the model did not propose a usable recipe";
   /** The fast model answers in seconds and costs a fraction: it tries a correction; if it fails, the smart one takes over. */
   let tier: ModelTier = "smart";
@@ -1035,6 +1037,7 @@ export async function attachWithModel(ctx: PortalContext, deps: ModelAttachDeps 
       if (current.status === 401 || current.status === 403) return { kind: "blocked", reason: `${capital(blockHint(current.raw, current.status)!)}.` };
       history.length = 0; // a new page: earlier feedback was about the old one
       workingFields.clear();
+      optionalHints = 0;
       tier = "smart";
       tenderPageShown = false;
       fileLinksSeen = false;
@@ -1108,24 +1111,28 @@ export async function attachWithModel(ctx: PortalContext, deps: ModelAttachDeps 
       }
     }
     // Evidence from what the portal shows: the list page, the JSON calls, the list items, one tender page.
+    // Counted by drafts that were dry-run, so a malformed answer does not use up the hints.
+    const docsBlock = drafts === 1 || (drafts === 2 && fileLinksSeen) ? judged.docs : [];
     let withdrawnBlock: string[] = [];
     let listItems: string[] | null = null;
-    if (sample.kind === "ok" && sample.tenders.length > 0 && rounds < MAX_RECIPE_ROUNDS) {
-      if (drafts <= 2) {
+    if (sample.kind === "ok" && sample.tenders.length > 0) {
+      const wantOptional = optionalHints < 2 && rounds < MAX_RECIPE_ROUNDS;
+      const wantWithdrawn = drafts <= 2;
+      if (wantOptional || wantWithdrawn) {
         const items = await deps.items(recipe, ctx).catch(() => ({ items: [] as string[] }));
         listItems = items.items;
         const texts = [current.raw, current.rendered ?? "", ...current.json.map((j) => JSON.stringify(j.data)), ...items.items, tenderPage?.body ?? ""];
-        const optional = missingOptionalFields(recipe, texts);
-        if (optional) withdrawnBlock.push(optional);
-        const withdrawn = missingWithdrawnRule(recipe, texts);
+        // A hint for up to two clean drafts: don't burn this budget while fixing list/hop errors.
+        const optional = wantOptional ? missingOptionalFields(recipe, texts) : null;
+        if (optional) {
+          withdrawnBlock.push(optional);
+          if (judged.errors.length === 0 && docsBlock.length === 0) optionalHints += 1;
+        }
+        const withdrawn = wantWithdrawn ? missingWithdrawnRule(recipe, texts) : null;
         if (withdrawn) withdrawnBlock = [withdrawn];
       }
-      const concrete = tenderPage && detailLabelHints(recipe, tenderPage.body);
-      if (concrete) withdrawnBlock.push(concrete);
-    }
-    // CPV codes: a rule that reads nothing (or no rule) while the portal shows codes gets their exact
-    // place and a rule checked on that page, so the model fixes the rule instead of dropping it.
-    if (sample.kind === "ok" && sample.tenders.length > 0) {
+      // CPV codes: a rule that reads nothing (or no rule) while the portal shows codes gets their exact
+      // place and a rule checked on that page, so the model fixes the rule instead of dropping it.
       const cpvRule = recipe.listFields.cpvCodes ?? recipe.detail?.fields.cpvCodes ?? null;
       const fill = sample.diagnostics.fieldFill.cpvCodes;
       const fails = cpvRule !== null && !!fill && fill.total > 0 && fill.filled === 0;
@@ -1155,8 +1162,6 @@ export async function attachWithModel(ctx: PortalContext, deps: ModelAttachDeps 
         }
       }
     }
-    // Counted by drafts that were dry-run, so a malformed answer does not use up the hints.
-    const docsBlock = drafts === 1 || (drafts === 2 && fileLinksSeen) ? judged.docs : [];
     const blocking = drafts === 1 ? [...judged.errors, ...judged.warnings, ...docsBlock, ...withdrawnBlock] : [...judged.errors, ...docsBlock, ...withdrawnBlock];
     if (blocking.length === 0) {
       if (judged.docs.length) ctx.log(`The recipe has no working documents rule: ${judged.docs[0]}`, "warn");

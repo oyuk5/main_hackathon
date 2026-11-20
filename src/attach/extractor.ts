@@ -72,6 +72,18 @@ export function clearDetailCache(): void {
   detailCache.clear();
 }
 
+/** Evicts up to `limit` cached detail entries for `portalId` so regular reads spot-check detail and document links. */
+export function evictDetailCacheSample(portalId: string, limit = 3): void {
+  let removed = 0;
+  const prefix = `${portalId}|`;
+  for (const key of detailCache.keys()) {
+    if (!key.startsWith(prefix)) continue;
+    detailCache.delete(key);
+    removed += 1;
+    if (removed >= limit) break;
+  }
+}
+
 // ------------------------------------------------------------ pages and scopes
 
 type Doc =
@@ -717,9 +729,27 @@ function findEmptyText(recipe: Recipe, doc: Doc): string | undefined {
     return lower.length === pageText.length ? pageText.slice(i, i + want.length) : t.trim();
   }
   // An attach learns on a full list, so it rarely sees the portal's own "nothing today" message.
+  // For JSON feeds/APIs, an explicitly empty array at the configured item path (while the container
+  // key still exists) means "0 tenders today", distinct from a renamed key where the path disappears.
+  if (doc.kind === "json") {
+    const itemPath = recipe.list.item.trim();
+    if (itemPath === "$" || itemPath === "$[*]") {
+      if (Array.isArray(doc.data) && doc.data.length === 0) return "Empty list (0 items)";
+    } else if (!/\[\?\(/.test(itemPath) && itemPath.endsWith("[*]")) {
+      try {
+        const containers = jsonQuery(itemPath.slice(0, -3), doc.data);
+        if (containers.length === 1 && Array.isArray(containers[0]) && containers[0].length === 0) {
+          return "Empty list (0 items)";
+        }
+      } catch {
+        // invalid path: fall through so regular diagnostics handle it
+      }
+    }
+    return undefined;
+  }
   // Fall back to common wording, only on a page with no list items, outside the page chrome, and
   // only when the page is short: a long page with 0 items more likely means the list rule broke.
-  if (doc.kind !== "json" && pageText.length <= GENERIC_EMPTY_MAX_PAGE_CHARS) {
+  if (pageText.length <= GENERIC_EMPTY_MAX_PAGE_CHARS) {
     const m = GENERIC_EMPTY.exec(pageText);
     if (m) return m[0].trim();
   }

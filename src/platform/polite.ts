@@ -22,6 +22,12 @@ export async function gate(host: string, signal?: AbortSignal): Promise<void> {
   if (wait > 0) await delay(wait, undefined, { signal });
 }
 
+/** Pushes the next allowed slot after an outgoing request finishes/responds so IPC or network lag cannot compress gaps under 1 req/s. */
+function bumpGap(host: string): void {
+  const next = Date.now() + config.minRequestGapMs;
+  if (next > (nextSlot.get(host) ?? 0)) nextSlot.set(host, next);
+}
+
 // ------------------------------------------------------------ robots.txt
 
 export type RobotsRules = { allow: string[]; disallow: string[] };
@@ -87,6 +93,7 @@ function rulesFor(origin: string, signal?: AbortSignal): Promise<RobotsRules> {
   const loading = (async () => {
     await gate(new URL(origin).host, signal);
     const res = await fetch(`${origin}/robots.txt`, { headers: { "user-agent": config.userAgent }, signal });
+    bumpGap(new URL(origin).host);
     // Missing or broken robots.txt means no rules (RFC 9309 treats 4xx as "allow all").
     return res.ok ? parseRobots(await res.text()) : { allow: [], disallow: [] };
   })();
@@ -153,6 +160,7 @@ export function politeHttp(signal: AbortSignal, onRequest?: () => void): PoliteH
         if (method === "GET" || method === "HEAD") headers.delete("content-type");
 
         const res = await fetch(current, { ...init, method, body: method === "GET" || method === "HEAD" ? undefined : body, headers, signal: requestSignal, redirect: "manual" });
+        bumpGap(u.host);
         remember(u.host, res);
         const location = res.headers.get("location");
         if (res.status < 300 || res.status > 399 || res.status === 304 || !location) return res;
@@ -217,6 +225,16 @@ export function politeBrowser(signal: AbortSignal, onRequest?: () => void): Poli
           return route.continue();
         });
         const page = await context.newPage();
+        const notePageTraffic = (reqUrl: string) => {
+          try {
+            const parsed = new URL(reqUrl);
+            if (parsed.protocol === "http:" || parsed.protocol === "https:") bumpGap(parsed.host);
+          } catch {
+            // ignore non-http urls
+          }
+        };
+        page.on("response", (res) => notePageTraffic(res.url()));
+        page.on("requestfinished", (req) => notePageTraffic(req.url()));
         return await fn(page);
       } finally {
         signal.removeEventListener("abort", stop);
