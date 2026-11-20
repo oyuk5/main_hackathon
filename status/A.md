@@ -7,7 +7,7 @@ _Updated: Fri 22:59 CET. Only A and A's agent write here. Keep it under 15 lines
 - Dashboard: accessibility, Issues, Log, detail, loading/outage, and 325-portal scale checks completed. Screenshots: `/tmp/watchtower-a-screens/`.
 
 **Doing now**
-- Verifying the dashboard and Docker contract; addressing empty-list reasons and missing Chromium in platform tests.
+- Empty-read reasons reconcile retained tenders with the displayed count; missing Chromium skips only four browser tests. Docker: 16/16 contract checks; dashboard: 70 screenshots in `/tmp/watchtower-final-screens/`.
 
 **Needs from others**
 - C: add `publishedDocumentCounts?` to `Baseline` (modules.ts) and reject unsafe candidates in Medic so it retries.
