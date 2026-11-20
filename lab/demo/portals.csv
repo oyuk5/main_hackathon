@@ -2,6 +2,11 @@ Name,Country,Software,Address,Notes
 Stadtwerke Lindenau,DE,lab,http://localhost:4100/stadtwerke/,"Lab demo portal (npm run lab); HTML table, PDF links."
 Ville de Rivemont,FR,lab,http://localhost:4100/ville/,Lab demo portal (npm run lab); JavaScript app over a JSON API.
 Gmina Lipowo,PL,lab,http://localhost:4100/gmina/,"Lab demo portal (npm run lab); cards, two-step download with ZIP."
+Gemeente Polderwijk,NL,lab,http://localhost:4100/polder/,Lab demo portal (npm run lab); RSS feed with HTML detail pages.
+Comune di Valdoria,IT,lab,http://localhost:4100/comune/,"Lab demo portal (npm run lab); JavaScript app, list searched with POST and cursors, two-hop documents."
+Marktgemeinde Almbach,AT,lab,http://localhost:4100/gemeinde/,"Lab demo portal (npm run lab); list only after JavaScript runs, load-more button (browser tier)."
+Fjordby Kommune,DK,lab,http://localhost:4100/kommune/,"Lab demo portal (npm run lab); table, PDF plus ZIP with folders."
+Obec Lipnice,CZ,lab,http://localhost:4100/obec/,"Lab demo portal (npm run lab); documents behind a login, should end failed."
 TED (Tenders Electronic Daily),EU,own,https://ted.europa.eu/en/search/result?search-scope=ACTIVE,EU-wide journal; active notices only. JavaScript app.
 TenderNed,NL,own,https://www.tenderned.nl/aankondigingen/overzicht,JavaScript app. Public JSON API; documents without login.
 BOAMP,FR,own,https://www.boamp.fr/pages/recherche/,French official bulletin of public tenders.

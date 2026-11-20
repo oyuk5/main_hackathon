@@ -22,6 +22,41 @@
       "notes": "Lab demo portal (npm run lab); cards, two-step download with ZIP."
     },
     {
+      "name": "Gemeente Polderwijk",
+      "country": "NL",
+      "software": "lab",
+      "url": "http://localhost:4100/polder/",
+      "notes": "Lab demo portal (npm run lab); RSS feed with HTML detail pages."
+    },
+    {
+      "name": "Comune di Valdoria",
+      "country": "IT",
+      "software": "lab",
+      "url": "http://localhost:4100/comune/",
+      "notes": "Lab demo portal (npm run lab); JavaScript app, list searched with POST and cursors, two-hop documents."
+    },
+    {
+      "name": "Marktgemeinde Almbach",
+      "country": "AT",
+      "software": "lab",
+      "url": "http://localhost:4100/gemeinde/",
+      "notes": "Lab demo portal (npm run lab); list only after JavaScript runs, load-more button (browser tier)."
+    },
+    {
+      "name": "Fjordby Kommune",
+      "country": "DK",
+      "software": "lab",
+      "url": "http://localhost:4100/kommune/",
+      "notes": "Lab demo portal (npm run lab); table, PDF plus ZIP with folders."
+    },
+    {
+      "name": "Obec Lipnice",
+      "country": "CZ",
+      "software": "lab",
+      "url": "http://localhost:4100/obec/",
+      "notes": "Lab demo portal (npm run lab); documents behind a login, should end failed."
+    },
+    {
       "name": "TED (Tenders Electronic Daily)",
       "country": "EU",
       "software": "own",

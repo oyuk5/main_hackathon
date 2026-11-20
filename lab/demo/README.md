@@ -1,6 +1,6 @@
 # Demo portal lists
 
-Real European public-tender portals (32 in 24 countries plus TED) and the 3 lab portals, for the dashboard's "Import list" button. Same data in `portals.xlsx`, `portals.csv` and `portals.json`; `portals-small.txt` is 9 addresses for a quick paste demo.
+Real European public-tender portals (32 in 24 countries plus TED) and the 8 lab portals (Obec Lipnice should end `failed`: its documents need a login), for the dashboard's "Import list" button. Same data in `portals.xlsx`, `portals.csv` and `portals.json`; `portals-small.txt` is 9 addresses for a quick paste demo.
 Addresses were checked with one plain request each on 21 Nov 2026; Notes say when a site needs a login for documents, is a JavaScript app, or redirects.
 
 Use: start `npm run lab` (for the localhost portals) and the server, open the dashboard, click "Import list", drop a file (or paste text), review the found addresses, then click "Watch N portals".
