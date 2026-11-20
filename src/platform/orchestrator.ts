@@ -19,6 +19,7 @@ import { store } from "./store.js";
 import { politeBrowser, politeHttp } from "./polite.js";
 import { documentFetcher } from "./documents.js";
 import { count, join, labelled, sentence } from "./reason.js";
+import { mayClose, sawWholeList } from "./listing.js";
 import { llmFor } from "../llm/client.js";
 import { cartographer, extractor } from "../attach/index.js";
 import { medic, watch } from "../watch/index.js";
@@ -321,9 +322,11 @@ async function deliver(portalId: string, read: OkRead, ctx: PortalContext): Prom
     store.upsertTender(portalId, { ...draft, lastChangedAt }, hash, storedRefsHash, now);
   }
 
-  // No longer listed => closed.
+  // No longer listed => closed, but only when this read saw the whole list (see listing.ts):
+  // a read capped by maxPages, or aborted halfway, did not see the older tenders.
+  const wholeList = sawWholeList(store.currentRecipe(portalId)?.list.pagination, read.diagnostics.listPages, ctx.signal.aborted);
   for (const t of store.listTenders(portalId)) {
-    if (!seen.has(t.id) && t.status === "open") {
+    if (!seen.has(t.id) && t.status === "open" && mayClose({ wholeList, submissionDeadline: t.submissionDeadline, now: Date.now(), toEpoch })) {
       const closed: TenderT = { ...t, status: "closed", lastChangedAt: now };
       store.upsertTender(portalId, closed, hashTender(closed), store.getTenderRow(portalId, t.id)?.refs_hash ?? "", now);
     }
