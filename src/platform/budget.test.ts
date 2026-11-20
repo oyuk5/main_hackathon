@@ -1,6 +1,17 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { planDocuments, type PlanItem } from "./budget.js";
+import { modelBudget, planDocuments, type PlanItem } from "./budget.js";
+
+test("model budget blocks spent portal limits and reserves shared daily headroom", () => {
+  const reserve = modelBudget();
+  const day = "2026-11-21";
+  const limits = { portal: 1, day: 20 };
+  assert.throws(() => reserve("p", day, 0, { portal: 1, day: 1 }, limits), /\$1\.00 of \$1\.00/);
+  const release = reserve("p", day, 0.7, { portal: 0, day: 19 }, limits);
+  assert.throws(() => reserve("q", day, 0.4, { portal: 0, day: 19 }, limits), /Daily model budget/);
+  release();
+  reserve("q", day, 0.4, { portal: 0, day: 19 }, limits)();
+});
 
 const item = (id: string, need: PlanItem["need"], refs = 2, open = true, publicationDate: string | null = "2026-11-20"): PlanItem => ({ id, need, refs, open, publicationDate });
 

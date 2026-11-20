@@ -13,6 +13,28 @@
 
 export type Need = "none" | "new" | "changed" | "retry";
 
+export class ModelBudgetError extends Error {}
+
+/** Reserve headroom synchronously so concurrent portals cannot all spend the same daily balance. */
+export function modelBudget() {
+  const active = new Set<{ id: string | null; day: string; usd: number }>();
+  return (id: string | null, day: string, usd: number, spent: { portal: number; day: number }, limits: { portal: number; day: number }) => {
+    const pending = [...active];
+    const portalPending = pending.filter((r) => r.id === id).reduce((sum, r) => sum + r.usd, 0);
+    const dayPending = pending.filter((r) => r.day === day).reduce((sum, r) => sum + r.usd, 0);
+    const money = (value: number) => value.toFixed(2);
+    if (id && (spent.portal >= limits.portal || spent.portal + portalPending + usd > limits.portal)) {
+      throw new ModelBudgetError(`Model budget for this portal is used up ($${money(spent.portal)} of $${money(limits.portal)}); a person must raise it.`);
+    }
+    if (spent.day >= limits.day || spent.day + dayPending + usd > limits.day) {
+      throw new ModelBudgetError(`Daily model budget is used up ($${money(spent.day)} of $${money(limits.day)}); a person must raise it.`);
+    }
+    const reservation = { id, day, usd };
+    active.add(reservation);
+    return () => { active.delete(reservation); };
+  };
+}
+
 export type PlanItem = {
   id: string;
   need: Need;

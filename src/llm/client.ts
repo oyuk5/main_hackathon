@@ -15,17 +15,19 @@ import OpenAI from "openai";
 import { z, type ZodType } from "zod";
 import { config } from "../platform/config.js";
 import { store } from "../platform/store.js";
+import { modelBudget } from "../platform/budget.js";
 import { nowWithOffset } from "../shared/time.js";
 import type { Llm, ModelTier } from "../shared/modules.js";
 
 export const LLM_TIMEOUT_MS = 90_000;
-export const LLM_MAX_RETRIES = 2;
+export const LLM_MAX_RETRIES = 0;
+const MAX_COMPLETION_TOKENS = 12_000;
+const reserveModelSpend = modelBudget();
 
 let client: OpenAI | null = null;
 function openai(): OpenAI {
   if (!config.llm.apiKey) throw new Error("OPENAI_API_KEY is not set");
-  // A hung call must not keep a portal in "integrating" forever: 90 s per attempt, and the SDK retries
-  // twice on connection errors, 408/409/429 and 5xx (with backoff). Failed calls are not billed.
+  // Disable automatic provider retries so each submitted request passes the budget gate.
   client ??= new OpenAI({ apiKey: config.llm.apiKey, baseURL: config.llm.baseUrl, timeout: LLM_TIMEOUT_MS, maxRetries: LLM_MAX_RETRIES });
   return client;
 }
@@ -143,22 +145,35 @@ export function llmFor(portalId: string | null, runId: string | null, deps: LlmD
   return {
     async json<T>({ purpose, model, system, user, schema }: { purpose: string; model: ModelTier; system: string; user: string; schema: ZodType<T> }) {
       const name = modelFor(model);
+      const pricing = pricesFor(model);
       const req = (caching: boolean) =>
         buildRequest({ model: name, system, user, jsonSchema: z.toJSONSchema(schema) as Record<string, unknown>, cacheKey: cacheKeyFor(purpose, portalId), caching });
       let res: Awaited<ReturnType<LlmDeps["create"]>>;
-      if (cachingOff) res = await deps.create(req(false));
+      const create = async (body: Body) => {
+        const now = nowWithOffset();
+        const day = now.slice(0, 10);
+        const inputAllowance = Buffer.byteLength(JSON.stringify(body), "utf8") + 1024;
+        const allowance = (inputAllowance * Math.max(pricing.in, pricing.cachedIn) + MAX_COMPLETION_TOKENS * pricing.out) / 1e6;
+        const release = deps === defaultDeps ? reserveModelSpend(portalId, day, allowance, store.modelSpend(portalId, day), {
+          portal: config.llm.maxPortalUsd, day: config.llm.maxDayUsd,
+        }) : () => {};
+        try {
+          const result = await deps.create({ ...body, max_completion_tokens: MAX_COMPLETION_TOKENS });
+          const c = costOf(result.usage, pricing);
+          deps.addLlmCall({ portalId, runId, purpose, model: name, inputTokens: c.inputTokens, cachedTokens: c.cachedTokens, outputTokens: c.outputTokens, costUsd: c.costUsd, at: now });
+          return result;
+        } finally { release(); }
+      };
+      if (cachingOff) res = await create(req(false));
       else {
         try {
-          res = await deps.create(req(true));
+          res = await create(req(true));
         } catch (e) {
           if (!cachingRejected(e)) throw e;
           cachingOff = true;
-          res = await deps.create(req(false));
+          res = await create(req(false));
         }
       }
-      const c = costOf(res.usage, pricesFor(model));
-      // TODO(A): the ledger has no column for cached tokens yet; they are reflected in costUsd only.
-      deps.addLlmCall({ portalId, runId, purpose, model: name, inputTokens: c.inputTokens, outputTokens: c.outputTokens, costUsd: c.costUsd, at: nowWithOffset() });
       const text = res.choices[0]?.message?.content ?? "";
       return schema.parse(JSON.parse(text));
     },

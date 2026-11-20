@@ -21,7 +21,7 @@ import { politeBrowser, politeHttp } from "./polite.js";
 import { documentFetcher } from "./documents.js";
 import { count, join, labelled, sentence } from "./reason.js";
 import { mayClose, sawWholeList } from "./listing.js";
-import { planDocuments, type Need } from "./budget.js";
+import { ModelBudgetError, planDocuments, type Need } from "./budget.js";
 import { dateTimeEpoch, isCalendarDate } from "./calendar.js";
 import { llmFor } from "../llm/client.js";
 import { cartographer, evictDetailCacheSample, extractor } from "../attach/index.js";
@@ -63,12 +63,24 @@ export function portalIdFor(url: string): string {
 
 function contextFor(portalId: string, url: string, runId: string, controller: AbortController): PortalContext {
   const counter = () => {};
+  const llm = llmFor(portalId, runId);
   return {
     portalId,
     url,
     http: politeHttp(controller.signal, counter),
     browser: politeBrowser(controller.signal, counter),
-    llm: llmFor(portalId, runId),
+    llm: { async json(options) {
+      try { return await llm.json(options); }
+      catch (error) {
+        if (error instanceof ModelBudgetError) {
+          finishRun(runId, "failed", error.message);
+          store.setState(portalId, "failed", error.message);
+          scheduleNext(portalId, config.failedRetryMinutes);
+          controller.abort();
+        }
+        throw error;
+      }
+    } },
     signal: controller.signal,
     log: (message, level = "info") => store.addEvent(portalId, runId, nowWithOffset(), level, message),
   };
@@ -273,8 +285,9 @@ async function beginRepair(portalId: string, runId: string, ctx: PortalContext, 
   const repairId = "r_" + crypto.randomUUID().slice(0, 12);
   store.insertRun({ id: repairId, portalId, kind: "repair", startedAt: nowWithOffset() });
   const job = active.get(portalId);
-  if (job) Object.assign(job, { runId: repairId, kind: "repair" });
-  const rctx: PortalContext = { ...ctx, llm: llmFor(portalId, repairId), log: (m, l = "info") => store.addEvent(portalId, repairId, nowWithOffset(), l, m) };
+  if (!job) return;
+  Object.assign(job, { runId: repairId, kind: "repair" });
+  const rctx = contextFor(portalId, ctx.url, repairId, job.controller);
 
   const publishedDocumentCounts = Object.fromEntries(store.listTenders(portalId)
     .filter((tender) => tender.documents.length > 0)

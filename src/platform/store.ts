@@ -204,6 +204,11 @@ export const store = {
   },
 
   // ---------------------------------------------------------------- ledger
+  modelSpend(portalId: string | null, day: string) {
+    const row = db.prepare(`SELECT COALESCE(SUM(CASE WHEN portal_id = ? THEN cost_usd END), 0) AS portal,
+      COALESCE(SUM(CASE WHEN substr(at, 1, 10) = ? THEN cost_usd END), 0) AS day FROM llm_calls`).get(portalId, day);
+    return { portal: Number(row?.portal), day: Number(row?.day) };
+  },
   addLlmCall(c: { portalId: string | null; runId: string | null; purpose: string; model: string; inputTokens: number; outputTokens: number; cachedTokens?: number; costUsd: number; at: string }) {
     db.prepare(
       "INSERT INTO llm_calls (portal_id, run_id, purpose, model, input_tokens, output_tokens, cost_usd, at, cached_tokens) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",

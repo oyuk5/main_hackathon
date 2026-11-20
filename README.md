@@ -73,6 +73,8 @@ In company deployments, put the dashboard behind company single sign-on via a re
 | `PRICE_SMART_IN`, `PRICE_SMART_OUT`, `PRICE_FAST_IN`, `PRICE_FAST_OUT` | no | 0 | USD per million tokens, so the cost ledger shows money and not only tokens. |
 | `PRICE_SMART_CACHED_IN`, `PRICE_FAST_CACHED_IN` | no | Half the corresponding input price | USD per million cached input tokens. |
 | `LLM_PROMPT_CACHE` | no | Enabled | Set to `0` to disable prompt caching. |
+| `MAX_MODEL_USD_PER_PORTAL` | no | 1.00 | Recorded model spend limit per portal across its lifetime; `0` disables its model calls. |
+| `MAX_MODEL_USD_PER_DAY` | no | 20 | Recorded model spend limit across all portals per server-local day; `0` disables model calls. |
 | `PORT` | no | 8080 | HTTP port. |
 | `DATA_DIR` | no | `/data` in the container | SQLite database and downloaded files. |
 | `READ_INTERVAL_MINUTES` | no | 30 | Time between regular reads of a serving portal. |
@@ -101,6 +103,8 @@ If both restrictions are set, both must match. Only `/internal/*` is protected; 
 ## Approach: scale and model cost
 
 Reads run in parallel across portals and are rate-limited to at most one request per second per portal. Portals on the same software can reuse one learned family recipe if it passes a deterministic trial, without another model call for attach.
+
+Attach and repair reserve estimated worst-case request headroom before sending each model call. Set the input and output prices to match the provider for these local limits to reflect actual spend. Provider billing is authoritative; usage a provider does not report is not visible to the ledger.
 
 Every model call is recorded with its purpose, tokens and cost: `GET /internal/ledger` for all portals, `GET /internal/portals/{id}` for one. The ledger includes `cached_tokens` only when a nonzero count has been recorded by the model client.
 

@@ -62,7 +62,7 @@ test("the portal's cache key is passed and the ledger gets the discounted cost",
   assert.ok(bodies[0]!.response_format);
   const p = pricesFor("smart");
   assert.equal(calls.length, 1);
-  assert.deepEqual(Object.keys(calls[0]!).sort(), ["at", "costUsd", "inputTokens", "model", "outputTokens", "portalId", "purpose", "runId"]);
+  assert.deepEqual(Object.keys(calls[0]!).sort(), ["at", "cachedTokens", "costUsd", "inputTokens", "model", "outputTokens", "portalId", "purpose", "runId"]);
   assert.equal(calls[0]!.inputTokens, 2_000);
   assert.equal(calls[0]!.outputTokens, 100);
   close(calls[0]!.costUsd, (976 * p.in + 1_024 * p.cachedIn + 100 * p.out) / 1e6);
