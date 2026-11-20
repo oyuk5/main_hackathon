@@ -7,7 +7,7 @@
     "node": ">=22.13"
   },
   "scripts": {
-    "dev": "NODE_OPTIONS=--disable-warning=ExperimentalWarning tsx watch --env-file-if-exists=.env src/server/main.ts",
+    "dev": "tsx watch --disable-warning=ExperimentalWarning --env-file-if-exists=.env src/server/main.ts",
     "dev:web": "vite --config web/vite.config.ts",
     "build": "npm run build:web && npm run build:server",
     "build:web": "vite build --config web/vite.config.ts",

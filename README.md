@@ -2,6 +2,8 @@
 
 An agent that connects public-tender portals on its own, watches over them, and repairs itself when one breaks. Built for Patterno's challenge at the MAIN AI Hackathon 2026.
 
+**Team: start with [docs/ONBOARDING.md](docs/ONBOARDING.md).**
+
 ## Run it
 
 ```bash
