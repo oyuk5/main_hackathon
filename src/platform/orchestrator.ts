@@ -305,6 +305,15 @@ async function beginRepair(portalId: string, runId: string, ctx: PortalContext, 
     finishRun(repairId, "failed", reason);
     return failPortal(portalId, reason);
   }
+  // A repair must not lose a cancellation: a tender we served as withdrawn that the patched recipe
+  // still lists, but no longer marks withdrawn, would turn into a wrong "open" value.
+  const wasWithdrawn = new Set(previous.filter((tender) => tender.status === "withdrawn").map((tender) => tender.id));
+  const reopened = fixed.read.tenders.filter((tender) => wasWithdrawn.has(tender.id) && !tender.withdrawn);
+  if (reopened.length) {
+    const reason = `Could not verify the repair: it no longer sees the cancellation of ${count(reopened.length, "withdrawn tender")}.`;
+    finishRun(repairId, "failed", reason);
+    return failPortal(portalId, reason);
+  }
   const { summary, documentsPending, documentFailures } = await deliver(portalId, fixed.read, rctx, fixed.recipe);
   if (ctx.signal.aborted) return;
   if (documentFailures.length) {

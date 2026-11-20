@@ -270,13 +270,14 @@ test("a repair that cannot fetch its documents does not replace the last good de
   }
 });
 
-for (const failure of ["missing golden match", "dropped attachments"] as const) {
+for (const failure of ["missing golden match", "dropped attachments", "lost cancellation"] as const) {
   test(`repair rejects ${failure}, then refreshes probe without calling Medic again`, async (t) => {
     const fake = await fakePortal({ "/original.pdf": file("%PDF-1.4\noriginal", "original.pdf") });
     const url = `${fake.base}/`;
     const initial = attached(url, read(url, "Original title", [{ url: `${url}original.pdf`, via: "http" }]));
     initial.golden = [{ id: "T1", fields: { title: "Original title", url: `${url}tenders/1` } }];
-    const candidate = read(url, "Original title");
+    if (failure === "lost cancellation") initial.read.tenders[0] = { ...initial.read.tenders[0]!, withdrawn: true };
+    const candidate = failure === "lost cancellation" ? read(url, "Original title", [{ url: `${url}original.pdf`, via: "http" }]) : read(url, "Original title");
     if (failure === "missing golden match") {
       candidate.tenders[0] = { ...candidate.tenders[0]!, id: "unrelated", url: `${url}different`, title: "Different tender" };
     }
@@ -296,7 +297,7 @@ for (const failure of ["missing golden match", "dropped attachments"] as const) 
       await refresh(id);
       await waitForIdle(id);
       assert.equal((await get(portal)).json().state, "failed");
-      assert.match((await get(portal)).json().reason, failure === "missing golden match" ? /previously checked tender/ : /found no files/);
+      assert.match((await get(portal)).json().reason, failure === "missing golden match" ? /previously checked tender/ : failure === "dropped attachments" ? /found no files/ : /cancellation of 1 withdrawn tender/);
       assert.deepEqual((await get(`${portal}/tenders`)).json(), before);
       await refresh(id);
       await waitForIdle(id);
