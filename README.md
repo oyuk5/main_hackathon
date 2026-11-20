@@ -30,6 +30,10 @@ npm run build:web
 DATA_DIR=/tmp/wt-demo PORT=8083 npx tsx scripts/demo.ts
 ```
 
+| Portals · light | Issues · dark | Portals · phone |
+|---|---|---|
+| [![Portals dashboard in light mode, with the tender table and map](docs/screens/portals-light.png)](docs/screens/portals-light.png) | [![Issues board in dark mode, with attention, repair, and recovery lanes](docs/screens/issues-dark.png)](docs/screens/issues-dark.png) | [![Portals dashboard on a phone in light mode](docs/screens/phone-light.png)](docs/screens/phone-light.png) |
+
 Local development: `npm install`, `npx playwright install chromium` (once), then `npm run dev` (API) and `npm run dev:web` (dashboard).
 
 **Team: start with [docs/ONBOARDING.md](docs/ONBOARDING.md).**
@@ -56,7 +60,7 @@ Each portal is always in one of four states, with a one-sentence `reason` an ope
 
 **Documents.** Files stream to disk and are never held in memory. ZIPs are unpacked, one nested ZIP deep. Files over 250 MB are left out, checked from the declared size first and counted while streaming. Multi-step downloads (click through to the file) run in the browser. Each file is served from `/files/{sha256}`.
 
-**Why this scales to many portals.** A recipe is data, not code, so a repair is a small reviewed patch and not a rewrite. Thousands of portals run on a few procurement software packages, and each recipe records its package (`family`), so the next portal on the same software can start from a recipe that already works. Reads cost $0 in model usage however many portals there are; the model is paid only when a portal is new or has changed.
+In company deployments, put the dashboard behind company single sign-on via a reverse proxy; the evaluation container stays open.
 
 ## Environment variables
 
@@ -79,23 +83,23 @@ Each portal is always in one of four states, with a one-sentence `reason` an ope
 | `TZ_DISPLAY` | no | `Europe/Berlin` | Time zone for times the system itself writes. |
 | `LOG_LEVEL` | no | `warn` | Server log level. |
 
-## What one portal costs in model usage
+## Approach: scale and model cost
+
+Reads run in parallel across portals and are rate-limited to at most one request per second per portal. Portals on the same software can reuse one learned family recipe if it passes a deterministic trial, without another model call for attach.
 
 Every model call is recorded with its purpose, tokens and cost: `GET /internal/ledger` for all portals, `GET /internal/portals/{id}` for one.
 
 | Operation | Model cost |
 |---|---|
-| Attach (once) | **$0.040** average per portal |
+| Attach (once) | **$0.033** average per portal |
 | Regular read | **$0** (no model calls) |
 | Repair | **$0.021** average per scenario that started a repair |
 
-The attach and repair averages come from D’s [`npm run eval` run on November 20, 2026 at 22:28 CET](status/D.md) on the three lab portals: Stadtwerke Lindenau, Ville de Rivemont, and Gmina Lipowo. Against lab ground truth, attach accuracy was **73%** of fields correct, with **0 wrong values** (missing fields still reduced the score). Watchtower healed **85%** of breaking changes (**11 of 13**), with a median heal time of **16 s**. It also started a repair on **3 of 6** harmless changes. These are lab results, not real-portal averages.
+**Attach:** B’s [November 20, 2026, 23:12 CET attach-only eval](status/B.md) on three lab portals measured **100% attach accuracy**, **0 wrong values**, and **$0.033 per attach** on average.
 
-**Per portal per month** = attach cost (once) + repair cost × number of portal changes that month. Reads add nothing.
+**Repair:** D’s [November 20, 2026, 22:28 CET full lab eval](status/D.md) measured **$0.021** per scenario that started a repair, **85%** of breaking changes healed (**11 of 13**), and **16 s** median heal time. Watchtower started a repair on **3 of 6** harmless changes. These are separate lab runs, not real-portal averages.
 
-First measurement: drafting a full recipe for TenderNed (Netherlands) from its real API answers took **1 call, 3,020 input and 800 output tokens: $0.014** with `gpt-6.2-sol` at $2 / $10 per million tokens.
-
-B's separately measured attach run (Platforma Zakupowa): **3 calls, ~21k input and ~1.7k output tokens, ~$0.06**. Reusing a known recipe without a model call costs $0.
+**At 1,000 portals:** using the lab average and assuming every portal needs its own model-assisted attach, budget about **1,000 × $0.033 = $33 once**, plus repair costs when portals change. Regular reads make no model calls and cost **$0 in model usage**. Family reuse can lower the initial cost.
 
 ## API
 
