@@ -143,7 +143,7 @@ export function App() {
                 onReload={reload}
               />
               {showSide && rows.length > 0 && (
-                <aside className="grid content-start gap-4 md:max-xl:grid-cols-2">
+                <aside className="grid min-w-0 content-start gap-4 md:max-xl:grid-cols-2 [&>*]:min-w-0">
                   <Cost rows={ledger ?? []} portals={rows.length} />
                   <section aria-labelledby="where" className="rounded-[6px] border border-hairline bg-paper p-3.5">
                     <div className="mb-2 flex h-5 items-baseline justify-between gap-2 overflow-hidden">
