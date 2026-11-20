@@ -1,4 +1,5 @@
 /** Test helpers for the platform tests (not a test file itself). */
+import fs from "node:fs";
 import http from "node:http";
 import zlib from "node:zlib";
 import type { AddressInfo } from "node:net";
@@ -78,3 +79,16 @@ export const file =
     res.writeHead(200, { "content-type": type, "content-disposition": `attachment; filename="${name}"` });
     res.end(data);
   };
+
+/**
+ * Removes a test's temporary folder. On Windows an open SQLite file cannot be deleted while the
+ * process still holds it (EPERM), so cleanup there is best effort; the OS temp folder clears it later.
+ */
+export function removeTemp(dir: string) {
+  try {
+    fs.rmSync(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+  } catch (e) {
+    const code = (e as NodeJS.ErrnoException).code;
+    if (code !== "EPERM" && code !== "EBUSY") throw e;
+  }
+}

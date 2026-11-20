@@ -9,6 +9,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+import { removeTemp } from "./testkit.js";
+
 process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "wt-server-"));
 
 const { buildServer } = await import("./server.js");
@@ -19,7 +21,7 @@ const { normalizeUrl, portalIdFor } = await import("./orchestrator.js");
 const app = await buildServer();
 after(async () => {
   await app.close();
-  fs.rmSync(process.env.DATA_DIR!, { recursive: true, force: true });
+  removeTemp(process.env.DATA_DIR!);
 });
 
 const post = (url: string, payload: unknown) => app.inject({ method: "POST", url, payload: payload as object });

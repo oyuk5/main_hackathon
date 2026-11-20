@@ -9,6 +9,7 @@ import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import type { AddressInfo } from "node:net";
+import { removeTemp } from "./testkit.js";
 import type { ExtractedTender, PortalContext, ReadOutcome } from "../shared/modules.js";
 
 process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "wt-deliver-"));
@@ -28,7 +29,7 @@ const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 
 after(() => {
   server.close();
-  fs.rmSync(process.env.DATA_DIR!, { recursive: true, force: true });
+  removeTemp(process.env.DATA_DIR!);
 });
 
 function tender(n: number, refs: number): ExtractedTender {
