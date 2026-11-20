@@ -21,7 +21,7 @@ Local development: `npm install`, `npx playwright install chromium` (once), then
 **The model proposes, code decides.** A model is used to learn a portal and to repair it. Reading a portal is plain code, so the regular work costs nothing in model usage and gives the same answer every time.
 
 1. **Attach.** For a portal it has never seen, the Cartographer explores the site once and writes a **recipe**: a small JSON file that says where the tender list is (a feed, a JSON API, HTML or a page that needs a browser), how to page through it, where each field and each document is, and which time zone the portal uses. Code then reads the portal with that recipe and keeps a few **golden tenders**, real tenders it can check later.
-2. **Read.** On a schedule (every 30 minutes by default) the Extractor runs the recipe. **No model call.** New and changed tenders get their documents downloaded, hashed (sha256) and unpacked if they are ZIPs.
+2. **Read.** On a schedule (every 30 minutes by default) the Extractor runs the recipe. **No model call.** New and changed tenders get their documents downloaded, hashed (sha256) and unpacked if they are ZIPs. A big portal is served in batches: each read downloads at most 300 documents, newest tenders first, and the next read follows a minute later until all are in. A new tender is served only with its documents, never with an empty list that would look like "no documents".
 3. **Notice.** Before anything is served, deterministic checks decide whether the read is correct: ids unique, dates and deadlines valid, URLs and CPV codes well formed, the number of tenders not collapsing, the page structure unchanged, and the golden tenders still matching. A portal that says "no tenders" is told apart from one that broke.
 4. **Repair.** When the checks fail, the portal goes to `healing` and the last correct tenders stay available. The Medic shows the model what changed and gets back a small patch to the recipe. Code reruns the read with the patch and serves it only if every check passes, golden tenders included. If no patch passes, the portal goes to `failed` and says why.
 
@@ -53,6 +53,7 @@ Each portal is always in one of four states, with a one-sentence `reason` an ope
 | `DATA_DIR` | no | `/data` in the container | SQLite database and downloaded files. |
 | `READ_INTERVAL_MINUTES` | no | 30 | Time between regular reads of a serving portal. |
 | `FAILED_RETRY_MINUTES` | no | 30 | Time between retries of a failed portal. |
+| `DOC_REFS_PER_READ` | no | 300 | Document downloads per read at most; on a big portal the rest follow in reads one minute apart. |
 | `MIN_REQUEST_GAP_MS` | no | 1100 | Gap between two requests to one portal; never below 1000. |
 | `MAX_FILE_BYTES` | no | 262144000 (250 MB) | Largest document kept. |
 | `USER_AGENT` | no | `WatchtowerBot/0.1 (...)` | How we identify ourselves to portals. |

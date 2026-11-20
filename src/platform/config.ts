@@ -10,6 +10,10 @@ export const config = {
   readIntervalMinutes: num(process.env.READ_INTERVAL_MINUTES, 30),
   /** How often a failed portal is probed again (it recovers by itself if the portal comes back). */
   failedRetryMinutes: num(process.env.FAILED_RETRY_MINUTES, 30),
+  /** Document refs fetched per read at most; the rest follow in the next reads (see budget.ts). */
+  docRefsPerRead: Math.max(1, num(process.env.DOC_REFS_PER_READ, 300)),
+  /** While documents are pending, the next read follows this soon instead of the normal interval. */
+  pendingReadMinutes: 1,
   /** Minimum gap between two requests to one host. The brief allows at most 1 per second. */
   minRequestGapMs: Math.max(1000, num(process.env.MIN_REQUEST_GAP_MS, 1100)),
   /** Files bigger than this are left out (brief: may leave out files over 250 MB). */

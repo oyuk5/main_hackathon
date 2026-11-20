@@ -20,6 +20,7 @@ import { politeBrowser, politeHttp } from "./polite.js";
 import { documentFetcher } from "./documents.js";
 import { count, join, labelled, sentence } from "./reason.js";
 import { mayClose, sawWholeList } from "./listing.js";
+import { planDocuments, type Need } from "./budget.js";
 import { llmFor } from "../llm/client.js";
 import { cartographer, extractor } from "../attach/index.js";
 import { medic, watch } from "../watch/index.js";
@@ -209,10 +210,10 @@ async function judgeAndDeliver(portalId: string, runId: string, ctx: PortalConte
   const verdict = watch.evaluate(read, baseline);
 
   if (verdict.kind === "healthy" && read.kind === "ok") {
-    const summary = await deliver(portalId, read, ctx);
+    const { summary, pendingNew } = await deliver(portalId, read, ctx);
     finishRun(runId, "ok", summary);
     store.setState(portalId, "serving", summary, nowWithOffset());
-    return scheduleNext(portalId, config.readIntervalMinutes);
+    return scheduleNext(portalId, pendingNew > 0 ? config.pendingReadMinutes : config.readIntervalMinutes);
   }
   if (verdict.kind === "blocked") {
     finishRun(runId, "failed", sentence(verdict.reason));
@@ -248,10 +249,10 @@ async function judgeAndDeliver(portalId: string, runId: string, ctx: PortalConte
     return failPortal(portalId, join(labelled("Could not repair", recheck.reason), "A person is needed"));
   }
   store.saveRecipe(portalId, fixed.recipe, "repair", fixed.summary, nowWithOffset());
-  const summary = await deliver(portalId, fixed.read, rctx);
+  const { summary, pendingNew } = await deliver(portalId, fixed.read, rctx);
   finishRun(repairId, "ok", join(fixed.summary, summary));
   store.setState(portalId, "serving", join(labelled("Repaired", fixed.summary), summary), nowWithOffset());
-  scheduleNext(portalId, config.readIntervalMinutes);
+  scheduleNext(portalId, pendingNew > 0 ? config.pendingReadMinutes : config.readIntervalMinutes);
 }
 
 // ------------------------------------------------------------ delivery
@@ -284,37 +285,59 @@ function sanitize(et: ExtractedTender, documents: TenderDocument[], status: Tend
   return t;
 }
 
-async function deliver(portalId: string, read: OkRead, ctx: PortalContext): Promise<string> {
+/** Exported for tests only. */
+export async function deliver(portalId: string, read: OkRead, ctx: PortalContext): Promise<{ summary: string; pendingNew: number }> {
   const now = nowWithOffset();
   const seen = new Set<string>();
   let fresh = 0;
   let changed = 0;
 
+  // One entry per tender id, first occurrence wins.
+  const unique: ExtractedTender[] = [];
   for (const et of read.tenders) {
-    if (ctx.signal.aborted) break;
     if (seen.has(et.id)) continue;
     seen.add(et.id);
-    const row = store.getTenderRow(portalId, et.id);
-    const refsHash = sha(JSON.stringify(et.documentRefs));
+    unique.push(et);
+  }
+
+  const statusOf = (et: ExtractedTender): TenderT["status"] =>
+    et.withdrawn ? "withdrawn" : et.submissionDeadline && toEpoch(et.submissionDeadline) < Date.now() ? "closed" : "open";
+
+  // Documents are fetched again only when the refs change, or when the last fetch had problems
+  // (stored with an empty refs hash). Which tenders get their turn in this read: see budget.ts.
+  const rows = new Map(unique.map((et) => [et.id, store.getTenderRow(portalId, et.id)]));
+  const refsHashOf = new Map(unique.map((et) => [et.id, sha(JSON.stringify(et.documentRefs))]));
+  const plan = planDocuments(
+    unique.map((et) => {
+      const row = rows.get(et.id);
+      const need: Need = !row ? "new" : row.refs_hash === refsHashOf.get(et.id) ? "none" : row.refs_hash === "" ? "retry" : "changed";
+      return { id: et.id, need, refs: et.documentRefs.length, open: statusOf(et) === "open", publicationDate: et.publicationDate ?? null };
+    }),
+    config.docRefsPerRead,
+  );
+
+  for (const et of unique) {
+    if (ctx.signal.aborted) break;
+    const row = rows.get(et.id);
+    const refsHash = refsHashOf.get(et.id)!;
     let documents: TenderDocument[];
-    // Documents are fetched again only when the refs change, or when the last fetch had problems
-    // (stored with an empty refs hash), so a failed download is retried on the next read.
     let storedRefsHash = refsHash;
     if (row && row.refs_hash === refsHash) {
       documents = (JSON.parse(row.json) as TenderT).documents;
-    } else {
+    } else if (plan.fetch.has(et.id)) {
       const got = await documentFetcher.fetchAll(et.documentRefs, ctx);
       if (ctx.signal.aborted) break;
       for (const p of got.problems) ctx.log(`Tender ${et.id}: ${p}`, "warn");
       documents = got.documents;
       if (got.problems.length > 0) storedRefsHash = "";
+    } else if (row) {
+      // Not its turn yet: keep serving the last documents, and fetch again in a later read.
+      documents = (JSON.parse(row.json) as TenderT).documents;
+      storedRefsHash = row.refs_hash;
+    } else {
+      continue; // a new tender is served once its documents are in
     }
-    const status: TenderT["status"] = et.withdrawn
-      ? "withdrawn"
-      : et.submissionDeadline && toEpoch(et.submissionDeadline) < Date.now()
-        ? "closed"
-        : "open";
-    const draft = sanitize(et, documents, status, now);
+    const draft = sanitize(et, documents, statusOf(et), now);
     const hash = hashTender(draft);
     if (!row) fresh += 1;
     else if (row.content_hash !== hash) changed += 1;
@@ -342,5 +365,7 @@ async function deliver(portalId: string, read: OkRead, ctx: PortalContext): Prom
 
   const open = store.listTenders(portalId).filter((t) => t.status === "open").length;
   const at = formatWithOffset(new Date()).slice(11, 16);
-  return `Serving ${count(open, "open tender")} (${fresh} new, ${changed} changed). Last read ${at}, all checks passed.`;
+  const pendingNew = ctx.signal.aborted ? 0 : plan.pendingNew;
+  const waiting = pendingNew > 0 ? `; documents for ${count(pendingNew, "more tender")} are on their way` : "";
+  return { summary: `Serving ${count(open, "open tender")} (${fresh} new, ${changed} changed)${waiting}. Last read ${at}, all checks passed.`, pendingNew };
 }
