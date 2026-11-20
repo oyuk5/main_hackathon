@@ -83,7 +83,7 @@ export function App({ operator }: { operator?: ReactNode }) {
   }, [needPerson]);
 
   return (
-    <div className="min-h-dvh bg-sea text-ink">
+    <div className="min-h-dvh text-ink">
       <Header onAdded={reload} operator={operator} />
       {/* Pinned over the page, so it never pushes the layout down and leaves no gap when the API is fine. */}
       {failing && (
