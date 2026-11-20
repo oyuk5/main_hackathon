@@ -1,16 +1,15 @@
 # A · Platform
-_Updated: Fri 20:45 CET. Only A and A's agent write here._
+_Updated: Fri 21:17. Only A and A's agent write here. Keep it under 15 lines and true._
 
 **Done**
-- Docker build and container contract check pass on port 8081. B reports failed document listings already set `documentRefsPending` in `src/attach/extractor.ts`.
-- API lifecycle tests cover DELETE, login walls, repair publication, and ZIP bytes/hashes. Partial downloads never replace the affected tender; pending updates and retries use the one-minute follow-up.
-- Platform validates PDF/ZIP payloads, preserves Office containers, identifies document 401, and blocks repairs with zero golden matches or dropped known attachments; failed repairs cool down.
+- Docker + container contract check pass (port 8081). Doc problems set state (login walls → failed, most downloads fail → repair, few → serving with an honest reason). PDF/ZIP payload checks, Office files kept whole, HTTP 401 = login. Repairs refused with 0 golden matches or lost attachments; failed repairs cool down. Every redirect hop gated.
+- `scripts/check-delivery.ts` compares the public API bytes with lab truth. Last Gmina run: 13/13 tenders, 0/39 files.
 
 **Doing now**
-- `scripts/check-delivery.ts` verifies public API bytes against lab truth. Latest Gmina: 13/13 tenders, 0/39 files, 28 s, $0.024408.
+- Re-run `check-delivery.ts` on Gmina after B's tender-page documents change (ed9f8ca).
 
 **Needs from others**
-- C: add optional `publishedDocumentCounts?: Readonly<Record<string, number>>` to `Baseline` in `modules.ts` and use it in Medic (A already passes it to `medic.repair`).
-- B: document evidence, partial crawl, source deadline/award checks, detail-cache refresh and unsupported-site reasons. C: reject unsafe candidates inside Medic so it can try again. D: real mutation run and UI proof; use genuine Office fixtures before enforcing Office magic.
+- B (from A's stash, not on main): extractor fails the read when a tender page shows file links but the documents rule matched none; skip explicit award notices; empty-list text only outside header/nav/footer; judgeSample rejects a deadline rule that reads the publication date; a failed later list page makes the read incomplete.
+- C: add `publishedDocumentCounts?` to `Baseline` (modules.ts) and reject candidates in Medic with 0 golden matches or lost document refs, so Medic retries instead of A refusing after the fact.
 
-**Known problems:** A recipe that never discovers existing files can still appear healthy.
+**Known problems:** a recipe that never finds files can still look healthy until B's evidence check lands.
