@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "family": "cosinex-vmp",
+  "tier": "browser",
+  "timeZone": "Europe/Berlin",
+  "countryCode": "DE",
+  "list": {
+    "request": {
+      "url": "https://www.dtvp.de/Center/common/project/search.do?method=showExtendedSearch&fromExternal=true#eyJjcHZDb2RlcyI6W10sImNvbnRyYWN0aW5nUnVsZXMiOlsiVk9MIiwiVk9CIiwiVlNWR1YiLCJTRUtUVk8iLCJPVEhFUiJdLCJwdWJsaWNhdGlvblR5cGVzIjpbIlRlbmRlciJdLCJsb2NhdGlvbiI6e30sInBhZ2VOdW1iZXIiOjEsInNlYXJjaFRleHQiOiIiLCJzb3J0Ijp7Im9yZGVyIjpbeyJwcm9wZXJ0eSI6IlBST0pFQ1RfUFVCTElDQVRJT05fREFURV9MTkciLCJkaXJlY3Rpb24iOiJERVNDIn1dfX0",
+      "method": "GET"
+    },
+    "pagination": { "type": "clickNext", "selector": "#nextPage.browseForward", "maxPages": 50 },
+    "item": "#listTemplate tbody tr:has(a[href*='projectForwarding.do?pid='])",
+    "emptyText": ["Es wurden keine passenden Bekanntmachungen gefunden"]
+  },
+  "listFields": {
+    "id": { "css": "a[href*='projectForwarding.do?pid=']", "attr": "href", "regex": "pid=(\\d+)" },
+    "url": { "const": "https://www.dtvp.de/Center/public/company/projectForwarding.do?pid={id}", "parse": "url" },
+    "title": { "css": "td:nth-child(3)" },
+    "buyerName": { "css": "td:nth-child(5)" },
+    "publicationDate": { "css": "td:nth-child(1) abbr", "attr": "title", "parse": "date", "format": "dd.MM.yyyy" },
+    "submissionDeadline": { "css": "td:nth-child(2) abbr", "attr": "title", "parse": "datetime", "format": "dd.MM.yyyy HH:mm" }
+  },
+  "detail": {
+    "urlFrom": "url",
+    "fields": {
+      "referenceNumber": { "label": "Ausschreibungs-ID" },
+      "cpvCodes": { "css": "div:has(> .sub-headline-container :contains('Auftragsgegenstand')) .control-group b", "all": true, "parse": "cpv" }
+    }
+  },
+  "documents": {
+    "hops": [{ "css": "#subNav a[href^='./documents']", "attr": "href" }],
+    "files": { "css": "a[href*='/documents/']:not([href*='/archive/'])", "attr": "href" },
+    "via": "http"
+  },
+  "withdrawnText": []
+}
