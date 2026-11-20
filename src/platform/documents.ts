@@ -115,12 +115,30 @@ function head(file: string, n: number): Buffer {
 }
 
 function isZip(file: string): boolean {
-  return head(file, 4).equals(Buffer.from([0x50, 0x4b, 0x03, 0x04]));
+  const signature = head(file, 4).toString("hex");
+  return signature === "504b0304" || signature === "504b0506";
 }
 
 function looksLikeHtml(bytes: Buffer): boolean {
-  return /^\s*(<!doctype html|<html|<head|<body)/i.test(bytes.toString("latin1").replace(/^﻿/, ""));
+  return /^\s*(?:<!--[\s\S]*?-->\s*)*<(?:!doctype\s+html|html|head|body|title|meta|script|form|div|main|h[1-6]|p)\b/i.test(bytes.toString("utf8").replace(/^\uFEFF/, ""));
 }
+
+async function payloadProblem(t: Temp, name: string, source: string, mediaType = ""): Promise<string | null> {
+  const first = head(t.tmp, 2048);
+  let problem: string | null = null;
+  if (!t.size) problem = `Could not download ${source}: the file was empty.`;
+  else if (looksLikeHtml(first)) problem = explainPage(head(t.tmp, HTML_SNIFF_BYTES).toString("utf8"), source);
+  else if ((/\.pdf$/i.test(name) || mediaType === "application/pdf") &&
+    !/^%PDF-\d\.\d(?:[\r\n\t ]|$)/m.test(first.subarray(0, 1024).toString("latin1"))) {
+    problem = `Could not download ${name}: the response is not a PDF.`;
+  } else if ((/\.zip$/i.test(name) || mediaType === "application/zip") && (!isZip(t.tmp) || t.size < 22)) {
+    problem = `Could not download ${name}: the response is not a ZIP archive.`;
+  }
+  if (problem) await fsp.rm(t.tmp, { force: true });
+  return problem;
+}
+
+const officeContainer = (name: string) => /\.(?:docx|docm|xlsx|xlsm|pptx|pptm|odt|ods|odp)$/i.test(name);
 
 // ------------------------------------------------------------ what a web page means
 
@@ -216,7 +234,12 @@ async function unzip(file: string, zipName: string, depth: number, signal: Abort
         problems.push(`Left out ${name} from ${zipName}: it is over ${capMb()} MB.`);
         continue;
       }
-      if (depth === 0 && isZip(t.tmp)) {
+      const problem = await payloadProblem(t, name, `${name} from ${zipName}`);
+      if (problem) {
+        problems.push(problem);
+        continue;
+      }
+      if (depth === 0 && isZip(t.tmp) && !officeContainer(name)) {
         try {
           const inner = await unzip(t.tmp, name, depth + 1, signal);
           documents.push(...inner.documents);
@@ -237,13 +260,14 @@ async function unzip(file: string, zipName: string, depth: number, signal: Abort
 }
 
 /** Turns a downloaded temp file into documents: unpacks ZIPs, commits anything else. */
-async function store(t: Temp, name: string, signal: AbortSignal): Promise<{ documents: TenderDocument[]; problems: string[] }> {
-  if (isZip(t.tmp) || /\.zip$/i.test(name)) {
+async function store(t: Temp, name: string, signal: AbortSignal, source: string, mediaType = ""): Promise<{ documents: TenderDocument[]; problems: string[] }> {
+  const problem = await payloadProblem(t, name, source, mediaType);
+  if (problem) return { documents: [], problems: [problem] };
+  if (isZip(t.tmp) && !officeContainer(name)) {
     try {
       return await unzip(t.tmp, name, 0, signal);
     } catch {
-      // Named .zip but not a readable archive: keep the bytes as a plain file.
-      return { documents: [await commit(t, name)], problems: [] };
+      return { documents: [], problems: [`Could not download ${name}: the ZIP archive could not be opened.`] };
     } finally {
       await fsp.rm(t.tmp, { force: true });
     }
@@ -262,9 +286,11 @@ async function viaHttp(ref: DocumentRef, ctx: PortalContext): Promise<{ document
   });
   if (!res.ok) {
     await res.body?.cancel().catch(() => {});
+    if (res.status === 401) return { documents: [], problems: [`Documents need a login: ${ref.url} answered HTTP 401.`] };
     return { documents: [], problems: [`Could not download ${ref.url}: the portal answered HTTP ${res.status}.`] };
   }
-  if ((res.headers.get("content-type") ?? "").includes("text/html")) {
+  const mediaType = (res.headers.get("content-type") ?? "").split(";")[0]!.trim().toLowerCase();
+  if (mediaType === "text/html" || mediaType === "application/xhtml+xml") {
     return { documents: [], problems: [explainPage(await readTextCapped(res, HTML_SNIFF_BYTES), ref.url)] };
   }
   const declared = Number(res.headers.get("content-length") ?? "0");
@@ -276,18 +302,7 @@ async function viaHttp(ref: DocumentRef, ctx: PortalContext): Promise<{ document
   if (!res.body) return { documents: [], problems: [`Could not download ${ref.url}: the answer was empty.`] };
   const t = await toTemp(Readable.fromWeb(res.body as never) as AsyncIterable<Buffer>);
   if (!t) return { documents: [], problems: [`Left out ${name}: it is over ${capMb()} MB.`] };
-  if (t.size === 0) {
-    await fsp.rm(t.tmp, { force: true });
-    return { documents: [], problems: [`Could not download ${ref.url}: the file was empty.`] };
-  }
-  const first = head(t.tmp, 2048);
-  if (looksLikeHtml(first)) {
-    // Mislabelled web page (e.g. application/octet-stream). Read a bounded slice to explain it.
-    const html = head(t.tmp, HTML_SNIFF_BYTES).toString("utf8");
-    await fsp.rm(t.tmp, { force: true });
-    return { documents: [], problems: [explainPage(html, ref.url)] };
-  }
-  return store(t, name, ctx.signal);
+  return store(t, name, ctx.signal, ref.url, mediaType);
 }
 
 // ------------------------------------------------------------ browser path
@@ -366,12 +381,7 @@ async function viaBrowser(ref: DocumentRef, ctx: PortalContext): Promise<{ docum
       return { documents: [], problems: [`Left out ${name}: it is over ${capMb()} MB.`] };
     }
     await d.delete().catch(() => {}); // Playwright's own copy; ours is in temp storage now
-    if (looksLikeHtml(head(t.tmp, 2048))) {
-      const html = head(t.tmp, HTML_SNIFF_BYTES).toString("utf8");
-      await fsp.rm(t.tmp, { force: true });
-      return { documents: [], problems: [explainPage(html, ref.url)] };
-    }
-    return store(t, name, ctx.signal);
+    return store(t, name, ctx.signal, ref.url);
   });
 }
 

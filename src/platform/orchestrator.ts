@@ -14,6 +14,7 @@
  * - Nobody steers it: every transition below is automatic.
  */
 import crypto from "node:crypto";
+import { setTimeout as delay } from "node:timers/promises";
 import { config } from "./config.js";
 import { store } from "./store.js";
 import { politeBrowser, politeHttp } from "./polite.js";
@@ -21,13 +22,15 @@ import { documentFetcher } from "./documents.js";
 import { count, join, labelled, sentence } from "./reason.js";
 import { mayClose, sawWholeList } from "./listing.js";
 import { planDocuments, type Need } from "./budget.js";
+import { dateTimeEpoch, isCalendarDate } from "./calendar.js";
 import { llmFor } from "../llm/client.js";
 import { cartographer, extractor } from "../attach/index.js";
-import { medic, watch } from "../watch/index.js";
+import { medic, verifyGoldenRecords, watch } from "../watch/index.js";
 import { formatWithOffset, nowWithOffset, toEpoch } from "../shared/time.js";
 import { Tender, TenderDocument as TenderDocumentSchema } from "../shared/contract.js";
 import type { Tender as TenderT, TenderDocument } from "../shared/contract.js";
 import type { Baseline, ExtractedTender, PortalContext, ReadOutcome, Verdict } from "../shared/modules.js";
+import type { Recipe } from "../shared/recipe.js";
 
 type OkRead = Extract<ReadOutcome, { kind: "ok" }>;
 
@@ -124,7 +127,7 @@ function closeExpired() {
   const now = Date.now();
   for (const p of store.listPortals()) {
     for (const t of store.listTenders(p.id)) {
-      if (t.status === "open" && t.submissionDeadline && toEpoch(t.submissionDeadline) < now) {
+      if (t.status === "open" && t.submissionDeadline && dateTimeEpoch(t.submissionDeadline) < now) {
         const updated: TenderT = { ...t, status: "closed", lastChangedAt: nowWithOffset() };
         const row = store.getTenderRow(p.id, t.id);
         store.upsertTender(p.id, updated, hashTender(updated), row?.refs_hash ?? "", nowWithOffset());
@@ -163,13 +166,19 @@ function scheduleNext(portalId: string, inMinutes: number) {
   if (store.getPortal(portalId)) store.setNextDue(portalId, Date.now() + minutes(inMinutes));
 }
 
-function failPortal(portalId: string, reason: string) {
+function failPortal(portalId: string, reason: string, retryMinutes = config.failedRetryMinutes) {
   if (!store.getPortal(portalId)) return;
   const kept = store.countTenders(portalId);
   // The contract needs a non-empty reason even when B or C gave none.
   const why = sentence(reason) || "Stopped without a reason from the reader; details are in the run log.";
   store.setState(portalId, "failed", kept ? join(why, `Keeping the last ${count(kept, "correct tender")}`) : why);
-  scheduleNext(portalId, config.failedRetryMinutes);
+  scheduleNext(portalId, retryMinutes);
+}
+
+function repairCoolingDown(portalId: string): boolean {
+  const last = store.listRuns(portalId).find((run) => run.kind === "repair" || run.result === "ok");
+  return last?.kind === "repair" && last.result === "failed" && !!last.finished_at &&
+    Date.now() - toEpoch(last.finished_at) < minutes(config.failedRetryMinutes);
 }
 
 // ------------------------------------------------------------ the flow
@@ -198,7 +207,13 @@ async function runFlow(portalId: string, url: string, runId: string, controller:
   for (const waitMs of [5_000, 20_000]) {
     if (read.kind !== "unreachable" || controller.signal.aborted) break;
     ctx.log(`Portal not reachable (${read.reason}). Trying again in ${waitMs / 1000} s.`, "warn");
-    await new Promise((r) => setTimeout(r, waitMs));
+    try {
+      await delay(waitMs, undefined, { signal: controller.signal });
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      throw error;
+    }
+    if (controller.signal.aborted) return;
     read = await extractor.read(recipe, ctx);
   }
   if (controller.signal.aborted) return;
@@ -210,14 +225,13 @@ async function judgeAndDeliver(portalId: string, runId: string, ctx: PortalConte
   const verdict = watch.evaluate(read, baseline);
 
   if (verdict.kind === "healthy" && read.kind === "ok") {
-    const { summary, pendingNew, documentFailures, documentsFetched } = await deliver(portalId, read, ctx);
+    const { summary, documentsPending, documentFailures, documentsFetched } = await deliver(portalId, read, ctx);
     // Deleted meanwhile: write nothing, the same address may already be a new portal with this id.
     if (ctx.signal.aborted) return;
     const docState = classifyDocumentFailures(documentFailures, documentsFetched);
     if (docState?.kind === "blocked") {
       finishRun(runId, "failed", docState.reason);
-      store.setState(portalId, "failed", join(docState.reason, `Keeping the last ${count(store.countTenders(portalId), "correct tender")}`));
-      return scheduleNext(portalId, config.failedRetryMinutes);
+      return failPortal(portalId, docState.reason);
     }
     if (docState?.kind === "broken") {
       finishRun(runId, "failed", docState.reason);
@@ -225,7 +239,7 @@ async function judgeAndDeliver(portalId: string, runId: string, ctx: PortalConte
     }
     finishRun(runId, "ok", summary);
     store.setState(portalId, "serving", summary, nowWithOffset());
-    return scheduleNext(portalId, pendingNew > 0 ? config.pendingReadMinutes : config.readIntervalMinutes);
+    return scheduleNext(portalId, documentsPending ? config.pendingReadMinutes : config.readIntervalMinutes);
   }
   if (verdict.kind === "blocked") {
     finishRun(runId, "failed", sentence(verdict.reason));
@@ -245,6 +259,10 @@ async function beginRepair(portalId: string, runId: string, ctx: PortalContext, 
   const reason = verdict.reason;
   const recipe = store.currentRecipe(portalId);
   if (!recipe) return failPortal(portalId, labelled("Could not learn this portal", reason));
+  if (repairCoolingDown(portalId)) {
+    ctx.log("The last repair failed; waiting before spending model calls on another attempt.", "warn");
+    return failPortal(portalId, join(reason, "A previous repair failed; waiting before trying another"), config.pendingReadMinutes);
+  }
   store.setState(portalId, "healing", labelled("Repairing", reason));
   ctx.log(join(labelled("Read looks wrong", reason), "Starting a repair"), "warn");
 
@@ -254,7 +272,10 @@ async function beginRepair(portalId: string, runId: string, ctx: PortalContext, 
   if (job) Object.assign(job, { runId: repairId, kind: "repair" });
   const rctx: PortalContext = { ...ctx, llm: llmFor(portalId, repairId), log: (m, l = "info") => store.addEvent(portalId, repairId, nowWithOffset(), l, m) };
 
-  const fixed = await medic.repair({ recipe, verdict, baseline }, rctx);
+  const publishedDocumentCounts = Object.fromEntries(store.listTenders(portalId)
+    .filter((tender) => tender.documents.length > 0)
+    .map((tender) => [tender.id, tender.documents.length]));
+  const fixed = await medic.repair({ recipe, verdict, baseline: { ...baseline, publishedDocumentCounts } }, rctx);
   if (ctx.signal.aborted) return;
   if (fixed.kind !== "ok") {
     finishRun(repairId, "failed", fixed.reason);
@@ -265,12 +286,32 @@ async function beginRepair(portalId: string, runId: string, ctx: PortalContext, 
     finishRun(repairId, "failed", labelled("Repair did not pass the checks", recheck.reason));
     return failPortal(portalId, join(labelled("Could not repair", recheck.reason), "A person is needed"));
   }
-  store.saveRecipe(portalId, fixed.recipe, "repair", fixed.summary, nowWithOffset());
-  const { summary, pendingNew } = await deliver(portalId, fixed.read, rctx);
+  const golden = verifyGoldenRecords(fixed.read.tenders, baseline.golden);
+  if (fixed.read.tenders.length > 0 && baseline.golden.length > 0 && golden.matched === 0) {
+    const reason = "Could not verify the repair against any previously checked tender.";
+    finishRun(repairId, "failed", reason);
+    return failPortal(portalId, reason);
+  }
+  const previous = store.listTenders(portalId);
+  const withDocuments = new Set(previous.filter((tender) => tender.documents.length > 0).map((tender) => tender.id));
+  const dropped = fixed.read.tenders.filter((tender) => withDocuments.has(tender.id) && tender.documentRefs.length === 0 && !tender.documentRefsPending);
+  if (dropped.length) {
+    const reason = `Could not verify the repair: it found no files for ${count(dropped.length, "previously checked tender")} that had attachments.`;
+    finishRun(repairId, "failed", reason);
+    return failPortal(portalId, reason);
+  }
+  const { summary, documentsPending, documentFailures } = await deliver(portalId, fixed.read, rctx, fixed.recipe);
   if (ctx.signal.aborted) return;
+  if (documentFailures.length) {
+    const problem = documentFailures.find((failure) => failure.blocked) ?? documentFailures[0]!;
+    const reason = problem.blocked ? problem.detail : labelled("Could not verify the repaired downloads", problem.detail);
+    finishRun(repairId, "failed", reason);
+    return failPortal(portalId, reason);
+  }
+  store.saveRecipe(portalId, fixed.recipe, "repair", fixed.summary, nowWithOffset());
   finishRun(repairId, "ok", join(fixed.summary, summary));
   store.setState(portalId, "serving", join(labelled("Repaired", fixed.summary), summary), nowWithOffset());
-  scheduleNext(portalId, pendingNew > 0 ? config.pendingReadMinutes : config.readIntervalMinutes);
+  scheduleNext(portalId, documentsPending ? config.pendingReadMinutes : config.readIntervalMinutes);
 }
 
 /**
@@ -283,7 +324,7 @@ export function classifyDocumentFailures(failures: DocumentFailure[], fetched: n
   if (failures.length === 0 || fetched === 0) return null;
   const blocked = failures.filter((f) => f.blocked);
   if (blocked.length * 2 > fetched) return { kind: "blocked" as const, reason: blocked[0]!.detail.replace(/\.$/, "") };
-  if ((failures.length - blocked.length) * 2 > fetched) {
+  if (failures.length * 2 > fetched) {
     return { kind: "broken" as const, reason: `Documents could not be fetched for ${failures.length} of ${count(fetched, "tender")}: ${failures.find((f) => !f.blocked)!.detail.replace(/\.$/, "")}` };
   }
   return null;
@@ -301,15 +342,15 @@ function hashTender(t: TenderT): string {
 /** Keeps only values that pass the contract. A wrong value is worse than a missing one. */
 function sanitize(et: ExtractedTender, documents: TenderDocument[], status: TenderT["status"], lastChangedAt: string): TenderT {
   const shape = Tender.shape;
-  const required = (k: "title" | "buyerName" | "publicationDate" | "submissionDeadline") =>
+  const required = (k: "title" | "buyerName") =>
     shape[k].safeParse(et[k] ?? null).success ? (et[k] ?? null) : null;
   const t: TenderT = {
     id: et.id,
     url: et.url,
     title: required("title"),
     buyerName: required("buyerName"),
-    publicationDate: required("publicationDate"),
-    submissionDeadline: required("submissionDeadline"),
+    publicationDate: et.publicationDate && isCalendarDate(et.publicationDate) ? et.publicationDate : null,
+    submissionDeadline: validDeadline(et.submissionDeadline),
     status,
     documents: documents.filter((d) => TenderDocumentSchema.safeParse(d).success),
     lastChangedAt,
@@ -319,6 +360,10 @@ function sanitize(et: ExtractedTender, documents: TenderDocument[], status: Tend
     if (v !== undefined && v !== null && shape[k].safeParse(v).success) (t as Record<string, unknown>)[k] = v;
   }
   return t;
+}
+
+function validDeadline(value: ExtractedTender["submissionDeadline"]): string | null {
+  return value && Tender.shape.submissionDeadline.safeParse(value).success && Number.isFinite(dateTimeEpoch(value)) ? value : null;
 }
 
 /**
@@ -335,8 +380,8 @@ function withStoredValues(et: ExtractedTender, last: TenderT): ExtractedTender {
   return merged as ExtractedTender;
 }
 
-/** Exported for tests only. */
-export async function deliver(portalId: string, read: OkRead, ctx: PortalContext): Promise<{ summary: string; pendingNew: number; documentFailures: DocumentFailure[]; documentsFetched: number }> {
+/** Stage metadata until downloads pass the publication policy. Files are still streamed to disk. */
+export async function deliver(portalId: string, read: OkRead, ctx: PortalContext, repairRecipe?: Recipe): Promise<{ summary: string; pendingNew: number; documentsPending: boolean; documentFailures: DocumentFailure[]; documentsFetched: number }> {
   const now = nowWithOffset();
   const seen = new Set<string>();
   let fresh = 0;
@@ -359,15 +404,13 @@ export async function deliver(portalId: string, read: OkRead, ctx: PortalContext
 
   // Status comes from the same deadline the API shows: one without an offset is dropped by
   // sanitize, so it must not make a tender "closed" either.
-  const validDeadline = (et: ExtractedTender) =>
-    et.submissionDeadline && Tender.shape.submissionDeadline.safeParse(et.submissionDeadline).success ? et.submissionDeadline : null;
   const statusOf = (et: ExtractedTender): TenderT["status"] => {
-    const deadline = validDeadline(et);
+    const deadline = validDeadline(et.submissionDeadline);
     return et.withdrawn ? "withdrawn" : deadline && toEpoch(deadline) < Date.now() ? "closed" : "open";
   };
 
-  // Documents are fetched again only when the refs change, or when the last fetch had problems
-  // (stored with an empty refs hash). Which tenders get their turn in this read: see budget.ts.
+  // Failed fetches leave the previous refs hash intact, so changed refs keep needing a fetch.
+  // Older rows with an empty refs hash are also retried. The budget decides which get a turn.
   const rows = new Map(unique.map((et) => [et.id, store.getTenderRow(portalId, et.id)]));
   const refsHashOf = new Map(unique.map((et) => [et.id, sha(JSON.stringify(et.documentRefs))]));
   const plan = planDocuments(
@@ -384,6 +427,7 @@ export async function deliver(portalId: string, read: OkRead, ctx: PortalContext
 
   let pendingRefs = 0;
   const documentFailures: DocumentFailure[] = [];
+  const staged: { tender: TenderT; hash: string; refsHash: string }[] = [];
   let documentsFetched = 0;
   for (let et of unique) {
     if (ctx.signal.aborted) break;
@@ -407,12 +451,15 @@ export async function deliver(portalId: string, read: OkRead, ctx: PortalContext
       if (ctx.signal.aborted) break;
       for (const p of got.problems) ctx.log(`Tender ${et.id}: ${p}`, "warn");
       documents = got.documents;
-      documentsFetched++;
-      if (got.problems.length > 0) {
-        storedRefsHash = "";
+      if (et.documentRefs.length > 0) documentsFetched++;
+      const failures = got.problems.filter((problem) => !/^Left out .+: it is over \d+ MB\.$/.test(problem));
+      if (failures.length > 0) {
         // Only login and captcha walls are blocks; a web page instead of a file may be a moved link.
-        const wall = got.problems.find((p) => /^(Documents need a login|Blocked by a captcha)/.test(p));
-        documentFailures.push({ tenderId: et.id, detail: wall ?? got.problems[0]!, blocked: wall !== undefined });
+        const wall = failures.find((p) => /^(Documents need a login|Blocked by a captcha)/.test(p));
+        documentFailures.push({ tenderId: et.id, detail: wall ?? failures[0]!, blocked: wall !== undefined });
+        // A partial download is not a new snapshot. The old refs hash (or absent row) also
+        // ensures we retry these refs instead of caching an incomplete attachment list.
+        continue;
       }
     } else if (row) {
       // Not its turn yet: keep serving the last documents, and fetch again in a later read.
@@ -426,20 +473,25 @@ export async function deliver(portalId: string, read: OkRead, ctx: PortalContext
     if (!row) fresh += 1;
     else if (row.content_hash !== hash) changed += 1;
     const lastChangedAt = row && row.content_hash === hash ? row.last_changed_at : now;
-    store.upsertTender(portalId, { ...draft, lastChangedAt }, hash, storedRefsHash, now);
+    staged.push({ tender: { ...draft, lastChangedAt }, hash, refsHash: storedRefsHash });
   }
 
   // No longer listed => closed, but only when this read saw the whole list (see listing.ts):
   // a read capped by maxPages, or aborted halfway, did not see the older tenders.
   // Aborted (DELETE): stop before closing tenders or moving the baseline.
-  if (ctx.signal.aborted) return { summary: "Stopped.", pendingNew: 0, documentFailures, documentsFetched };
-  const wholeList = sawWholeList(store.currentRecipe(portalId)?.list.pagination, read.diagnostics.listPages, ctx.signal.aborted);
+  if (ctx.signal.aborted) return { summary: "Stopped.", pendingNew: 0, documentsPending: false, documentFailures, documentsFetched };
+  const rejectDelivery = repairRecipe
+    ? documentFailures.length > 0
+    : classifyDocumentFailures(documentFailures, documentsFetched) !== null;
+  if (rejectDelivery) return { summary: "Downloads did not pass.", pendingNew: 0, documentsPending: false, documentFailures, documentsFetched };
+  for (const { tender, hash, refsHash } of staged) store.upsertTender(portalId, tender, hash, refsHash, now);
+  const wholeList = sawWholeList((repairRecipe ?? store.currentRecipe(portalId))?.list.pagination, read.diagnostics.listPages, ctx.signal.aborted);
   const oldestSeen = unique
     .map((et) => et.publicationDate)
-    .filter((d): d is string => !!d && Tender.shape.publicationDate.safeParse(d).success)
+    .filter((d): d is string => !!d && isCalendarDate(d))
     .reduce<string | null>((min, d) => (min === null || d < min ? d : min), null);
   for (const t of store.listTenders(portalId)) {
-    const close = mayClose({ wholeList, submissionDeadline: t.submissionDeadline, now: Date.now(), toEpoch, publicationDate: t.publicationDate, oldestSeen });
+    const close = mayClose({ wholeList, submissionDeadline: t.submissionDeadline, now: Date.now(), toEpoch: dateTimeEpoch, publicationDate: t.publicationDate, oldestSeen });
     if (!seen.has(t.id) && t.status === "open" && close) {
       const closed: TenderT = { ...t, status: "closed", lastChangedAt: now };
       store.upsertTender(portalId, closed, hashTender(closed), store.getTenderRow(portalId, t.id)?.refs_hash ?? "", now);
@@ -456,10 +508,13 @@ export async function deliver(portalId: string, read: OkRead, ctx: PortalContext
 
   const open = store.listTenders(portalId).filter((t) => t.status === "open").length;
   const at = formatWithOffset(new Date()).slice(11, 16);
-  const pendingNew = ctx.signal.aborted ? 0 : plan.pendingNew + pendingRefs;
+  const pendingNew = plan.pendingNew + pendingRefs;
+  const documentsPending = plan.pending + pendingRefs + documentFailures.length > 0;
   const waiting = pendingNew > 0 ? `; documents for ${count(pendingNew, "more tender")} are on their way` : "";
+  const deferredUpdates = plan.pending - plan.pendingNew;
   const documentNote = documentFailures.length
     ? ` Documents for ${count(documentFailures.length, "tender")} could not be fetched; retrying next read.`
-    : " All checks passed.";
-  return { summary: `Serving ${count(open, "open tender")} (${fresh} new, ${changed} changed)${waiting}. Last read ${at}.${documentNote}`, pendingNew, documentFailures, documentsFetched };
+    : deferredUpdates > 0 ? ` Document updates for ${count(deferredUpdates, "tender")} are on their way.`
+      : documentsPending ? "" : " All checks passed.";
+  return { summary: `Serving ${count(open, "open tender")} (${fresh} new, ${changed} changed)${waiting}. Last read ${at}.${documentNote}`, pendingNew, documentsPending, documentFailures, documentsFetched };
 }

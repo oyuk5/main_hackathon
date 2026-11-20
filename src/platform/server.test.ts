@@ -108,6 +108,12 @@ describe("GET /portals/{id}/tenders?changedSince=", () => {
   it("rejects a repeated changedSince with 400, not 500", async () => {
     assert.equal((await ids("?changedSince=2026-11-20T10:00:00Z&changedSince=2026-11-20T11:00:00Z")).code, 400);
   });
+
+  it("rejects impossible calendar dates without rejecting leap day", async () => {
+    assert.deepEqual(await ids("?changedSince=2026-02-29T10:00:00Z"), { code: 400, ids: null });
+    assert.deepEqual(await ids("?changedSince=2026-04-31T10:00:00%2B01:00"), { code: 400, ids: null });
+    assert.deepEqual(await ids("?changedSince=2024-02-29T10:00:00Z"), { code: 200, ids: ["T0", "T1"] });
+  });
 });
 
 describe("unknown ids and files", () => {

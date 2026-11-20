@@ -36,18 +36,20 @@ function rank(item: PlanItem): number {
  * At least one tender is always fetched when any need it, so a tender with more refs than the
  * budget still makes progress.
  */
-export function planDocuments(items: PlanItem[], budget: number): { fetch: Set<string>; pendingNew: number } {
+export function planDocuments(items: PlanItem[], budget: number): { fetch: Set<string>; pendingNew: number; pending: number } {
   const candidates = items
     .filter((i) => i.need !== "none")
     .sort((a, b) => rank(a) - rank(b) || (b.publicationDate ?? "").localeCompare(a.publicationDate ?? ""));
   const fetch = new Set<string>();
   let left = budget;
+  let attemptedFiles = false;
   for (const item of candidates) {
     const cost = item.refs; // a tender without documents costs nothing and is always served
-    if (cost > 0 && cost > left && fetch.size > 0) continue;
+    if (cost > 0 && cost > left && attemptedFiles) continue;
     fetch.add(item.id);
     left -= cost;
+    if (cost > 0) attemptedFiles = true;
   }
   const pendingNew = candidates.filter((i) => i.need === "new" && !fetch.has(i.id)).length;
-  return { fetch, pendingNew };
+  return { fetch, pendingNew, pending: candidates.length - fetch.size };
 }

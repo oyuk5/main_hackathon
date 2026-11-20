@@ -39,3 +39,10 @@ test("a tender without documents costs nothing, so it is served even when the bu
   assert.deepEqual([...plan.fetch].sort(), ["big", "nodocs"]);
   assert.equal(plan.pendingNew, 0);
 });
+
+test("a zero-cost tender cannot prevent the first oversized document batch from making progress", () => {
+  const plan = planDocuments([item("nodocs", "new", 0), item("large-update", "changed", 12), item("retry", "retry", 1)], 5);
+  assert.deepEqual([...plan.fetch], ["nodocs", "large-update"]);
+  assert.equal(plan.pendingNew, 0);
+  assert.equal(plan.pending, 1);
+});

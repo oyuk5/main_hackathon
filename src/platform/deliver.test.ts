@@ -85,6 +85,8 @@ test("a known tender whose documents changed keeps its old documents until its t
   const t1 = store.listTenders("p2").find((t) => t.id === "T1")!;
   assert.deepEqual(t1.documents, before, "T1 must keep serving its last documents");
   assert.equal(out.pendingNew, 0);
+  assert.equal(out.documentsPending, true, "known tenders with deferred updates also need a fast follow-up");
+  assert.match(out.summary, /Document updates for 1 tender are on their way/);
 
   await deliver("p2", read([changed, tender(7, 1), tender(8, 1), tender(9, 1)]), ctx());
   assert.equal(store.listTenders("p2").find((t) => t.id === "T1")!.documents.length, 2, "T1 gets its new documents in the next read");
@@ -132,6 +134,21 @@ test("tenders without a usable id or address are left out, the rest are served",
   assert.match(out.summary, /^Serving 1 open tender \(1 new, 0 changed\)\./);
 });
 
+test("impossible dates become null and an impossible deadline cannot close a tender", async () => {
+  const p = newPortal();
+  await deliver(p, read([
+    { ...tender(1, 0), publicationDate: "2025-02-29", submissionDeadline: "2025-04-31T09:00:00+02:00" },
+    { ...tender(2, 0), publicationDate: "2024-02-29", submissionDeadline: "2025-04-30T09:00:00+25:00" },
+  ]), ctx());
+  const { T1, T2 } = byId(p);
+  assert.equal(T1!.publicationDate, null);
+  assert.equal(T1!.submissionDeadline, null);
+  assert.equal(T1!.status, "open");
+  assert.equal(T2!.publicationDate, "2024-02-29");
+  assert.equal(T2!.submissionDeadline, null);
+  assert.equal(T2!.status, "open");
+});
+
 test("invalid optional fields are dropped, not served", async () => {
   const p = newPortal();
   await deliver(p, read([{ ...tender(1, 0), cpvCodes: ["4500000-7"], procedureType: "Openbaar" as never, title: "" }]), ctx());
@@ -147,20 +164,20 @@ test("a failed document fetch is retried in the next read and then recovers", as
   const flaky = http.createServer((req, res) => {
     if (req.url === "/robots.txt") return void res.writeHead(404).end();
     if (fail) return void res.writeHead(503).end("busy");
-    res.writeHead(200, { "content-type": "application/pdf", "content-disposition": 'attachment; filename="ok.pdf"' }).end("%PDF ok");
+    res.writeHead(200, { "content-type": "application/pdf", "content-disposition": 'attachment; filename="ok.pdf"' }).end("%PDF-1.4\nok");
   });
   await new Promise<void>((r) => flaky.listen(0, "127.0.0.1", r));
   const url = `http://127.0.0.1:${(flaky.address() as AddressInfo).port}/doc.pdf`;
   try {
     const t = { ...tender(1, 0), documentRefs: [{ url, via: "http" as const }] };
-    await deliver(p, read([t]), ctx());
-    assert.equal(byId(p).T1!.documents.length, 0, "first try failed");
-    assert.equal(store.getTenderRow(p, "T1")!.refs_hash, "", "marked for retry");
+    const first = await deliver(p, read([t]), ctx());
+    assert.equal(first.documentFailures.length, 1, "first try failed");
+    assert.equal(store.getTenderRow(p, "T1"), undefined, "do not publish the tender with an incomplete document list");
     fail = false;
     const again = await deliver(p, read([t]), ctx());
     assert.equal(byId(p).T1!.documents.length, 1, "second read fetched it");
     assert.notEqual(store.getTenderRow(p, "T1")!.refs_hash, "");
-    assert.match(again.summary, /\(0 new, 1 changed\)/);
+    assert.match(again.summary, /\(1 new, 0 changed\)/);
   } finally {
     flaky.close();
   }
@@ -266,5 +283,36 @@ test("document problems: a few keep serving, most login walls fail, most other f
   assert.match(classifyDocumentFailures([login, login], 3)!.reason, /^Documents need a login/);
   assert.equal(classifyDocumentFailures([other, other, other], 4)?.kind, "broken");
   assert.equal(classifyDocumentFailures([other, login], 4), null);
+  assert.equal(classifyDocumentFailures([other, login], 3)?.kind, "broken", "mixed failures must not hide a majority outage");
   assert.equal(classifyDocumentFailures([], 0), null);
+});
+
+test("a minority of partial document failures cannot publish incomplete new or updated tenders", async (t) => {
+  const p = newPortal();
+  const { documentFetcher } = await import("./documents.js");
+  const makeDoc = (name: string) => ({ fileName: name, sizeBytes: 10, sha256: "a".repeat(64), path: `/files/${"a".repeat(64)}` });
+  const old = makeDoc("original.pdf");
+  const replacement = makeDoc("replacement.pdf");
+  const mock = t.mock.method(documentFetcher, "fetchAll", async (refs: ExtractedTender["documentRefs"]) => {
+    if (refs[0]?.url.endsWith("original")) return { documents: [old], problems: [] };
+    if (refs[0]?.url.endsWith("partial")) return { documents: [replacement], problems: ["Could not download one attachment."] };
+    return { documents: [replacement], problems: [] };
+  });
+  const withRef = (n: number, name: string) => ({ ...tender(n, 0), documentRefs: [{ url: `${base}/${name}`, via: "http" as const }] });
+  await deliver(p, read([withRef(1, "original")]), ctx());
+  const original = byId(p).T1;
+
+  const first = [withRef(1, "partial"), withRef(2, "full"), withRef(3, "full")];
+  const out = await deliver(p, read(first), ctx());
+  assert.equal(out.documentFailures.length, 1);
+  assert.equal(out.documentsFetched, 3);
+  assert.equal(out.documentsPending, true, "partial failures get a fast follow-up without claiming a clean read");
+  assert.deepEqual(byId(p).T1, original);
+  assert.deepEqual(byId(p).T2!.documents, [replacement]);
+
+  const next = [...first, withRef(4, "partial"), withRef(5, "full")];
+  const checked = await deliver(p, read(next), ctx());
+  assert.equal(checked.documentFailures.length, 2, "the previous failure gets retried");
+  assert.equal(mock.mock.callCount(), 7);
+  assert.equal(byId(p).T4, undefined);
 });

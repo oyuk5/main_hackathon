@@ -45,7 +45,7 @@ describe("document pipeline edge cases", { concurrency: true }, () => {
       {
         "/doc": (_q, res) => {
           res.writeHead(200, { "content-type": "application/pdf", "content-disposition": "attachment; filename*=UTF-8''Leistungsverzeichnis_Los_%C3%A4.pdf" });
-          res.end("%PDF umlaut");
+          res.end("%PDF-1.4\numlaut");
         },
       },
       (b) => [{ url: `${b}/doc`, via: "http" }],
@@ -54,7 +54,7 @@ describe("document pipeline edge cases", { concurrency: true }, () => {
   });
 
   it("keeps only the last path segment of a hostile file name", async () => {
-    const got = await run({ "/doc": file("%PDF x", "../../etc/passwd") }, (b) => [{ url: `${b}/doc`, via: "http" }]);
+    const got = await run({ "/doc": file("%PDF-1.4\nx", "../../etc/passwd") }, (b) => [{ url: `${b}/doc`, via: "http" }]);
     assert.equal(got.documents[0]?.fileName, "passwd");
     assert.ok(fs.existsSync(filePath(got.documents[0]!.sha256)), "stored under its sha256, nowhere else");
   });
@@ -66,11 +66,33 @@ describe("document pipeline edge cases", { concurrency: true }, () => {
     assert.ok(!fs.existsSync(path.join(process.env.DATA_DIR!, "..", "evil.txt")));
   });
 
-  it("keeps a corrupt file named .zip as a plain file", async () => {
+  it("rejects a bogus ZIP instead of advertising its hash as a document", async () => {
     const got = await run({ "/bad.zip": file("this is not a zip", "bad.zip", "application/zip") }, (b) => [{ url: `${b}/bad.zip`, via: "http" }]);
+    assert.deepEqual(got.documents, []);
+    assert.match(got.problems[0]!, /not a ZIP archive/);
+  });
+
+  it("rejects HTTP 200 error payloads and labels direct 401 as a login requirement", async () => {
+    const got = await run({
+      "/missing.pdf": file("Not found", "missing.pdf"),
+      "/session.pdf": file("\uFEFF<!-- expired --><form><input type=\"password\"></form>", "session.pdf"),
+      "/private.pdf": (_req, res) => res.writeHead(401).end(),
+    }, (base) => ["missing", "session", "private"].map((x) => ({ url: `${base}/${x}.pdf`, via: "http" })));
+    assert.deepEqual(got.documents, []);
+    assert.match(got.problems[0]!, /not a PDF/);
+    assert.match(got.problems[1]!, /^Documents need a login/);
+    assert.match(got.problems[2]!, /^Documents need a login:.*HTTP 401/);
+  });
+
+  it("keeps a ZIP-based Office file intact, including inside a tender archive", async () => {
+    const office = zip({ "[Content_Types].xml": Buffer.from("<Types/>") });
+    const outer = zip({ "form.docx": office });
+    const got = await run({
+      "/form": file(office, "form.docx", "application/octet-stream"),
+      "/bundle": file(outer, "bundle.zip", "application/zip"),
+    }, (base) => ["form", "bundle"].map((x) => ({ url: `${base}/${x}`, via: "http" })));
     assert.deepEqual(got.problems, []);
-    assert.equal(got.documents[0]?.fileName, "bad.zip");
-    assert.equal(got.documents[0]?.sha256, sha("this is not a zip"));
+    assert.deepEqual(got.documents.map((d) => [d.fileName, d.sha256]), [["form.docx", sha(office)], ["form.docx", sha(office)]]);
   });
 
   it("unpacks only one nested ZIP level; deeper ZIPs stay files", async () => {
@@ -115,7 +137,7 @@ describe("document pipeline edge cases", { concurrency: true }, () => {
 
   it("stores the same bytes once, listed under both names", async () => {
     const got = await run(
-      { "/a": file("same bytes", "a.pdf"), "/b": file("same bytes", "b.pdf") },
+      { "/a": file("%PDF-1.4\nsame bytes", "a.pdf"), "/b": file("%PDF-1.4\nsame bytes", "b.pdf") },
       (b) => [
         { url: `${b}/a`, via: "http" },
         { url: `${b}/b`, via: "http" },
@@ -144,7 +166,7 @@ describe("document pipeline edge cases", { concurrency: true }, () => {
       {
         "/download": (req, res, body) => {
           received = `${req.method} ${req.headers["content-type"]} ${body}`;
-          file("%PDF form", "form.pdf")(req, res, body);
+          file("%PDF-1.4\nform", "form.pdf")(req, res, body);
         },
       },
       (b) => [{ url: `${b}/download`, via: "http", method: "POST", form: { id: "42", lot: "a b" } }],
@@ -157,8 +179,8 @@ describe("document pipeline edge cases", { concurrency: true }, () => {
     const got = await run(
       {
         "/go": (_q, res) => res.writeHead(302, { location: "/files/spec%20v2.pdf" }).end(),
-        "/files/spec v2.pdf": (_q, res) => res.writeHead(200, { "content-type": "application/pdf" }).end("%PDF r"),
-        "/files/spec%20v2.pdf": (_q, res) => res.writeHead(200, { "content-type": "application/pdf" }).end("%PDF r"),
+        "/files/spec v2.pdf": (_q, res) => res.writeHead(200, { "content-type": "application/pdf" }).end("%PDF-1.4\nr"),
+        "/files/spec%20v2.pdf": (_q, res) => res.writeHead(200, { "content-type": "application/pdf" }).end("%PDF-1.4\nr"),
       },
       (b) => [{ url: `${b}/go`, via: "http" }],
     );
@@ -180,12 +202,12 @@ describe("document pipeline edge cases", { concurrency: true }, () => {
     const got = await run(
       {
         "/page": (_q, res) => res.writeHead(200, { "content-type": "text/html" }).end(`<a id="dl" href="/f.pdf" target="_blank">PDF</a>`),
-        "/f.pdf": file("%PDF popup", "popup.pdf"),
+        "/f.pdf": file("%PDF-1.4\npopup", "popup.pdf"),
       },
       (b) => [{ url: `${b}/page`, via: "browser", clickPath: ["#dl"] }],
     );
     assert.deepEqual(got.problems, []);
-    assert.equal(got.documents[0]?.sha256, sha("%PDF popup"));
+    assert.equal(got.documents[0]?.sha256, sha("%PDF-1.4\npopup"));
   });
 
   it("reports a click target that never appears on an ordinary page", async () => {

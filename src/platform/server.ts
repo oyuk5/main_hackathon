@@ -11,8 +11,7 @@ import { orchestrator } from "./orchestrator.js";
 import { filePath } from "./documents.js";
 import { AddPortalBody, type PortalEntry, type Run } from "../shared/contract.js";
 import { toEpoch } from "../shared/time.js";
-
-const DATE_TIME_WITH_OFFSET = /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])T([01]\d|2[0-3]):[0-5]\d(:[0-5]\d(\.\d+)?)?(Z|[+-]([01]\d|2[0-3]):[0-5]\d)$/;
+import { dateTimeEpoch } from "./calendar.js";
 
 function entry(p: PortalRow): PortalEntry {
   return {
@@ -67,8 +66,7 @@ export async function buildServer() {
     const since = raw?.trim().replace(/ (\d{2}:\d{2})$/, "+$1");
     if (!since) return all;
     // Date.parse alone accepts "1" (year 2001) and times without offset (read as server time).
-    if (!DATE_TIME_WITH_OFFSET.test(since)) return bad();
-    const t = toEpoch(since);
+    const t = dateTimeEpoch(since);
     if (Number.isNaN(t)) return bad();
     return all.filter((x) => toEpoch(x.lastChangedAt) > t);
   });
