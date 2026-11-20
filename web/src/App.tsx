@@ -6,6 +6,7 @@ import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { Board, openIssues } from "./Board";
 import { Chart } from "./Chart";
 import { Detail } from "./Detail";
+import { ImportDialog } from "./Import";
 import { Log } from "./Log";
 import { Picker } from "./Picker";
 import { Select } from "./Select";
@@ -213,6 +214,7 @@ function Header({ onAdded }: { onAdded: () => void }) {
   const [url, setUrl] = useState("");
   const [note, setNote] = useState<{ ok: boolean; text: string } | null>(null);
   const [sending, setSending] = useState(false);
+  const [importing, setImporting] = useState(false);
 
   const add = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -273,7 +275,16 @@ function Header({ onAdded }: { onAdded: () => void }) {
           >
             {sending ? "Adding…" : "Watch portal"}
           </button>
+          <button
+            type="button"
+            onClick={() => setImporting(true)}
+            title="Add many portals from an Excel, CSV, JSON or text file"
+            className="h-8 shrink-0 cursor-pointer rounded-[4px] border border-hairline bg-sea px-3 text-[13px] font-semibold text-ink transition-colors hover:border-docker"
+          >
+            Import list
+          </button>
         </form>
+        {importing && <ImportDialog onClose={() => setImporting(false)} onAdded={onAdded} />}
       </div>
       {note && (
         <p role="status" className={`mx-auto max-w-[1440px] min-[1800px]:max-w-[1680px] px-4 pb-2 text-[13px] sm:px-6 sm:text-right ${note.ok ? "text-slate" : "text-failed"}`}>
