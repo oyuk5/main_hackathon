@@ -3,7 +3,7 @@
  * login and captcha traps, multi-step browser downloads, and abort (DELETE) stopping traffic.
  * Each test gets its own server port, so the 1 request/second gate per host does not serialize them.
  */
-import { after, before, describe, it } from "node:test";
+import { after, describe, it, type TestContext } from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
 import crypto from "node:crypto";
@@ -166,6 +166,17 @@ function context() {
   return { ctx, controller };
 }
 
+let browserProbe: Promise<string | undefined> | undefined;
+async function requireChromium(t: TestContext): Promise<boolean> {
+  browserProbe ??= context().ctx.browser.withPage(async () => undefined).catch((error: unknown) => {
+    const message = error instanceof Error ? error.message.split("\n")[0] : String(error);
+    return `Playwright Chromium could not start: ${message}. Run npx playwright install chromium.`;
+  });
+  const unavailable = await browserProbe;
+  if (unavailable) t.skip(unavailable);
+  return unavailable === undefined;
+}
+
 async function fetchFrom(refs: (base: string) => DocumentRef[]) {
   const fake = await fakePortal();
   try {
@@ -179,7 +190,6 @@ async function fetchFrom(refs: (base: string) => DocumentRef[]) {
 // ------------------------------------------------------------ tests
 
 describe("document pipeline", { concurrency: true }, () => {
-  before(() => {});
   after(async () => {
     await closeSharedBrowser();
     fs.rmSync(process.env.DATA_DIR!, { recursive: true, force: true });
@@ -233,26 +243,30 @@ describe("document pipeline", { concurrency: true }, () => {
     assert.ok(got.stats.streamedBytes < 20 * CAP, `server kept sending: ${got.stats.streamedBytes} bytes`);
   });
 
-  it("follows a multi-step browser download and unpacks the ZIP", async () => {
+  it("follows a multi-step browser download and unpacks the ZIP", async (t) => {
+    if (!(await requireChromium(t))) return;
     const got = await fetchFrom((b) => [{ url: `${b}/portal`, via: "browser", clickPath: ["#next", "#dl"] }]);
     assert.deepEqual(got.problems, []);
     const byName = Object.fromEntries(got.documents.map((d) => [d.fileName, d.sha256]));
     assert.deepEqual(byName, { "a.txt": sha(A_TXT), "b.txt": sha(B_TXT) });
   });
 
-  it("still downloads when the page shows a captcha", async () => {
+  it("still downloads when the page shows a captcha", async (t) => {
+    if (!(await requireChromium(t))) return;
     const got = await fetchFrom((b) => [{ url: `${b}/captcha-but-open`, via: "browser", clickPath: ["#dl"] }]);
     assert.deepEqual(got.problems, []);
     assert.equal(got.documents[0]?.sha256, sha(PDF));
   });
 
-  it("names a login wall in the browser when no file arrives", async () => {
+  it("names a login wall in the browser when no file arrives", async (t) => {
+    if (!(await requireChromium(t))) return;
     const got = await fetchFrom((b) => [{ url: `${b}/login`, via: "browser", clickPath: ["#dl"] }]);
     assert.equal(got.documents.length, 0);
     assert.match(got.problems[0]!, /^Documents need a login/);
   });
 
-  it("abort closes a hanging browser page at once and skips the remaining documents", async () => {
+  it("abort closes a hanging browser page at once and skips the remaining documents", async (t) => {
+    if (!(await requireChromium(t))) return;
     const fake = await fakePortal();
     try {
       const { ctx, controller } = context();
@@ -263,7 +277,10 @@ describe("document pipeline", { concurrency: true }, () => {
         ],
         ctx,
       );
-      await fake.stats.hangReached; // the browser is now waiting on the portal
+      await Promise.race([
+        fake.stats.hangReached, // the browser is now waiting on the portal
+        run.then((result) => assert.fail(`The download ended before the browser reached the hanging page: ${result.problems.join("; ")}`)),
+      ]);
       const abortedAt = Date.now();
       controller.abort();
       const got = await run;
