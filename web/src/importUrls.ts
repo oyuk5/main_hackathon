@@ -5,6 +5,8 @@
  * Every http(s) or www. address is taken; the operator picks which ones to watch in the preview.
  */
 
+import { t } from "./i18n";
+
 export interface FoundUrl {
   url: string;
   /** For de-duplication: host (lower case, no www.) + path without trailing slash + query. */
@@ -71,7 +73,7 @@ async function zipXmlParts(buf: ArrayBuffer): Promise<string[]> {
       break;
     }
   }
-  if (end < 0) throw new Error("This file looks like a spreadsheet but could not be opened.");
+  if (end < 0) throw new Error(t("imp.badSheet"));
   const count = v.getUint16(end + 10, true);
   let p = v.getUint32(end + 16, true);
   const texts: string[] = [];

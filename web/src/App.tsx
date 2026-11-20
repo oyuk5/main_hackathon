@@ -12,9 +12,10 @@ import { Picker } from "./Picker";
 import { Select } from "./Select";
 import { Strip } from "./Strip";
 import { ThemeSwitch } from "./Theme";
+import { LangProvider, LangSwitch, getLang, t, tx, useT, type Key } from "./i18n";
 import { StatusIcon, stateToIconKind } from "./StatusIcon";
 import {
-  CHARACTER, STATE_ORDER, countryOf, host, int, plural, usd, useNow, usePoll, when,
+  CHARACTER, STATE_ORDER, countryOf, host, int, usd, useNow, usePoll, when,
   type LedgerRow, type PortalRow, type State,
 } from "./lib";
 
@@ -51,6 +52,11 @@ function useRoute() {
 }
 
 export function App({ operator }: { operator?: ReactNode }) {
+  return <LangProvider><Dashboard operator={operator} /></LangProvider>;
+}
+
+function Dashboard({ operator }: { operator?: ReactNode }) {
+  useT();
   const { data, failing, reload } = usePoll<PortalRow[]>("/internal/overview");
   const { data: ledger } = usePoll<LedgerRow[]>("/internal/ledger", 10_000);
   const now = useNow(15_000);
@@ -94,12 +100,12 @@ export function App({ operator }: { operator?: ReactNode }) {
       {/* Pinned over the page, so it never pushes the layout down and leaves no gap when the API is fine. */}
       {failing && (
         <p role="alert" className="fixed bottom-4 left-1/2 z-40 w-[min(560px,calc(100%-32px))] -translate-x-1/2 rounded-[6px] border border-failed/40 bg-paper px-4 py-2.5 text-center text-[13px] text-failed shadow-[0_8px_24px_rgb(0_0_0/0.18)]">
-          The Watchtower API is not answering. {data ? "Showing the last successful update; retrying every 3 seconds." : "Retrying every 3 seconds."}
+          {t("api.down")} {data ? t("api.downStale") : t("api.downRetry")}
         </p>
       )}
       {data === null ? (
         failing ? <main className="mx-auto max-w-[1440px] min-[1800px]:max-w-[1680px] px-4 py-5 sm:px-6">
-          <button type="button" onClick={() => void reload()} className="rounded-[4px] border border-hairline bg-paper px-3 py-2 font-semibold text-docker">Try again</button>
+          <button type="button" onClick={() => void reload()} className="rounded-[4px] border border-hairline bg-paper px-3 py-2 font-semibold text-docker">{t("app.tryAgain")}</button>
         </main> : <DashboardSkeleton />
       ) : (
         <main className="mx-auto max-w-[1440px] min-[1800px]:max-w-[1680px] px-4 pt-5 pb-16 sm:px-6">
@@ -128,9 +134,9 @@ export function App({ operator }: { operator?: ReactNode }) {
 
           {all.length > 0 && rows.length === 0 ? (
             <p className="mt-4 rounded-[6px] border border-dashed border-hairline bg-paper px-5 py-10 text-center text-[13.5px] text-slate">
-              No portal is selected.{" "}
+              {t("app.noneSelected")}{" "}
               <button type="button" onClick={() => setPicked(null)} className="font-semibold text-docker hover:underline">
-                Show all portals
+                {t("app.showAll")}
               </button>
             </p>
           ) : tab === "issues" && rows.length > 0 ? (
@@ -166,7 +172,7 @@ export function App({ operator }: { operator?: ReactNode }) {
                   <Cost rows={ledger ?? []} portals={rows.length} />
                   <section aria-labelledby="where" className="rounded-[6px] border border-hairline bg-paper p-3.5">
                     <div className="mb-2 flex h-5 items-baseline justify-between gap-2 overflow-hidden">
-                      <h2 id="where" className="shrink-0 whitespace-nowrap text-[13px] font-semibold text-ink">Where they are</h2>
+                      <h2 id="where" className="shrink-0 whitespace-nowrap text-[13px] font-semibold text-ink">{t("app.where")}</h2>
                       <HoverNote rows={rows} hover={hover} />
                     </div>
                     <Chart rows={rows} hover={hover} setHover={setHover} compact />
@@ -192,7 +198,7 @@ export function App({ operator }: { operator?: ReactNode }) {
 function DashboardSkeleton() {
   return (
     <main className="mx-auto max-w-[1440px] min-[1800px]:max-w-[1680px] px-4 pt-5 sm:px-6">
-      <div role="status" aria-label="Loading dashboard">
+      <div role="status" aria-label={t("app.loading")}>
         <div aria-hidden="true">
           <div className="space-y-3 rounded-[6px] border border-hairline bg-paper px-5 py-4">
             <div className="h-6 w-48 max-w-full rounded-sm bg-mist" />
@@ -222,6 +228,7 @@ function Header({ onAdded, operator }: { onAdded: () => void; operator?: ReactNo
   const [note, setNote] = useState<{ ok: boolean; text: string } | null>(null);
   const [sending, setSending] = useState(false);
   const [importing, setImporting] = useState(false);
+  const { lang } = useT();
 
   const add = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -234,15 +241,15 @@ function Header({ onAdded, operator }: { onAdded: () => void; operator?: ReactNo
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ url: value }),
       });
-      if (res.status === 400) return setNote({ ok: false, text: "That is not a web address. Start with https://." });
+      if (res.status === 400) return setNote({ ok: false, text: t("header.notUrl") });
       if (!res.ok) throw new Error(String(res.status));
       const { id } = (await res.json()) as { id: string };
       setUrl("");
-      setNote({ ok: true, text: `${host(value)} is now watched. Attaching starts now.` });
+      setNote({ ok: true, text: t("header.added", { host: host(value) }) });
       onAdded();
       window.location.hash = `#/p/${encodeURIComponent(id)}`;
     } catch {
-      setNote({ ok: false, text: "The portal was not added: the API did not answer." });
+      setNote({ ok: false, text: t("header.notAdded") });
     } finally {
       setSending(false);
     }
@@ -259,14 +266,16 @@ function Header({ onAdded, operator }: { onAdded: () => void; operator?: ReactNo
             <path d="M7 7.6h8M8.6 7.6 7.4 20M13.4 7.6 14.6 20M5.5 20h11M8.1 12.6h5.8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
           <span className="font-display text-[18px] font-bold tracking-tight text-ink">Watchtower</span>
-          <span className="hidden text-[13px] text-slate md:inline">keeps tender portals delivering</span>
+          <span className="hidden text-[13px] text-slate md:inline">{t("header.tagline")}</span>
         </a>
         <div className="order-2 ml-auto flex items-center gap-2 sm:order-3 sm:ml-0">
+          <LangSwitch />
           <ThemeSwitch />
           {operator}
         </div>
-        <form onSubmit={add} className="order-3 flex w-full gap-2 sm:order-2 sm:ml-auto sm:w-auto">
-          <label htmlFor="portal-url" className="sr-only">Portal address</label>
+        {/* German button labels are longer: on a phone the address gets its own row. */}
+        <form onSubmit={add} className={`order-3 flex w-full gap-2 sm:order-2 sm:ml-auto sm:w-auto ${lang === "de" ? "max-sm:flex-wrap" : ""}`}>
+          <label htmlFor="portal-url" className="sr-only">{t("header.address")}</label>
           <input
             id="portal-url"
             type="url"
@@ -275,21 +284,21 @@ function Header({ onAdded, operator }: { onAdded: () => void; operator?: ReactNo
             value={url}
             onChange={(e) => (setUrl(e.target.value), setNote(null))}
             placeholder="https://portal-address"
-            className="h-8 min-w-0 flex-1 rounded-[4px] border border-hairline bg-sea px-3 text-[13px] text-ink placeholder:text-faint focus:border-docker focus:bg-paper sm:w-[290px]"
+            className={`h-8 min-w-0 flex-1 rounded-[4px] border border-hairline bg-sea px-3 text-[13px] text-ink placeholder:text-faint focus:border-docker focus:bg-paper sm:w-[290px] ${lang === "de" ? "max-sm:basis-full" : ""}`}
           />
           <button
             disabled={sending}
             className="h-8 shrink-0 rounded-[4px] bg-docker-solid px-3.5 text-[13px] font-semibold text-white transition-colors hover:bg-docker-hover disabled:opacity-60 cursor-pointer"
           >
-            {sending ? "Adding…" : "Watch portal"}
+            {sending ? t("header.adding") : t("header.watch")}
           </button>
           <button
             type="button"
             onClick={() => setImporting(true)}
-            title="Add many portals from an Excel, CSV, JSON or text file"
+            title={t("header.importTitle")}
             className="h-8 shrink-0 cursor-pointer rounded-[4px] border border-hairline bg-sea px-3 text-[13px] font-semibold text-ink transition-colors hover:border-docker"
           >
-            Import list
+            {t("header.import")}
           </button>
         </form>
         {importing && <ImportDialog onClose={() => setImporting(false)} onAdded={onAdded} />}
@@ -306,13 +315,13 @@ function Header({ onAdded, operator }: { onAdded: () => void; operator?: ReactNo
 function Tabs({ tab, rows, now, picker }: { tab: Tab; rows: PortalRow[]; now: number; picker: React.ReactNode }) {
   const open = openIssues(rows, now);
   const tabs: { id: Tab; href: string; label: string; count?: number; alert?: boolean }[] = [
-    { id: "portals", href: "#/", label: "Portals", count: rows.length },
-    { id: "issues", href: "#/issues", label: "Issues", count: open, alert: rows.some((r) => r.state === "failed") },
-    { id: "log", href: "#/log", label: "Log" },
+    { id: "portals", href: "#/", label: t("tabs.portals"), count: rows.length },
+    { id: "issues", href: "#/issues", label: t("tabs.issues"), count: open, alert: rows.some((r) => r.state === "failed") },
+    { id: "log", href: "#/log", label: t("tabs.log") },
   ];
   return (
     <div className="mt-5 flex flex-wrap items-end gap-x-4 gap-y-2 border-b border-hairline max-sm:flex-col-reverse max-sm:items-stretch">
-      <nav role="tablist" aria-label="Views" className="flex gap-6 sm:gap-7">
+      <nav role="tablist" aria-label={t("tabs.views")} className="flex gap-6 sm:gap-7">
         {tabs.map((t) => (
           <a
             key={t.id}
@@ -346,7 +355,7 @@ function Tabs({ tab, rows, now, picker }: { tab: Tab; rows: PortalRow[]; now: nu
 function HoverNote({ rows, hover }: { rows: PortalRow[]; hover: string | null }) {
   const p = rows.find((r) => r.id === hover);
   const countries = new Set(rows.map(countryOf).filter(Boolean)).size;
-  if (!p) return <span className="truncate text-[12px] text-slate">{plural(countries, "country", "countries")}</span>;
+  if (!p) return <span className="truncate text-[12px] text-slate">{t("app.countries", { n: countries })}</span>;
   return <span className="min-w-0 truncate text-[12px] font-semibold text-ink">{host(p.url)}</span>;
 }
 
@@ -376,9 +385,9 @@ function SummaryStrip({
   if (total === 0) {
     return (
       <section className="mt-4 rounded-[6px] border border-hairline bg-paper px-5 py-6">
-        <h1 className="text-[18px] font-semibold text-ink">No portals yet</h1>
+        <h1 className="text-[18px] font-semibold text-ink">{t("sum.empty")}</h1>
         <p className="mt-1 max-w-[62ch] text-[13.5px] text-slate">
-          Add a portal address above. Watchtower learns how to read it, delivers its open tenders and documents, and repairs itself when a portal changes.
+          {t("sum.emptyBody")}
         </p>
       </section>
     );
@@ -394,26 +403,28 @@ function SummaryStrip({
   const problems = runs.filter((x) => x.kind === "read" && x.result === "failed").length;
   const repaired = runs.filter((x) => x.kind === "repair" && x.result === "ok").length;
   const handed = runs.filter((x) => x.kind === "repair" && x.result === "failed").length;
-  const headline = failedCount === 0 ? "Nothing needs a person" : `${plural(failedCount, "portal")} ${failedCount === 1 ? "needs" : "need"} a person`;
-  const refreshed = new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }).format(now);
+  const headline = failedCount === 0 ? t("sum.ok") : t("sum.bad", { n: failedCount });
+  const refreshed = new Intl.DateTimeFormat(getLang() === "de" ? "de-DE" : undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }).format(now);
 
   // One statement, then the four states as filters. The counts appear once, not in a second row of tiles.
   return (
-    <section aria-label="Summary" className="flex flex-col gap-4 rounded-[6px] border border-hairline bg-paper px-5 py-4 xl:flex-row xl:items-center xl:gap-8">
+    <section aria-label={t("sum.label")} className="flex flex-col gap-4 rounded-[6px] border border-hairline bg-paper px-5 py-4 xl:flex-row xl:items-center xl:gap-8">
       <div className="min-w-0 flex-1">
         <h1 className={`font-display text-[26px] leading-tight font-bold tracking-tight ${failedCount > 0 ? "text-failed" : "text-calm"}`}>{headline}</h1>
         <p className="mt-1 flex flex-wrap items-center gap-x-1 text-[13.5px] text-slate">
           <span>
-            <span className="num font-semibold text-ink">{int(open)}</span> open tenders delivered from{" "}
-            <span className="num font-semibold text-ink">{servingCount}</span> of {plural(rows.length, "portal")}.
+            {tx("sum.delivered", { o: open, t: rows.length }, {
+              open: <span className="num font-semibold text-ink">{int(open)}</span>,
+              serving: <span className="num font-semibold text-ink">{int(servingCount)}</span>,
+            })}
           </span>
           <span className="inline-flex items-center gap-1">
-            Checked <span className="num">{refreshed}</span>
+            {tx("sum.checked", {}, { time: <span className="num">{refreshed}</span> })}
             <button
               type="button"
               onClick={onReload}
-              title="Check again now"
-              aria-label="Check again now"
+              title={t("sum.checkAgain")}
+              aria-label={t("sum.checkAgain")}
               className="rounded-[4px] p-1 text-docker hover:bg-mist cursor-pointer"
             >
               <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -425,20 +436,17 @@ function SummaryStrip({
         </p>
         {runs.length > 0 && (
           <p className="mt-1 text-[13.5px] text-slate">
-            Last 24 hours: <span className="num font-semibold text-ink">{int(reads)}</span> reads,{" "}
-            <span className={`num font-semibold ${problems ? "text-failed" : "text-ink"}`}>{problems}</span> {problems === 1 ? "problem" : "problems"} found,{" "}
-            <span className={`num font-semibold ${repaired ? "text-serving" : "text-ink"}`}>{repaired}</span> repaired by itself
-            {handed > 0 && (
-              <>
-                , <span className="num font-semibold text-ink">{handed}</span> handed to a person
-              </>
-            )}
-            .
+            {tx("sum.day", { r: reads, p: problems, h: handed }, {
+              reads: <span className="num font-semibold text-ink">{int(reads)}</span>,
+              problems: <span className={`num font-semibold ${problems ? "text-failed" : "text-ink"}`}>{int(problems)}</span>,
+              repaired: <span className={`num font-semibold ${repaired ? "text-serving" : "text-ink"}`}>{int(repaired)}</span>,
+              handed: <span className="num font-semibold text-ink">{int(handed)}</span>,
+            })}
           </p>
         )}
         {failedCount > 0 && (
           <p className="mt-1.5 text-[13.5px] text-slate">
-              Needs you:{" "}
+              {t("sum.needsYou")}{" "}
               {rows
                 .filter((r) => r.state === "failed")
                 .slice(0, 3)
@@ -450,12 +458,12 @@ function SummaryStrip({
                     {i < shown.length - 1 ? ", " : ""}
                   </Fragment>
                 ))}
-              {failedCount > 3 ? ` and ${failedCount - 3} more.` : "."}
+              {failedCount > 3 ? t("sum.more", { n: failedCount - 3 }) : "."}
           </p>
         )}
       </div>
 
-      <div role="group" aria-label="Show only portals that are" className="flex flex-wrap gap-2 xl:shrink-0 xl:flex-nowrap">
+      <div role="group" aria-label={t("sum.filterGroup")} className="flex flex-wrap gap-2 xl:shrink-0 xl:flex-nowrap">
         {ORDER.map((s) => {
           const n = rows.filter((r) => r.state === s).length;
           const active = picked === s;
@@ -466,7 +474,7 @@ function SummaryStrip({
               onClick={() => onPick(s)}
               aria-pressed={active}
               disabled={n === 0 && !active}
-              title={active ? "Show all portals" : `Show only: ${CHARACTER[s].words}`}
+              title={active ? t("app.showAll") : t("sum.showOnly", { w: CHARACTER[s].words })}
               className={`flex h-10 items-center gap-2.5 rounded-[6px] border px-3.5 text-left transition-colors cursor-pointer disabled:cursor-default disabled:opacity-45 ${
                 active ? "border-docker bg-docker/10" : "border-hairline hover:border-slate/40 hover:bg-mist disabled:hover:bg-transparent"
               }`}
@@ -492,13 +500,16 @@ interface View {
   desc: boolean;
 }
 
-/** What each sort shows first, in its natural and its reversed direction. */
-const SORT_WORDS: Record<SortKey, [string, string]> = {
-  urgent: ["Most urgent first", "Least urgent first"],
-  stale: ["Longest without delivery", "Most recently delivered"],
-  tenders: ["Most open tenders", "Fewest open tenders"],
-  name: ["Name A–Z", "Name Z–A"],
+/** What each sort shows first, in its natural and its reversed direction, in the current language. */
+const SORT_WORDS: Record<SortKey, readonly [string, string]> = {
+  get urgent() { return sortWords("urgent"); },
+  get stale() { return sortWords("stale"); },
+  get tenders() { return sortWords("tenders"); },
+  get name() { return sortWords("name"); },
 };
+function sortWords(k: SortKey) {
+  return [t(`sort.${k}.0` as Key), t(`sort.${k}.1` as Key)] as const;
+}
 
 /** A serving portal with no delivery for this long is late: reads normally run every 30 minutes. */
 const STALE_MS = 2 * 60 * 60 * 1000;
@@ -632,7 +643,7 @@ function Portals({
   };
 
   return (
-    <section aria-label="Portals" className="min-w-0">
+    <section aria-label={t("table.label")} className="min-w-0">
       {/* Docker Search & Action Bar */}
       <div className="mb-3 flex flex-wrap items-center gap-2.5">
         <div className="relative basis-full sm:basis-auto sm:w-[290px]">
@@ -649,7 +660,7 @@ function Portals({
             <circle cx="7" cy="7" r="4.8" />
             <path d="m10.6 10.6 3.2 3.2" strokeLinecap="round" />
           </svg>
-          <label htmlFor="portal-find" className="sr-only">Search portals</label>
+          <label htmlFor="portal-find" className="sr-only">{t("table.search")}</label>
           {!query && (
             <kbd aria-hidden="true" className="pointer-events-none absolute top-1/2 right-2.5 -translate-y-1/2 rounded-[3px] border border-hairline px-1.5 text-[11px] leading-[18px] text-faint">/</kbd>
           )}
@@ -658,7 +669,7 @@ function Portals({
             type="search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search portals and reasons"
+            placeholder={t("table.searchPlaceholder")}
             className="h-9 w-full rounded-[4px] border border-hairline bg-paper pr-8 pl-9 text-[13.5px] text-ink placeholder:text-faint focus:border-docker"
           />
         </div>
@@ -668,8 +679,8 @@ function Portals({
           type="button"
           onClick={() => setShowFilterBar((v) => !v)}
           aria-expanded={showFilterBar}
-          aria-label="Filter by state"
-          title="Filter by state"
+          aria-label={t("table.filter")}
+          title={t("table.filter")}
           className={`inline-flex h-9 w-9 items-center justify-center rounded-[4px] border transition-colors cursor-pointer ${
             showFilterBar || view.state !== "all"
               ? "border-docker bg-docker/15 text-docker"
@@ -686,8 +697,8 @@ function Portals({
           type="button"
           onClick={() => setShowSide(!showSide)}
           aria-pressed={showSide}
-          aria-label={showSide ? "Hide map and cost panel" : "Show map and cost panel"}
-          title={showSide ? "Hide map & cost panel" : "Show map & cost panel"}
+          aria-label={showSide ? t("table.hideSide") : t("table.showSide")}
+          title={showSide ? t("table.hideSide") : t("table.showSide")}
           className={`inline-flex h-9 w-9 items-center justify-center rounded-[4px] border transition-colors cursor-pointer ${
             showSide ? "border-docker/40 bg-docker/10 text-docker" : "border-transparent text-docker hover:bg-mist"
           }`}
@@ -699,7 +710,8 @@ function Portals({
         </button>
 
         <Select<SortKey>
-          label="Sort"
+          label={t("sort.label")}
+          hideLabelOnPhone={getLang() === "de"}
           value={view.sort}
           onChange={(sort) => setView({ ...view, sort, desc: false })}
           options={(Object.keys(SORT_WORDS) as SortKey[]).map((k) => ({ value: k, label: SORT_WORDS[k][k === view.sort && view.desc ? 1 : 0] }))}
@@ -707,8 +719,8 @@ function Portals({
         <button
           type="button"
           onClick={() => setView({ ...view, desc: !view.desc })}
-          title={`Reverse: ${SORT_WORDS[view.sort][view.desc ? 0 : 1]}`}
-          aria-label={`Reverse the order. Now: ${SORT_WORDS[view.sort][view.desc ? 1 : 0]}`}
+          title={t("table.reverseTitle", { w: SORT_WORDS[view.sort][view.desc ? 0 : 1] })}
+          aria-label={t("table.reverseAria", { w: SORT_WORDS[view.sort][view.desc ? 1 : 0] })}
           className="-ml-1 inline-flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-[4px] border border-hairline text-slate transition-colors hover:border-docker hover:text-docker"
         >
           <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -718,7 +730,7 @@ function Portals({
         </button>
 
         {(showFilterBar || view.state !== "all") && (
-          <div role="group" aria-label="Show portals that are" className="flex flex-wrap items-center gap-1 sm:ml-2">
+          <div role="group" aria-label={t("table.chipGroup")} className="flex flex-wrap items-center gap-1 sm:ml-2">
             {chips.map((s) => {
               const n = s === "all" ? all.length : all.filter((r) => r.state === s).length;
               if (s !== "all" && n === 0) return null;
@@ -736,7 +748,7 @@ function Portals({
                   }`}
                 >
                   {s !== "all" && <StatusIcon kind={stateToIconKind(s)} size={10} />}
-                  {s === "all" ? "All" : CHARACTER[s].words}
+                  {s === "all" ? t("table.all") : CHARACTER[s].words}
                   <span className="num text-faint">{n}</span>
                 </button>
               );
@@ -749,7 +761,7 @@ function Portals({
       <div className="relative overflow-x-auto rounded-[6px] border border-hairline bg-paper">
         {rows.length === 0 ? (
           <div className="px-5 py-10 text-center text-[13.5px] text-slate">
-            No portal matches.{" "}
+            {t("table.noMatch")}{" "}
             <button
               type="button"
               onClick={() => {
@@ -758,7 +770,7 @@ function Portals({
               }}
               className="font-semibold text-docker hover:underline cursor-pointer"
             >
-              Clear the filters
+              {t("table.clear")}
             </button>
           </div>
         ) : (
@@ -769,8 +781,8 @@ function Portals({
                   <button
                     type="button"
                     onClick={() => sortBy("urgent")}
-                    title={view.sort === "urgent" ? `${SORT_WORDS.urgent[view.desc ? 1 : 0]}. Click to reverse.` : "Most urgent first"}
-                    aria-label="Sort by urgency"
+                    title={view.sort === "urgent" ? t("table.clickReverse", { w: SORT_WORDS.urgent[view.desc ? 1 : 0] }) : SORT_WORDS.urgent[0]}
+                    aria-label={t("table.byUrgency")}
                     className={`inline-flex items-center hover:text-docker cursor-pointer ${view.sort === "urgent" ? "text-docker" : "text-faint"}`}
                   >
                     <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><circle cx="6" cy="6" r="4" fill="currentColor" /></svg>
@@ -782,12 +794,12 @@ function Portals({
                     onClick={() => sortBy("name")}
                     className="inline-flex items-center hover:text-docker cursor-pointer"
                   >
-                    Portal
+                    {t("table.portal")}
                     <SortArrow active={view.sort === "name"} desc={view.desc} />
                   </button>
                 </th>
                 <th scope="col" className="hidden border-r border-hairline px-3 py-2.5 whitespace-nowrap lg:table-cell">
-                  What Watchtower says
+                  {t("table.says")}
                 </th>
                 <th scope="col" className="border-r border-hairline px-3 py-2.5 text-right whitespace-nowrap">
                   <button
@@ -795,7 +807,7 @@ function Portals({
                     onClick={() => sortBy("tenders")}
                     className="inline-flex items-center hover:text-docker cursor-pointer"
                   >
-                    Tenders
+                    {t("table.tenders")}
                     <SortArrow active={view.sort === "tenders"} desc={view.desc} />
                   </button>
                 </th>
@@ -805,12 +817,12 @@ function Portals({
                     onClick={() => sortBy("stale")}
                     className="inline-flex items-center hover:text-docker cursor-pointer"
                   >
-                    Last delivered
+                    {t("table.lastDelivered")}
                     <SortArrow active={view.sort === "stale"} desc={view.desc} />
                   </button>
                 </th>
 
-                <th scope="col" className="hidden px-3 py-2.5 sm:table-cell"><span className="sr-only">Actions</span></th>
+                <th scope="col" className="hidden px-3 py-2.5 sm:table-cell"><span className="sr-only">{t("table.actions")}</span></th>
               </tr>
             </thead>
             <tbody>
@@ -858,7 +870,7 @@ function Portals({
                       </a>
                       <span className={`mt-0.5 block text-[12.5px] whitespace-nowrap ${view.sort === "urgent" && !r.busy ? "sr-only" : ""} ${r.state === "failed" ? "font-medium text-failed" : r.state === "healing" ? "text-healing-text" : "text-slate"}`}>
                         {view.sort === "urgent" ? "" : CHARACTER[r.state].words}
-                        {r.busy && <span className="text-faint">{view.sort === "urgent" ? "" : ", "}{r.busy.kind === "repair" ? "repairing now" : "reading now"}</span>}
+                        {r.busy && <span className="text-faint">{view.sort === "urgent" ? "" : ", "}{r.busy.kind === "repair" ? t("table.repairingNow") : t("table.readingNow")}</span>}
                       </span>
                       <span className={`mt-1 line-clamp-3 text-[12.5px] leading-snug lg:hidden ${r.state === "serving" ? "text-faint" : "text-slate"}`}>{shortReason(r)}</span>
                     </td>
@@ -866,22 +878,22 @@ function Portals({
                       <span className="line-clamp-2">{shortReason(r)}</span>
                     </td>
                     <td className="num px-3 py-2.5 text-right align-top font-medium text-ink whitespace-nowrap">
-                      {r.tenderCount === 0 && !r.lastSuccessAt ? <span className="text-faint" aria-label="none yet">–</span> : int(r.tenderCount)}
+                      {r.tenderCount === 0 && !r.lastSuccessAt ? <span className="text-faint" aria-label={t("table.noneYet")}>–</span> : int(r.tenderCount)}
                     </td>
                     <td className="hidden px-3 py-2.5 align-top text-[13px] text-slate whitespace-nowrap sm:table-cell">
                       {r.lastSuccessAt ? (
                         r.state === "serving" && now - Date.parse(r.lastSuccessAt) > STALE_MS ? (
-                          <span className="font-medium text-healing-text" title="No delivery for over 2 hours, while reads run every 30 minutes">
+                          <span className="font-medium text-healing-text" title={t("table.stale")}>
                             {when(r.lastSuccessAt, now)}
                           </span>
                         ) : (
                           when(r.lastSuccessAt, now)
                         )
                       ) : (
-                        <span className="text-faint">Not yet</span>
+                        <span className="text-faint">{t("table.notYet")}</span>
                       )}
                       {(r.recent ?? []).length > 0 && (
-                        <span className="mt-1 block w-[132px]" title="Every read and repair in the last 24 hours. Tall marks are repairs; red marks are problems.">
+                        <span className="mt-1 block w-[132px]" title={t("table.strip")}>
                           <Strip runs={r.recent ?? []} now={now} compact />
                         </span>
                       )}
@@ -891,10 +903,10 @@ function Portals({
                         type="button"
                         onClick={(e) => void triggerRefresh(e, r.id)}
                         disabled={isBusy}
-                        aria-label={`Read ${host(r.url)} now`}
+                        aria-label={t("table.readAria", { host: host(r.url) })}
                         className={`h-7 rounded-[4px] border border-hairline px-2.5 text-[12.5px] font-medium whitespace-nowrap text-ink transition-opacity ${isBusy ? "" : "md:opacity-0 md:group-hover:opacity-100 md:focus-visible:opacity-100"} hover:border-docker hover:text-docker disabled:border-transparent disabled:text-faint cursor-pointer disabled:cursor-default`}
                       >
-                        {isBusy ? "Running" : "Read now"}
+                        {isBusy ? t("table.running") : t("table.readNow")}
                       </button>
                     </td>
                   </tr>
@@ -906,11 +918,11 @@ function Portals({
         )}
       </div>
       {lastPage > 0 && (
-        <nav aria-label="Portal table pages" className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[13px]">
-          <span className="num text-slate" role="status">{int(offset + 1)}–{int(offset + visible.length)} of {int(rows.length)} portals</span>
+        <nav aria-label={t("table.pages")} className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[13px]">
+          <span className="num text-slate" role="status">{t("table.range", { a: offset + 1, b: offset + visible.length, n: rows.length })}</span>
           <div className="flex gap-2">
-            <button type="button" disabled={page === 0} onClick={() => setPaging({ key: pageKey, index: page - 1 })} className="rounded-[4px] border border-hairline bg-paper px-2 py-1 text-docker disabled:text-faint">Previous page</button>
-            <button type="button" disabled={page === lastPage} onClick={() => setPaging({ key: pageKey, index: page + 1 })} className="rounded-[4px] border border-hairline bg-paper px-2 py-1 text-docker disabled:text-faint">Next page</button>
+            <button type="button" disabled={page === 0} onClick={() => setPaging({ key: pageKey, index: page - 1 })} className="rounded-[4px] border border-hairline bg-paper px-2 py-1 text-docker disabled:text-faint">{t("table.prev")}</button>
+            <button type="button" disabled={page === lastPage} onClick={() => setPaging({ key: pageKey, index: page + 1 })} className="rounded-[4px] border border-hairline bg-paper px-2 py-1 text-docker disabled:text-faint">{t("table.next")}</button>
           </div>
         </nav>
       )}
@@ -939,17 +951,17 @@ function Cost({ rows, portals }: { rows: LedgerRow[]; portals: number }) {
 
   return (
     <section aria-labelledby="cost" className="rounded-[6px] border border-hairline bg-paper p-3.5">
-      <h2 id="cost" className="text-[13px] font-semibold text-ink">Model usage so far</h2>
+      <h2 id="cost" className="text-[13px] font-semibold text-ink">{t("cost.title")}</h2>
       <p className="num font-display mt-1 text-[24px] font-bold text-ink">{usd(total)}</p>
-      <p className="mt-0.5 text-[12.5px] text-slate">Regular reads call no model and cost $0.</p>
+      <p className="mt-0.5 text-[12.5px] text-slate">{t("cost.note")}</p>
       {total > 0 && (
         <dl className="mt-3 grid grid-cols-2 gap-2 border-t border-hairline pt-2.5 text-[12.5px]">
           <div>
-            <dt className="text-slate">Attaching</dt>
+            <dt className="text-slate">{t("cost.attach")}</dt>
             <dd className="num font-semibold text-ink">{usd(attach?.cost_usd ?? 0)}</dd>
           </div>
           <div>
-            <dt className="text-slate">Repairs</dt>
+            <dt className="text-slate">{t("cost.repair")}</dt>
             <dd className="num font-semibold text-ink">{usd((repair?.cost_usd ?? 0) + other)}</dd>
           </div>
         </dl>

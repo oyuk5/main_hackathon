@@ -4,6 +4,8 @@
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ACCEPT, keyOf, unique, urlsInFile, urlsInText, type FoundUrl } from "./importUrls";
+import { t, useT } from "./i18n";
+import { usd } from "./lib";
 
 /** Measured by the lab eval: a new portal on unknown software costs about this to attach. */
 const ATTACH_USD = 0.04;
@@ -27,6 +29,7 @@ export function ImportDialog({ onClose, onAdded }: { onClose: () => void; onAdde
   const box = useRef<HTMLDivElement>(null);
   const file = useRef<HTMLInputElement>(null);
   const adding = progress !== null && progress.done < progress.total;
+  useT();
 
   useEffect(() => {
     box.current?.focus();
@@ -37,7 +40,7 @@ export function ImportDialog({ onClose, onAdded }: { onClose: () => void; onAdde
 
   const review = async (found: FoundUrl[]) => {
     const list = unique(found);
-    if (!list.length) return setError("No web addresses found. The file needs addresses starting with https://, http:// or www.");
+    if (!list.length) return setError(t("imp.noUrls"));
     const watched = new Set<string>();
     const res = await fetch("/portals").catch(() => null);
     if (res?.ok) for (const p of (await res.json()) as Array<{ url: string }>) watched.add(keyOf(p.url));
@@ -51,7 +54,7 @@ export function ImportDialog({ onClose, onAdded }: { onClose: () => void; onAdde
       const found = (await Promise.all([...files].map(urlsInFile))).flat();
       await review(found);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "The file could not be read.");
+      setError(e instanceof Error ? e.message : t("imp.unreadable"));
     } finally {
       setReading(false);
     }
@@ -103,16 +106,16 @@ export function ImportDialog({ onClose, onAdded }: { onClose: () => void; onAdde
         className="w-full max-w-[680px] rounded-[6px] border border-hairline bg-paper p-5 text-ink shadow-xl outline-none"
       >
         <div className="flex items-baseline justify-between gap-4">
-          <h2 id="import-title" className="font-display text-[19px] font-bold tracking-tight">Add portals from a list</h2>
+          <h2 id="import-title" className="font-display text-[19px] font-bold tracking-tight">{t("imp.title")}</h2>
           <button onClick={onClose} disabled={adding} className="cursor-pointer text-[13px] text-slate hover:text-ink disabled:opacity-40">
-            Close
+            {t("imp.close")}
           </button>
         </div>
 
         {!rows && (
           <>
             <p className="mt-1 text-[13px] text-slate">
-              Excel (.xlsx, .xls), OpenDocument (.ods), CSV, JSON, XML, HTML, Word or plain text. Every web address in the file is found; you choose which to watch before anything is added.
+              {t("imp.intro")}
             </p>
             <div
               onDragOver={(e) => (e.preventDefault(), setDrag(true))}
@@ -120,18 +123,18 @@ export function ImportDialog({ onClose, onAdded }: { onClose: () => void; onAdde
               onDrop={(e) => (e.preventDefault(), setDrag(false), void readFiles(e.dataTransfer.files))}
               className={`mt-4 flex flex-col items-center justify-center gap-2 rounded-[6px] border-2 border-dashed px-4 py-8 text-center ${drag ? "border-docker bg-sea" : "border-hairline"}`}
             >
-              <p className="text-[14px] font-semibold">{reading ? "Reading…" : "Drop files here"}</p>
+              <p className="text-[14px] font-semibold">{reading ? t("imp.reading") : t("imp.drop")}</p>
               <button
                 type="button"
                 onClick={() => file.current?.click()}
                 className="h-8 cursor-pointer rounded-[4px] border border-hairline bg-sea px-3 text-[13px] font-semibold hover:border-docker"
               >
-                Choose files
+                {t("imp.choose")}
               </button>
               <input ref={file} type="file" multiple accept={ACCEPT} className="hidden" onChange={(e) => e.target.files && void readFiles(e.target.files)} />
             </div>
             <label htmlFor="import-paste" className="mt-4 block text-[13px] font-semibold">
-              Or paste addresses
+              {t("imp.paste")}
             </label>
             <textarea
               id="import-paste"
@@ -147,7 +150,7 @@ export function ImportDialog({ onClose, onAdded }: { onClose: () => void; onAdde
                 onClick={() => void review(urlsInText(paste, "pasted text"))}
                 className="h-8 cursor-pointer rounded-[4px] bg-docker-solid px-3.5 text-[13px] font-semibold text-white hover:bg-docker-hover disabled:cursor-default disabled:opacity-50"
               >
-                Find addresses
+                {t("imp.find")}
               </button>
             </div>
           </>
@@ -158,21 +161,20 @@ export function ImportDialog({ onClose, onAdded }: { onClose: () => void; onAdde
         {rows && counts && (
           <>
             <p className="mt-1 text-[13px] text-slate">
-              Found {rows.length} {rows.length === 1 ? "address" : "addresses"} on {sites} {sites === 1 ? "site" : "sites"}
-              {rows.some((r) => r.watched) && `, ${rows.filter((r) => r.watched).length} already watched`}.
+              {t("imp.found", { n: rows.length, s: sites, w: rows.filter((r) => r.watched).length })}
             </p>
             {rows.length > sites && (
               <label className="mt-2 flex cursor-pointer items-start gap-2 rounded-[4px] bg-sea px-2.5 py-2 text-[13px]">
                 <input type="checkbox" checked={onePerSite} onChange={(e) => setOnePerSite(e.target.checked)} disabled={!!progress} className="mt-0.5" />
                 <span>
-                  <b>Keep one address per site.</b> <span className="text-slate">If the list holds single tender pages, Watchtower only needs each portal once.</span>
+                  <b>{t("imp.onePerSite")}</b> <span className="text-slate">{t("imp.onePerSiteNote")}</span>
                 </span>
               </label>
             )}
             {!progress && (
               <div className="mt-3 flex gap-3 text-[12.5px]">
-                <button className="cursor-pointer text-docker hover:underline" onClick={() => setPicked(() => true, true)}>Select all</button>
-                <button className="cursor-pointer text-docker hover:underline" onClick={() => setPicked(() => true, false)}>Select none</button>
+                <button className="cursor-pointer text-docker hover:underline" onClick={() => setPicked(() => true, true)}>{t("imp.selectAll")}</button>
+                <button className="cursor-pointer text-docker hover:underline" onClick={() => setPicked(() => true, false)}>{t("imp.selectNone")}</button>
               </div>
             )}
             <ul className="mt-2 max-h-[46vh] divide-y divide-hairline overflow-y-auto rounded-[4px] border border-hairline">
@@ -187,7 +189,7 @@ export function ImportDialog({ onClose, onAdded }: { onClose: () => void; onAdde
                     />
                     <span className="min-w-0 flex-1 truncate" title={r.url}>{r.url.replace(/^https?:\/\//, "")}</span>
                     <span className={`shrink-0 text-[12px] ${r.result === "added" ? "text-serving" : r.result ? "text-failed" : "text-slate"}`}>
-                      {r.watched ? "already watched" : r.result === "added" ? "added" : r.result === "invalid" ? "not a web address" : r.result === "failed" ? "not added" : ""}
+                      {r.watched ? t("imp.already") : r.result === "added" ? t("imp.added") : r.result === "invalid" ? t("imp.invalid") : r.result === "failed" ? t("imp.notAdded") : ""}
                     </span>
                   </label>
                 </li>
@@ -197,12 +199,12 @@ export function ImportDialog({ onClose, onAdded }: { onClose: () => void; onAdde
             {!progress ? (
               <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
                 <button onClick={() => (setRows(null), setOnePerSite(false))} className="cursor-pointer text-[13px] text-slate hover:text-ink">
-                  ← Another file
+                  {t("imp.another")}
                 </button>
                 <div className="flex items-center gap-3">
                   {chosen.length > 0 && (
                     <span className="text-[12.5px] text-slate">
-                      Attaching costs up to ${(chosen.length * ATTACH_USD).toFixed(2)} in model calls; portals on known software cost $0.
+                      {t("imp.cost", { usd: usd(chosen.length * ATTACH_USD, 2) })}
                     </span>
                   )}
                   <button
@@ -210,7 +212,7 @@ export function ImportDialog({ onClose, onAdded }: { onClose: () => void; onAdde
                     onClick={() => void addAll()}
                     className="h-8 shrink-0 cursor-pointer rounded-[4px] bg-docker-solid px-3.5 text-[13px] font-semibold text-white hover:bg-docker-hover disabled:cursor-default disabled:opacity-50"
                   >
-                    Watch {chosen.length} {chosen.length === 1 ? "portal" : "portals"}
+                    {t("imp.watch", { n: chosen.length })}
                   </button>
                 </div>
               </div>
@@ -218,12 +220,12 @@ export function ImportDialog({ onClose, onAdded }: { onClose: () => void; onAdde
               <div className="mt-4 flex items-center justify-between gap-3 text-[13px]" role="status">
                 <span>
                   {adding
-                    ? `Adding ${progress.done} of ${progress.total}…`
-                    : `${counts.added} added${counts.invalid ? `, ${counts.invalid} not web addresses` : ""}${counts.failed ? `, ${counts.failed} not added (the API did not answer)` : ""}. Attaching runs on its own; watch it in the table.`}
+                    ? t("imp.progress", { d: progress.done, t: progress.total })
+                    : t("imp.result", { a: counts.added, i: counts.invalid, f: counts.failed })}
                 </span>
                 {!adding && (
                   <button onClick={onClose} className="h-8 shrink-0 cursor-pointer rounded-[4px] bg-docker-solid px-3.5 font-semibold text-white hover:bg-docker-hover">
-                    Done
+                    {t("imp.done")}
                   </button>
                 )}
               </div>

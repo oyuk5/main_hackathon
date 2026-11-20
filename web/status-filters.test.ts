@@ -15,8 +15,8 @@ test("status cards filter the current dashboard tab without navigating", async (
   t.after(() => browser.close());
   const page = await browser.newPage();
   const statuses = [
-    ["failed", "Needs a person"], ["healing", "Being repaired"],
-    ["integrating", "Being attached"], ["serving", "Serving"],
+    ["failed", "Needs a person", "Eingriff nötig"], ["healing", "Being repaired", "Wird repariert"],
+    ["integrating", "Being attached", "Wird angebunden"], ["serving", "Serving", "Liefert"],
   ] as const;
   const portals = statuses.map(([state]) => ({
     id: state, url: `https://${state}.example`, state, reason: `Status: ${state}`,
@@ -32,23 +32,29 @@ test("status cards filter the current dashboard tab without navigating", async (
   await page.route("**/internal/log*", (route) => route.fulfill({ json: log }));
 
   await page.goto(`${server.resolvedUrls!.local[0]}#/issues`);
-  for (const tab of ["issues", "log"] as const) {
-    await page.locator(`#tab-${tab}`).click();
-    const panel = page.locator(`#panel-${tab}`);
-    await panel.getByText("failed.example", { exact: true }).waitFor();
-    for (const [state, label] of statuses) {
-      const card = page.getByRole("button", { name: `1 ${label}`, exact: true });
-      await card.click();
-      await panel.getByText(`${state}.example`, { exact: true }).waitFor();
-      assert.equal(new URL(page.url()).hash, `#/${tab}`);
-      assert.equal(await card.getAttribute("aria-pressed"), "true");
-      for (const [other] of statuses) {
-        if (other !== state) assert.equal(await panel.getByText(`${other}.example`, { exact: true }).count(), 0);
-      }
-      await card.click();
+  for (const [language, labelIndex] of [["English", 1], ["Deutsch", 2]] as const) {
+    await page.getByRole("button", { name: language, exact: true }).click();
+    for (const tab of ["issues", "log"] as const) {
+      await page.locator(`#tab-${tab}`).click();
+      const panel = page.locator(`#panel-${tab}`);
       await panel.getByText("failed.example", { exact: true }).waitFor();
-      await panel.getByText("healing.example", { exact: true }).waitFor();
-      assert.equal(await card.getAttribute("aria-pressed"), "false");
+      for (const status of statuses) {
+        const [state] = status;
+        const label = status[labelIndex];
+        const card = page.getByRole("button", { name: `1 ${label}`, exact: true });
+        await card.click();
+        await panel.getByText(`${state}.example`, { exact: true }).waitFor();
+        assert.equal(new URL(page.url()).hash, `#/${tab}`);
+        assert.equal(await card.getAttribute("aria-pressed"), "true");
+        if (tab === "issues") await panel.getByRole("heading", { name: label, exact: true }).waitFor();
+        for (const [other] of statuses) {
+          if (other !== state) assert.equal(await panel.getByText(`${other}.example`, { exact: true }).count(), 0);
+        }
+        await card.click();
+        await panel.getByText("failed.example", { exact: true }).waitFor();
+        await panel.getByText("healing.example", { exact: true }).waitFor();
+        assert.equal(await card.getAttribute("aria-pressed"), "false");
+      }
     }
   }
 });

@@ -3,18 +3,19 @@
  * read, every repair. Quiet when nothing happened; a repair stands out because it is taller.
  */
 import { clock, type RecentRun } from "./lib";
+import { t } from "./i18n";
 
 const W = 288; // 12 units per hour
 const H = 26;
 
 function mark(r: RecentRun) {
   if (r.kind === "repair") {
-    if (r.result === null) return { h: 20, cls: "fill-integrating", label: "Repair running" };
-    return r.result === "ok" ? { h: 20, cls: "fill-serving", label: "Repaired" } : { h: 20, cls: "fill-failed", label: "Repair failed" };
+    if (r.result === null) return { h: 20, cls: "fill-integrating", label: t("strip.repairRunning") };
+    return r.result === "ok" ? { h: 20, cls: "fill-serving", label: t("strip.repaired") } : { h: 20, cls: "fill-failed", label: t("strip.repairFailed") };
   }
-  if (r.result === "failed") return { h: 12, cls: "fill-failed", label: "Read failed" };
-  if (r.result === null) return { h: 8, cls: "fill-integrating", label: "Reading" };
-  return { h: 6, cls: "fill-faint", label: "Read passed" };
+  if (r.result === "failed") return { h: 12, cls: "fill-failed", label: t("strip.readFailed") };
+  if (r.result === null) return { h: 8, cls: "fill-integrating", label: t("strip.reading") };
+  return { h: 6, cls: "fill-faint", label: t("strip.readPassed") };
 }
 
 export function Strip({ runs, now, compact = false }: { runs: RecentRun[]; now: number; compact?: boolean }) {
@@ -24,8 +25,8 @@ export function Strip({ runs, now, compact = false }: { runs: RecentRun[]; now: 
   const repairs = visible.filter((r) => r.kind === "repair").length;
   const failed = visible.filter((r) => r.result === "failed").length;
   const label = visible.length
-    ? `Last 24 hours: ${reads} reads, ${repairs} repairs, ${failed} failed.`
-    : "No activity in the last 24 hours.";
+    ? t("strip.label", { r: reads, p: repairs, f: failed })
+    : t("strip.none");
   // Draw quiet marks first so a repair is never hidden under a read.
   const ordered = [...visible].sort((a, b) => mark(a).h - mark(b).h);
 
@@ -41,7 +42,7 @@ export function Strip({ runs, now, compact = false }: { runs: RecentRun[]; now: 
         const m = mark(r);
         return (
           <rect key={i} x={Math.min(W - 2, Math.max(0, x - 1))} y={H - 1 - m.h} width={r.kind === "repair" ? 3 : 2} height={m.h} rx="1" className={m.cls}>
-            <title>{`${m.label} at ${clock(r.startedAt)}`}</title>
+            <title>{t("strip.at", { label: m.label, time: clock(r.startedAt) })}</title>
           </rect>
         );
       })}

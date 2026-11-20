@@ -309,7 +309,7 @@ describe("createMedic", () => {
       llmHandler: async () => ({ recipe: patched, changeNote: "List moved to cards" }),
     });
     const withFiles = { ...makeTender(), documentRefs: [{ url: "https://portal.example/a.pdf", via: "http" as const }] };
-    const reads = [makeOkRead([makeTender()]), makeOkRead([makeTender("X-9")]), makeOkRead([withFiles])];
+    const reads = [makeOkRead([withFiles]), makeOkRead([makeTender("X-9")]), makeOkRead([{ ...withFiles, documentRefs: [...withFiles.documentRefs, { url: "https://portal.example/b.pdf", via: "http" }] }])];
     const golden: GoldenVerificationResult[] = [
       { checked: 1, matched: 1, mismatches: [] },
       { checked: 0, matched: 0, mismatches: [] },
@@ -327,8 +327,25 @@ describe("createMedic", () => {
 
     assert.equal(outcome.kind, "ok");
     assert.equal(llmCalls.length, 3);
-    assert.match(llmCalls[1]!.user, /documents rule found no files for 1 tender/);
+    assert.match(llmCalls[1]!.user, /T-1: 1 of 2 previously delivered files/);
     assert.match(llmCalls[2]!.user, /None of the known \(golden\) tenders/);
+  });
+
+  it("shows the known tender and its linked document page in a minimal repair prompt", async () => {
+    const before = makeRecipe({ documents: { hops: [], files: { css: "a.plik", attr: "href" }, via: "http" } });
+    const { ctx, llmCalls } = makeContext({ llmHandler: async () => ({ recipe: before, changeNote: "Kept the list" }) });
+    const urls: string[] = [];
+    ctx.http.fetch = async (url) => {
+      urls.push(url);
+      const body = url.endsWith("/docs") ? '<a class="pobierz" href="file.zip">Download</a>' : '<table class="dane"></table><a class="zalaczniki-link" href="/docs">Dokumentacja</a>';
+      return new Response(body, { headers: { "content-type": "text/html" } });
+    };
+    const baseline = makeBaseline(1);
+    baseline.golden[0]!.fields.url = "https://portal.example/tender/1";
+    const outcome = await createMedic(makeDeps()).repair({ recipe: before, verdict: makeBrokenVerdict(), baseline }, ctx);
+    assert.equal(outcome.kind, "ok");
+    assert.deepEqual(urls, ["https://portal.example/tender/1", "https://portal.example/docs"]);
+    assert.match(llmCalls[0]!.user, /Known tender detail page[\s\S]*zalaczniki-link[\s\S]*Linked tender documents page[\s\S]*pobierz/);
   });
 
   it("returns ok with 1-sentence summary when first patch passes evaluate and golden check", async () => {
