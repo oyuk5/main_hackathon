@@ -52,8 +52,8 @@
 @layer base {
   :root {
     color-scheme: light dark;
-    /* A soft light source in the top-left corner, barely visible: the page brightens toward it. */
-    --texture: radial-gradient(ellipse 85vmax 70vmax at 0 0, rgb(255 247 236 / 0.7), rgb(255 247 236 / 0) 70%);
+    /* A soft light source at the top middle, barely visible: the page brightens toward it. */
+    --texture: radial-gradient(ellipse 75vmax 55vmax at 50% 0, rgb(255 247 236 / 0.7), rgb(255 247 236 / 0) 70%);
   }
   /* Dark follows the system unless the viewer picked a theme (data-theme on <html>, set by the switch). */
   @media (prefers-color-scheme: dark) {
@@ -89,8 +89,8 @@
       --color-healing-wash: rgba(207, 169, 98, 0.13);
       --color-failed-wash: rgba(217, 139, 122, 0.14);
       --color-integrating-wash: rgba(169, 155, 217, 0.14);
-      /* The same corner light, as a faint powder-blue glow. */
-      --texture: radial-gradient(ellipse 85vmax 70vmax at 0 0, rgb(70 92 150 / 0.2), rgb(70 92 150 / 0) 70%);
+      /* The same top light, as a faint powder-blue glow. */
+      --texture: radial-gradient(ellipse 75vmax 55vmax at 50% 0, rgb(70 92 150 / 0.2), rgb(70 92 150 / 0) 70%);
     }
   }
   :root[data-theme="dark"] {
@@ -123,8 +123,8 @@
     --color-healing-wash: rgba(207, 169, 98, 0.13);
     --color-failed-wash: rgba(217, 139, 122, 0.14);
     --color-integrating-wash: rgba(169, 155, 217, 0.14);
-    /* The same corner light, as a faint powder-blue glow. */
-    --texture: radial-gradient(ellipse 85vmax 70vmax at 0 0, rgb(70 92 150 / 0.2), rgb(70 92 150 / 0) 70%);
+    /* The same top light, as a faint powder-blue glow. */
+    --texture: radial-gradient(ellipse 75vmax 55vmax at 50% 0, rgb(70 92 150 / 0.2), rgb(70 92 150 / 0) 70%);
   }
   :root[data-theme="light"] {
     color-scheme: light;
@@ -139,7 +139,7 @@
   }
   body {
     background-image: var(--texture);
-    /* The light stays in the corner of the window while the page scrolls. */
+    /* The light stays at the top of the window while the page scrolls. */
     background-attachment: fixed;
   }
   body {
