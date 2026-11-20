@@ -1,6 +1,6 @@
 # A · Platform
 
-_Updated: Fri 17:42. Only A and A's agent write here. Keep it under 15 lines and true._
+_Updated: Fri 17:47. Only A and A's agent write here. Keep it under 15 lines and true._
 
 **Done**
 - Docker amd64 passes `test:contract`. Documents: browser `clickPath`, nested ZIPs, cap, login/captcha traps, retry, DELETE stops at once. robots.txt for HTTP and browser. TenderNed real download verified. Big portals served in batches (300 documents per read).

@@ -12,6 +12,8 @@ import { filePath } from "./documents.js";
 import { AddPortalBody, type PortalEntry, type Run } from "../shared/contract.js";
 import { toEpoch } from "../shared/time.js";
 
+const DATE_TIME_WITH_OFFSET = /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])T([01]\d|2[0-3]):[0-5]\d(:[0-5]\d(\.\d+)?)?(Z|[+-]([01]\d|2[0-3]):[0-5]\d)$/;
+
 function entry(p: PortalRow): PortalEntry {
   return {
     id: p.id,
@@ -30,7 +32,9 @@ export async function buildServer() {
 
   app.post("/portals", async (req, reply) => {
     const body = AddPortalBody.safeParse(req.body);
-    if (!body.success) return reply.code(400).send({ error: "Body must be { \"url\": \"https://...\" }" });
+    // zod's url() accepts any scheme (ftp:, javascript:, file:); a portal is a web address.
+    if (!body.success || !/^https?:$/.test(new URL(body.data.url.trim()).protocol))
+      return reply.code(400).send({ error: "Body must be { \"url\": \"https://...\" }" });
     const { id } = orchestrator.addPortal(body.data.url);
     return reply.code(201).send({ id });
   });
@@ -53,14 +57,19 @@ export async function buildServer() {
     return reply.code(202).send({ runId: orchestrator.refresh(req.params.id) });
   });
 
-  app.get<{ Params: { id: string }; Querystring: { changedSince?: string } }>("/portals/:id/tenders", async (req, reply) => {
+  app.get<{ Params: { id: string }; Querystring: { changedSince?: string | string[] } }>("/portals/:id/tenders", async (req, reply) => {
     if (!store.getPortal(req.params.id)) return reply.code(404).send({ error: "Unknown portal" });
     const all = store.listTenders(req.params.id);
+    const raw = req.query.changedSince;
+    const bad = () => reply.code(400).send({ error: "changedSince must be one date-time with offset, e.g. 2026-12-09T10:00:00+01:00" });
+    if (Array.isArray(raw)) return bad();
     // An unencoded "+01:00" arrives as " 01:00" in a query string. Put the plus back.
-    const since = req.query.changedSince?.trim().replace(/ (\d{2}:\d{2})$/, "+$1");
+    const since = raw?.trim().replace(/ (\d{2}:\d{2})$/, "+$1");
     if (!since) return all;
+    // Date.parse alone accepts "1" (year 2001) and times without offset (read as server time).
+    if (!DATE_TIME_WITH_OFFSET.test(since)) return bad();
     const t = toEpoch(since);
-    if (Number.isNaN(t)) return reply.code(400).send({ error: "changedSince must be a date-time with offset" });
+    if (Number.isNaN(t)) return bad();
     return all.filter((x) => toEpoch(x.lastChangedAt) > t);
   });
 
