@@ -20,6 +20,7 @@ export interface PortalRow {
   state: State;
   reason: string;
   tenderCount: number;
+  openCount: number;
   lastSuccessAt: string | null;
   busy: { runId: string; kind: string } | null;
   recipeVersion: number;
@@ -48,7 +49,7 @@ export interface LedgerRow {
 }
 
 export interface PortalDetail {
-  portal: Omit<PortalRow, "busy" | "recipeVersion" | "tier" | "family" | "costUsd" | "recent" | "country">;
+  portal: Omit<PortalRow, "busy" | "recipeVersion" | "tier" | "family" | "costUsd" | "recent" | "country" | "openCount">;
   runs: RunRow[];
   events: { run_id: string | null; at: string; level: string; message: string }[];
   recipes: { version: number; created_at: string; origin: string; note: string; json: unknown }[];

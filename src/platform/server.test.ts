@@ -99,6 +99,19 @@ function seeded(id: string, changes: string[]) {
   });
 }
 
+it("reports open and delivered counts separately only on the internal overview", async () => {
+  const id = "overview-open-count";
+  const at = "2026-11-20T09:00:00+01:00";
+  seeded(id, [at, at, at]);
+  const [closed, withdrawn] = store.listTenders(id);
+  store.upsertTender(id, { ...closed!, status: "closed" }, "closed", "", at);
+  store.upsertTender(id, { ...withdrawn!, status: "withdrawn" }, "withdrawn", "", at);
+  const overview = (await get("/internal/overview")).json().find((row: { id: string }) => row.id === id);
+  assert.equal(overview.tenderCount, 3);
+  assert.equal(overview.openCount, 1);
+  assert.equal((await get(`/portals/${id}`)).json().openCount, undefined);
+});
+
 describe("POST /portals", () => {
   it("rejects a missing, empty or non-URL body with 400", async () => {
     for (const body of [{}, { url: "" }, { url: "not a url" }, { url: 42 }, { address: "https://x.example/" }]) {

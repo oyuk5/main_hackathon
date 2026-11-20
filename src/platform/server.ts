@@ -120,6 +120,7 @@ function registerInternalRoutes(app: FastifyInstance) {
       const cost = store.ledger(p.id).reduce((s, r) => s + (r.cost_usd ?? 0), 0);
       return {
         ...entry(p),
+        openCount: store.countOpenTenders(p.id),
         busy: job ? { runId: job.runId, kind: job.kind } : null,
         recipeVersion: p.recipe_version,
         tier: recipe?.tier ?? null,

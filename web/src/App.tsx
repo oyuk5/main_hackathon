@@ -395,7 +395,7 @@ function SummaryStrip({
 
   const servingCount = rows.filter((r) => r.state === "serving").length;
   const failedCount = rows.filter((r) => r.state === "failed").length;
-  const open = rows.reduce((s, r) => s + (r.state === "serving" || r.state === "healing" ? r.tenderCount : 0), 0);
+  const open = rows.reduce((s, r) => s + r.openCount, 0);
   // What Watchtower did in the last 24 hours, across the shown portals: the "what did it do about it" line.
   const DAY = 24 * 3_600_000;
   const runs = rows.flatMap((r) => (r.recent ?? []).filter((x) => now - Date.parse(x.startedAt) <= DAY));
@@ -517,7 +517,7 @@ const time = (iso: string | null) => (iso ? Date.parse(iso) : -Infinity);
 const SORT: Record<SortKey, (a: PortalRow, b: PortalRow) => number> = {
   urgent: (a, b) => STATE_ORDER[a.state] - STATE_ORDER[b.state] || time(a.lastSuccessAt) - time(b.lastSuccessAt),
   stale: (a, b) => time(a.lastSuccessAt) - time(b.lastSuccessAt),
-  tenders: (a, b) => b.tenderCount - a.tenderCount,
+  tenders: (a, b) => b.openCount - a.openCount,
   name: (a, b) => host(a.url).localeCompare(host(b.url)),
 };
 
@@ -878,7 +878,9 @@ function Portals({
                       <span className="line-clamp-2">{shortReason(r)}</span>
                     </td>
                     <td className="num px-3 py-2.5 text-right align-top font-medium text-ink whitespace-nowrap">
-                      {r.tenderCount === 0 && !r.lastSuccessAt ? <span className="text-faint" aria-label={t("table.noneYet")}>–</span> : int(r.tenderCount)}
+                      {r.tenderCount === 0 && !r.lastSuccessAt ? <span className="text-faint" aria-label={t("table.noneYet")}>–</span> : r.tenderCount === r.openCount ? int(r.openCount) : (
+                        <span className="whitespace-normal">{t("table.deliveredOpen", { delivered: r.tenderCount, open: r.openCount })}</span>
+                      )}
                     </td>
                     <td className="hidden px-3 py-2.5 align-top text-[13px] text-slate whitespace-nowrap sm:table-cell">
                       {r.lastSuccessAt ? (

@@ -199,6 +199,9 @@ export const store = {
   countTenders(portalId: string): number {
     return Number((db.prepare("SELECT COUNT(*) AS n FROM tenders WHERE portal_id = ?").get(portalId) as { n: number }).n);
   },
+  countOpenTenders(portalId: string): number {
+    return Number((db.prepare("SELECT COUNT(*) AS n FROM tenders WHERE portal_id = ? AND json_extract(json, '$.status') = 'open'").get(portalId) as { n: number }).n);
+  },
 
   // ---------------------------------------------------------------- ledger
   addLlmCall(c: { portalId: string | null; runId: string | null; purpose: string; model: string; inputTokens: number; outputTokens: number; cachedTokens?: number; costUsd: number; at: string }) {
