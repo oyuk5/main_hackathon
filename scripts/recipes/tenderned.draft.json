@@ -1,0 +1,82 @@
+{
+  "schemaVersion": 1,
+  "family": "TenderNed",
+  "tier": "jsonApi",
+  "timeZone": "Europe/Amsterdam",
+  "countryCode": "NL",
+  "list": {
+    "request": {
+      "url": "https://www.tenderned.nl/papi/tenderned-rs-tns/v2/publicaties?page={page}&size=50",
+      "method": "GET"
+    },
+    "pagination": {
+      "type": "pageParam",
+      "start": 0,
+      "maxPages": 50
+    },
+    "item": "$.content[*]",
+    "emptyText": []
+  },
+  "listFields": {
+    "id": {
+      "jsonPath": "$.publicatieId"
+    },
+    "url": {
+      "jsonPath": "$.link.href"
+    },
+    "title": {
+      "jsonPath": "$.aanbestedingNaam"
+    },
+    "buyerName": {
+      "jsonPath": "$.opdrachtgeverNaam"
+    },
+    "publicationDate": {
+      "jsonPath": "$.publicatieDatum",
+      "parse": "date"
+    },
+    "submissionDeadline": {
+      "jsonPath": "$.sluitingsDatum",
+      "parse": "datetime"
+    },
+    "referenceNumber": {
+      "jsonPath": "$.kenmerk"
+    },
+    "description": {
+      "jsonPath": "$.opdrachtBeschrijving"
+    },
+    "procedureType": {
+      "jsonPath": "$.procedure.omschrijving",
+      "parse": "procedureType"
+    },
+    "contractNature": {
+      "jsonPath": "$.typeOpdracht.omschrijving",
+      "parse": "contractNature"
+    }
+  },
+  "detail": {
+    "urlFrom": "https://www.tenderned.nl/papi/tenderned-rs-tns/v2/publicaties/{id}",
+    "fields": {
+      "cpvCodes": {
+        "jsonPath": "$.cpvCodes[*].code",
+        "all": true
+      }
+    }
+  },
+  "documents": {
+    "hops": [
+      {
+        "const": "https://www.tenderned.nl/papi/tenderned-rs-tns/v2/publicaties/{id}/documenten"
+      }
+    ],
+    "files": {
+      "jsonPath": "$.documenten[*].links.download.href",
+      "all": true
+    },
+    "via": "http"
+  },
+  "withdrawnText": [
+    "Ingetrokken",
+    "Geannuleerd",
+    "Vroegtijdig beëindigd"
+  ]
+}
