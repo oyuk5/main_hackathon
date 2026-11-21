@@ -26,6 +26,16 @@ function entry(p: PortalRow): PortalEntry {
 
 export async function buildServer(options: { demo?: boolean } = {}) {
   const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? "warn" } });
+  // `curl -d '{"url":…}'` without a content-type header sends form-urlencoded: read such a body as JSON too.
+  app.addContentTypeParser(["application/x-www-form-urlencoded", "text/plain"], { parseAs: "string" }, (_request, body, done) => {
+    try {
+      done(null, JSON.parse(String(body)));
+    } catch {
+      const error = new Error("Body is not valid JSON") as Error & { statusCode: number };
+      error.statusCode = 400;
+      done(error, undefined);
+    }
+  });
 
   // ---------------------------------------------------------------- public API (contract)
 

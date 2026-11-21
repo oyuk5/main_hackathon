@@ -217,3 +217,11 @@ describe("GET /internal/log", () => {
     assert.equal((await get("/internal/log?limit=junk")).statusCode, 200);
   });
 });
+
+it("accepts a JSON body sent without a JSON content-type, as plain curl -d does", async () => {
+  const res = await app.inject({ method: "POST", url: "/portals", headers: { "content-type": "application/x-www-form-urlencoded" }, payload: '{"url":"https://form-body.example/tenders"}' });
+  assert.equal(res.statusCode, 201);
+  assert.match(res.json().id, /^p_/);
+  const bad = await app.inject({ method: "POST", url: "/portals", headers: { "content-type": "text/plain" }, payload: "url=x" });
+  assert.equal(bad.statusCode, 400);
+});
