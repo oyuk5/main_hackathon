@@ -24,8 +24,8 @@ export const config = {
     maxDayUsd: spendLimit(process.env.MAX_MODEL_USD_PER_DAY, 20),
     apiKey: process.env.OPENAI_API_KEY ?? "",
     baseUrl: process.env.OPENAI_BASE_URL || undefined,
-    smartModel: process.env.MODEL_SMART ?? "",
-    fastModel: process.env.MODEL_FAST ?? "",
+    smartModel: process.env.MODEL_SMART || "gpt-6.2-sol", // the models we measured; override per deployment
+    fastModel: process.env.MODEL_FAST || "gpt-6-luna",
     /** USD per million tokens, for the cost ledger. Set from the provider's price page. */
     priceInPerMTok: { smart: num(process.env.PRICE_SMART_IN, 0), fast: num(process.env.PRICE_FAST_IN, 0) },
     priceOutPerMTok: { smart: num(process.env.PRICE_SMART_OUT, 0), fast: num(process.env.PRICE_FAST_OUT, 0) },
