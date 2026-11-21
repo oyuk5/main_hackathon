@@ -16,7 +16,7 @@
 import crypto from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
 import { config } from "./config.js";
-import { store } from "./store.js";
+import { INTERRUPTED, store } from "./store.js";
 import { politeBrowser, politeHttp } from "./polite.js";
 import { documentFetcher } from "./documents.js";
 import { count, join, labelled, sentence } from "./reason.js";
@@ -188,7 +188,8 @@ function failPortal(portalId: string, reason: string, retryMinutes = config.fail
 }
 
 function repairCoolingDown(portalId: string): boolean {
-  const last = store.listRuns(portalId).find((run) => run.kind === "repair" || run.result === "ok");
+  // A repair cut off by a restart did not fail: it gets another try straight away.
+  const last = store.listRuns(portalId).find((run) => (run.kind === "repair" && run.summary !== INTERRUPTED) || run.result === "ok");
   return last?.kind === "repair" && last.result === "failed" && !!last.finished_at &&
     Date.now() - toEpoch(last.finished_at) < minutes(config.failedRetryMinutes);
 }

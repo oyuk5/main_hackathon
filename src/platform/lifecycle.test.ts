@@ -444,3 +444,32 @@ test("ZIP attachments round-trip through the API as individual files and are not
     await fake.close();
   }
 });
+test("a repair interrupted by a restart does not count as a failed repair", async (t) => {
+  const { store } = await import("./store.js");
+  const { nowWithOffset } = await import("../shared/time.js");
+  const url = "https://restart-repair.example/";
+  const initial = attached(url);
+  const fixed = read(url, "Repaired title");
+  t.mock.method(cartographer, "attach", async () => initial);
+  t.mock.method(extractor, "read", async () => ({ kind: "error", reason: "The tender list moved." }) as ReadOutcome);
+  t.mock.method(watch, "evaluate", (result: ReadOutcome) =>
+    result === initial.read || result === fixed
+      ? { kind: "healthy", reason: "The list passed the checks.", checks: [] }
+      : { kind: "broken", reason: "The list failed the checks.", checks: [] });
+  const repair = t.mock.method(medic, "repair", async () =>
+    ({ kind: "ok", recipe: { ...initial.recipe, list: { ...initial.recipe.list, item: "li.tender" } }, read: fixed, summary: "Found the relocated list." }) as RepairOutcome);
+  const id = await add(url);
+  const portal = `/portals/${id}`;
+  try {
+    await waitForIdle(id);
+    // What a container restart during a repair leaves behind: the unfinished repair run, failed on startup.
+    store.insertRun({ id: "r_interrupted", portalId: id, kind: "repair", startedAt: nowWithOffset() });
+    store.failInterruptedRuns(nowWithOffset());
+    await refresh(id);
+    await waitForIdle(id);
+    assert.equal(repair.mock.callCount(), 1, "the repair should run again after a restart");
+    assert.equal((await get(portal)).json().state, "serving");
+  } finally {
+    await remove(portal);
+  }
+});

@@ -52,6 +52,9 @@ if (!db.prepare("PRAGMA table_info(llm_calls)").all().some((column) => column.na
 
 let seq = Number((db.prepare("SELECT COALESCE(MAX(seq), 0) AS s FROM runs").get() as { s: number }).s);
 
+/** Summary of a run the process stopped in the middle of; it says nothing about the portal. */
+export const INTERRUPTED = "Interrupted by a restart.";
+
 export interface PortalRow {
   id: string;
   url: string;
@@ -146,7 +149,7 @@ export const store = {
   },
   /** On startup: runs that were still going when the process stopped. */
   failInterruptedRuns(at: string) {
-    db.prepare("UPDATE runs SET result = 'failed', finished_at = ?, summary = 'Interrupted by a restart.' WHERE result IS NULL").run(at);
+    db.prepare("UPDATE runs SET result = 'failed', finished_at = ?, summary = ? WHERE result IS NULL").run(at, INTERRUPTED);
   },
   /**
    * Runs across all portals, newest first, for the dashboard's log. `everything` false leaves out
