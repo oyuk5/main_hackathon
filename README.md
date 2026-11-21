@@ -20,7 +20,7 @@ docker build --platform linux/amd64 -t watchtower .
 docker run -p 8080:8080 --env-file .env watchtower
 ```
 
-Open [localhost:8080](http://localhost:8080) and enter a public portal URL under **Watch portal**. The API returns its ID immediately; delivery follows in the background. No authentication, as the brief specifies. To check the API from another terminal, run `npm run test:contract` after installing the dependencies with `npm ci`. A fresh Docker build of the current code passed all **16/16** contract checks on November 21 (05:35 CET); the same 16/16 passed again at 08:26 CET against the current `main`.
+Open [localhost:8080](http://localhost:8080) and enter a public portal URL under **Watch portal**. The API returns its ID immediately; delivery follows in the background. No authentication, as the brief specifies. To check the API from another terminal, run `npm run test:contract` after installing the dependencies with `npm ci`. A fresh Docker build (linux/amd64) passed all **16/16** contract checks on November 21 at 08:37 CET.
 
 ## How it works
 
