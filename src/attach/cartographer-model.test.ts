@@ -31,6 +31,19 @@ beforeEach(() => {
 });
 
 const page = (body: string) => `<!doctype html><html><head><title>Vergabeportal</title><script>var tracking = 1;</script></head><body>${body}</body></html>`;
+
+test("e-Vergabe public search page is used after a plain HTTP redirect loop", async () => {
+  // Title from the saved public search page; fixture contains no tenders or documents.
+  const html = `<html><head><title>Ausschreibungen suchen - e-Vergabe, die Vergabeplattform des Bundes</title></head><body><main><h1>Ausschreibungen suchen</h1><form><label>Suchbegriff <input name="query"></label></form></main></body></html>`;
+  const ctx = scripted(`${base}/search.html`, []);
+  ctx.http.fetch = async () => { throw new Error("Too many redirects (more than 10) starting at search.html"); };
+  ctx.browser.withPage = (fn) => fn({ on() {}, goto: async () => ({ status: () => 200, url: () => `${base}/search.html?cookieCheck` }), waitForLoadState: async () => {}, content: async () => html } as never);
+  const found = await look(ctx, ctx.url);
+  assert.equal(found.status, 200);
+  assert.equal(found.browserRequired, true);
+  assert.match(found.url, /cookieCheck/);
+  assert.match(found.rendered ?? "", /Ausschreibungen suchen/);
+});
 const rows = (n: number) =>
   Array.from({ length: n }, (_, i) => `<tr class="hit"><td class="nr">V-${100 + i}</td><td><a href="/m/t/${100 + i}">Sanierung ${i}</a></td><td class="buyer">Stadt Testheim</td><td class="pub">0${(i % 9) + 1}.11.2026</td><td class="frist">15.12.2026 10:00</td></tr>`).join("");
 

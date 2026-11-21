@@ -52,6 +52,7 @@ export interface Look {
   rendered: string | null;
   json: CapturedJson[];
   feeds: string[];
+  browserRequired?: boolean;
 }
 
 export interface CapturedJson {
@@ -70,7 +71,7 @@ async function fetchText(ctx: PortalContext, url: string): Promise<{ url: string
 }
 
 /** Loads the page in the browser and keeps the JSON the page itself fetched: often a clean API. */
-async function sniff(ctx: PortalContext, url: string): Promise<{ rendered: string | null; json: CapturedJson[] }> {
+async function sniff(ctx: PortalContext, url: string): Promise<{ rendered: string | null; json: CapturedJson[]; url?: string; status?: number }> {
   try {
     return await ctx.browser.withPage(async (page) => {
       const json: CapturedJson[] = [];
@@ -91,10 +92,10 @@ async function sniff(ctx: PortalContext, url: string): Promise<{ rendered: strin
       });
       // Every request the page makes waits its turn at 1 per second, so a heavy page may not finish
       // loading in time. Whatever rendered by then is still worth showing.
-      await page.goto(url, { waitUntil: "domcontentloaded", timeout: BROWSER_LOAD_MS }).catch(() => {});
+      const response = await page.goto(url, { waitUntil: "domcontentloaded", timeout: BROWSER_LOAD_MS }).catch(() => null);
       await page.waitForLoadState("networkidle", { timeout: 10_000 }).catch(() => {});
       const rendered = await page.content().catch(() => null);
-      return { rendered: rendered && rendered.length > 200 ? rendered : null, json };
+      return { rendered: rendered && rendered.length > 200 ? rendered : null, json, url: response?.url(), status: response?.status() };
     });
   } catch (e) {
     if (ctx.signal.aborted) throw e;
@@ -104,8 +105,17 @@ async function sniff(ctx: PortalContext, url: string): Promise<{ rendered: strin
 }
 
 export async function look(ctx: PortalContext, url: string): Promise<Look> {
-  const first = await fetchText(ctx, url);
+  const first = await fetchText(ctx, url).catch(async (error: unknown) => {
+    if (ctx.signal.aborted || !(error instanceof Error) || !/^Too many redirects \(more than \d+\)/.test(error.message)) throw error;
+    ctx.log("The HTTP page repeatedly redirects; checking the public page in the browser.");
+    const browser = await sniff(ctx, url);
+    if (!browser.rendered || !browser.url || browser.status === undefined) throw error;
+    return { url: browser.url, status: browser.status, text: browser.rendered, browser };
+  });
   const feeds = findFeeds(first.text, first.url);
+  if ("browser" in first && first.browser) {
+    return { url: first.url, status: first.status, raw: first.text, rendered: first.text, json: rankJson(first.browser.json), feeds, browserRequired: true };
+  }
   const blockedHard = first.status === 401 || first.status === 403 || isCaptchaResponse(first.status, first.text);
   // The browser is slow at 1 request per second (every script waits its turn). Only JavaScript apps
   // need it: when the served page already shows a list of linked items, the extractor can read that.
@@ -1127,6 +1137,11 @@ export async function attachWithModel(ctx: PortalContext, deps: ModelAttachDeps 
       continue;
     }
     const recipe = Recipe.parse(step.recipe);
+    if (current.browserRequired && recipe.tier === "html") {
+      lastProblem = "the listing redirects repeatedly over HTTP and must be read in the browser";
+      history.push("The same public page only loaded in the browser after an HTTP redirect loop. Use a browser recipe for this listing, or a confirmed public JSON API or feed instead.");
+      continue;
+    }
     if (recipe.tier === "browser" && current.json.length > 0) {
       // A JSON call is faster and more stable than rendering every page: use it when the page made one.
       lastProblem = "a browser recipe was proposed although the page fetches its data as JSON";
