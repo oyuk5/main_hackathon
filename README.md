@@ -22,6 +22,8 @@ docker run -p 8080:8080 --env-file .env watchtower
 
 Open [localhost:8080](http://localhost:8080) and enter a public portal URL under **Watch portal**. The API returns its ID immediately; delivery follows in the background. No authentication, as the brief specifies. To check the API from another terminal, run `npm run test:contract` after installing the dependencies with `npm ci`. A fresh Docker build (linux/amd64) passed all **16/16** contract checks on November 21 at 08:37 CET.
 
+**Try it on the lab portals.** `npm ci && npm run lab` serves the eight lab portals on port 4100 (set `LAB_PORT` for another port). To reach them from the container, add `--add-host=host.docker.internal:host-gateway` to `docker run` and watch, for example, `http://host.docker.internal:4100/stadtwerke/`. A new portal is `integrating` while Watchtower learns it, usually 1 to 2 minutes, then `serving`. `tenderCount` counts every delivered tender, including withdrawn and closed ones; the reason names how many are open. `npm run test:contract` checks `http://localhost:8080`; set `BASE` for another address.
+
 ## How it works
 
 ```text
