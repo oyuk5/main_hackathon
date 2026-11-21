@@ -91,6 +91,8 @@ export interface LabPortal {
   expectReason?: string;
   /** Changed versions the mutator can switch to: name → what changes. "v1" is always the original. */
   variants: Record<string, string>;
+  /** The tenders a variant shows, when it changes them (e.g. a cancellation). Default: `tenders`. */
+  tendersFor?(variant: string): LabTender[];
   /** Absolute URL of a tender's own page. */
   tenderUrl(base: string, t: LabTender): string;
   /** Handles a request under /<slug>/. `path` is the rest after the slug, starting with "/". */
@@ -208,10 +210,10 @@ export function zipBytes(t: LabTender): Buffer {
 // ---------------------------------------------------------------- truth
 
 /** Variants that are not breakage: the system must stay serving and must not repair. */
-export const HARMLESS = new Set(["cookie-banner", "empty-day"]);
+export const HARMLESS = new Set(["cookie-banner", "empty-day", "redirect-list", "cancelled"]);
 
 export function truthOf(p: LabPortal, base: string, variant = "v1"): Truth & { variant: string } {
-  const tenders = variant === "empty-day" ? [] : p.tenders;
+  const tenders = variant === "empty-day" ? [] : p.tendersFor?.(variant) ?? p.tenders;
   return {
     portal: p.slug,
     variant,

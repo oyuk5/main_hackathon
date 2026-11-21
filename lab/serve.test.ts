@@ -19,7 +19,7 @@ before(async () => {
 });
 after(() => lab.server.close());
 
-const get = (p: string) => fetch(base + p);
+const get = (p: string, init?: RequestInit) => fetch(base + p, init);
 const truthOf = async (slug: string): Promise<Truth> => (await get(`/_truth/${slug}.json`)).json() as Promise<Truth>;
 
 function unzipNames(buf: Buffer): Promise<Array<{ name: string; sha: string }>> {
@@ -178,6 +178,17 @@ test("stadtwerke variants change what they say", async () => {
   assert.ok(h.includes("cookie-consent") && h.includes('class="tenders"'));
   await setVariant("stadtwerke", "empty-day");
   assert.ok((await text("/stadtwerke/ausschreibungen")).includes("keine Ausschreibungen"));
+  await setVariant("stadtwerke", "redirect-list");
+  const moved = await get("/stadtwerke/ausschreibungen?seite=2", { redirect: "manual" });
+  assert.equal(moved.status, 301);
+  assert.equal(moved.headers.get("location"), "/stadtwerke/vergabe/aktuell?seite=2");
+  await setVariant("stadtwerke", "reordered-columns");
+  assert.match(await text("/stadtwerke/ausschreibungen"), /<tr><td><a href="\/stadtwerke\/ausschreibung\/4711">/);
+  await setVariant("stadtwerke", "renamed-labels");
+  assert.ok((await text("/stadtwerke/ausschreibung/4711")).includes("<dt>Ablauf der Angebotsfrist</dt>"));
+  await setVariant("stadtwerke", "cancelled");
+  assert.ok((await text("/stadtwerke/ausschreibung/4711")).includes("aufgehoben"));
+  assert.equal((await truthOf("stadtwerke")).tenders.find((x) => x.id === "4711")?.status, "withdrawn");
   await setVariant("stadtwerke", "v1");
 });
 

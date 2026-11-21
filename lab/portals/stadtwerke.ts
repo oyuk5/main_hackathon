@@ -60,6 +60,19 @@ function build(): LabTender[] {
 }
 
 const tenders = build();
+/** The "cancelled" variant: the buyer cancels the first tender, which was open. */
+const cancelled = tenders.map((t, i) => (i === 0 ? { ...t, withdrawn: true } : t));
+const tendersFor = (variant: string) => (variant === "cancelled" ? cancelled : tenders);
+
+/** Detail labels as the original shows them, and as the "renamed-labels" variant does. */
+const LABELS = {
+  ref: "Vergabenummer", buyer: "Auftraggeber", published: "Veröffentlicht am", deadline: "Angebotsfrist",
+  procedure: "Verfahrensart", nature: "Art des Auftrags", cpv: "CPV-Code", place: "Ausführungsort", status: "Status",
+};
+const RENAMED_LABELS: typeof LABELS = {
+  ref: "Aktenzeichen", buyer: "Öffentlicher Auftraggeber", published: "Datum der Veröffentlichung", deadline: "Ablauf der Angebotsfrist",
+  procedure: "Vergabeverfahren", nature: "Auftragsart", cpv: "CPV-Codes", place: "Erfüllungsort", status: "Verfahrensstand",
+};
 
 const VARIANTS = {
   "renamed-classes": "CSS classes renamed (table.tenders → table.vergabeliste, dl.details → dl.angaben, ul.unterlagen → ul.dokumente, a.next → a.weiter).",
@@ -68,6 +81,10 @@ const VARIANTS = {
   "date-format": "Dates shown as '5. Dezember 2026, 10:00 Uhr' instead of '05.12.2026 10:00'.",
   "cookie-banner": "A cookie consent overlay on every page. Data unchanged: must stay serving.",
   "empty-day": "No tenders today; the list says so. Must stay serving, not broken.",
+  "redirect-list": "The list moves from /ausschreibungen to /vergabe/aktuell and the old address answers 301 to the new one. Data unchanged: must stay serving.",
+  "reordered-columns": "The list table's columns come in a new order (Titel, Angebotsfrist, Status, Vergabenummer, Veröffentlicht, Vergabestelle).",
+  "renamed-labels": "The detail page's labels are renamed (Angebotsfrist → Ablauf der Angebotsfrist, Verfahrensart → Vergabeverfahren, Auftraggeber → Öffentlicher Auftraggeber, ...).",
+  cancelled: "The buyer cancels tender 4711: list and detail page say 'Aufgehoben'. Must stay serving and show it as withdrawn, without a repair.",
 };
 
 interface Look {
@@ -83,6 +100,9 @@ interface Look {
   deadline(t: LabTender): string;
   banner: boolean;
   empty: boolean;
+  redirectFrom: string | null;
+  reordered: boolean;
+  labels: typeof LABELS;
 }
 
 function look(variant: string): Look {
@@ -99,6 +119,9 @@ function look(variant: string): Look {
     deadline: (t) => `${dotted(t.deadlineDate)} ${t.deadlineTime}`,
     banner: false,
     empty: false,
+    redirectFrom: null,
+    reordered: false,
+    labels: LABELS,
   };
   if (variant === "renamed-classes") Object.assign(l, { table: "vergabeliste", next: "weiter", dl: "angaben", docs: "dokumente" });
   if (variant === "moved-list") l.listPath = "/vergabe/aktuell";
@@ -106,6 +129,9 @@ function look(variant: string): Look {
   if (variant === "date-format") Object.assign(l, { date: (d: string) => longDate(d, "de"), deadline: (t: LabTender) => `${longDate(t.deadlineDate, "de")}, ${t.deadlineTime} Uhr` });
   if (variant === "cookie-banner") l.banner = true;
   if (variant === "empty-day") l.empty = true;
+  if (variant === "redirect-list") Object.assign(l, { listPath: "/vergabe/aktuell", redirectFrom: "/ausschreibungen" });
+  if (variant === "reordered-columns") l.reordered = true;
+  if (variant === "renamed-labels") l.labels = RENAMED_LABELS;
   return l;
 }
 
@@ -128,11 +154,16 @@ export const stadtwerke: LabPortal = {
   notes: ["Tender 4753 is withdrawn (Status 'Aufgehoben').", "Deadlines are Europe/Berlin local time without offset."],
   tenders,
   variants: VARIANTS,
+  tendersFor,
   tenderUrl: (base, t) => `${base}/stadtwerke/ausschreibung/${t.id}`,
 
   handle(_req, res, path, url, ctx) {
     const l = look(ctx.variant);
-    const list = l.empty ? [] : tenders;
+    const list = l.empty ? [] : tendersFor(ctx.variant);
+    if (l.redirectFrom && path === l.redirectFrom) {
+      res.writeHead(301, { location: `/stadtwerke${l.listPath}${url.search}` });
+      return void res.end();
+    }
     if (path === "/" || path === "") {
       return sendHtml(
         res,
@@ -148,9 +179,15 @@ export const stadtwerke: LabPortal = {
       const rows = list
         .slice((n - 1) * l.perPage, n * l.perPage)
         .map(
-          (t) =>
-            `<tr><td>${esc(t.referenceNumber)}</td><td><a href="/stadtwerke/ausschreibung/${t.id}">${esc(t.title)}</a></td><td>${esc(t.buyerName)}</td>` +
-            `<td>${l.date(t.publicationDate)}</td><td>${l.deadline(t)}</td><td>${t.withdrawn ? "Aufgehoben" : "Offen"}</td></tr>`,
+          (t) => {
+            const ref = `<td>${esc(t.referenceNumber)}</td>`;
+            const title = `<td><a href="/stadtwerke/ausschreibung/${t.id}">${esc(t.title)}</a></td>`;
+            const buyer = `<td>${esc(t.buyerName)}</td>`;
+            const published = `<td>${l.date(t.publicationDate)}</td>`;
+            const deadline = `<td>${l.deadline(t)}</td>`;
+            const status = `<td>${t.withdrawn ? "Aufgehoben" : "Offen"}</td>`;
+            return `<tr>${l.reordered ? title + deadline + status + ref + published + buyer : ref + title + buyer + published + deadline + status}</tr>`;
+          },
         )
         .join("");
       const self = `/stadtwerke${l.listPath}`;
@@ -162,7 +199,7 @@ export const stadtwerke: LabPortal = {
         layout(
           l,
           "Ausschreibungen",
-          `<h1>Aktuelle Ausschreibungen</h1><table class="${l.table}"><thead><tr><th>Vergabenummer</th><th>Titel</th><th>Vergabestelle</th><th>Veröffentlicht</th><th>Angebotsfrist</th><th>Status</th></tr></thead>` +
+          `<h1>Aktuelle Ausschreibungen</h1><table class="${l.table}"><thead><tr>${l.reordered ? "<th>Titel</th><th>Angebotsfrist</th><th>Status</th><th>Vergabenummer</th><th>Veröffentlicht</th><th>Vergabestelle</th>" : "<th>Vergabenummer</th><th>Titel</th><th>Vergabestelle</th><th>Veröffentlicht</th><th>Angebotsfrist</th><th>Status</th>"}</tr></thead>` +
             `<tbody>${rows}</tbody></table><nav class="pager">${pager}</nav>`,
         ),
       );
@@ -173,15 +210,15 @@ export const stadtwerke: LabPortal = {
       if (!t) return notFound(res);
       const files = t.files.map((f) => `<li><a href="/stadtwerke/dokumente/${t.id}/${encodeURIComponent(f.name)}">${esc(f.name)}</a></li>`).join("");
       const dl: Array<[string, string]> = [
-        ["Vergabenummer", t.referenceNumber],
-        ["Auftraggeber", t.buyerName],
-        ["Veröffentlicht am", l.date(t.publicationDate)],
-        ["Angebotsfrist", ctx.variant === "date-format" ? l.deadline(t) : `${dotted(t.deadlineDate)}, ${t.deadlineTime} Uhr`],
-        ["Verfahrensart", VERFAHREN[t.procedureType]],
-        ["Art des Auftrags", ART[t.contractNature]],
-        ["CPV-Code", t.cpv.join(", ")],
-        ["Ausführungsort", `${t.postalCode} ${t.city}`],
-        ["Status", t.withdrawn ? "Aufgehoben" : "Offen"],
+        [l.labels.ref, t.referenceNumber],
+        [l.labels.buyer, t.buyerName],
+        [l.labels.published, l.date(t.publicationDate)],
+        [l.labels.deadline, ctx.variant === "date-format" ? l.deadline(t) : `${dotted(t.deadlineDate)}, ${t.deadlineTime} Uhr`],
+        [l.labels.procedure, VERFAHREN[t.procedureType]],
+        [l.labels.nature, ART[t.contractNature]],
+        [l.labels.cpv, t.cpv.join(", ")],
+        [l.labels.place, `${t.postalCode} ${t.city}`],
+        [l.labels.status, t.withdrawn ? "Aufgehoben" : "Offen"],
       ];
       return sendHtml(
         res,
