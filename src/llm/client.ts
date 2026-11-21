@@ -21,6 +21,40 @@ import type { Llm, ModelTier } from "../shared/modules.js";
 
 export const LLM_TIMEOUT_MS = 90_000;
 export const LLM_MAX_RETRIES = 0;
+/** 429 rate-limit answers are retried this many times, waiting Retry-After or an exponential backoff. */
+export const LLM_RATE_LIMIT_RETRIES = 5;
+const BACKOFF_BASE_MS = 2_000;
+const BACKOFF_MAX_MS = 60_000;
+
+/** A 429 the provider may lift by waiting: not an exhausted quota, which no wait fixes. */
+export function isRetryableRateLimit(e: unknown): boolean {
+  const err = e as { status?: number; code?: string | null; error?: { code?: string | null } } | null;
+  if (!err || err.status !== 429) return false;
+  const code = err.code ?? err.error?.code ?? null;
+  return code !== "insufficient_quota";
+}
+
+/** How long to wait before retry `attempt` (0-based): the provider's Retry-After when given, else 2 s, 4 s, 8 s ... with jitter. */
+export function rateLimitDelayMs(e: unknown, attempt: number, random: () => number = Math.random): number {
+  const headers = (e as { headers?: unknown } | null)?.headers;
+  const get = (name: string): string | null => {
+    if (!headers) return null;
+    if (typeof (headers as Headers).get === "function") return (headers as Headers).get(name);
+    const v = (headers as Record<string, unknown>)[name];
+    return typeof v === "string" ? v : null;
+  };
+  const ms = Number(get("retry-after-ms"));
+  if (Number.isFinite(ms) && ms > 0) return Math.min(ms, BACKOFF_MAX_MS);
+  const after = get("retry-after");
+  if (after) {
+    const secs = Number(after);
+    if (Number.isFinite(secs) && secs >= 0) return Math.min(secs * 1000, BACKOFF_MAX_MS);
+    const at = Date.parse(after);
+    if (Number.isFinite(at)) return Math.min(Math.max(0, at - Date.now()), BACKOFF_MAX_MS);
+  }
+  const base = Math.min(BACKOFF_BASE_MS * 2 ** attempt, BACKOFF_MAX_MS);
+  return Math.round(base * (0.75 + random() * 0.5));
+}
 const MAX_COMPLETION_TOKENS = 12_000;
 const reserveModelSpend = modelBudget();
 
@@ -134,6 +168,8 @@ let cachingOff = process.env.LLM_PROMPT_CACHE === "0";
 export interface LlmDeps {
   create: (body: Body) => Promise<{ usage?: Usage | null; choices: { message?: { content?: string | null } }[] }>;
   addLlmCall: typeof store.addLlmCall;
+  /** Waits between 429 retries; tests pass a fake. */
+  sleep?: (ms: number) => Promise<void>;
 }
 
 const defaultDeps: LlmDeps = {
@@ -164,14 +200,26 @@ export function llmFor(portalId: string | null, runId: string | null, deps: LlmD
           return result;
         } finally { release(); }
       };
-      if (cachingOff) res = await create(req(false));
+      // Many portals attach at once and share one key: a 429 waits and retries instead of failing the portal.
+      const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+      const createWithRetry = async (body: Body) => {
+        for (let attempt = 0; ; attempt++) {
+          try {
+            return await create(body);
+          } catch (e) {
+            if (!isRetryableRateLimit(e) || attempt >= LLM_RATE_LIMIT_RETRIES) throw e;
+            await sleep(rateLimitDelayMs(e, attempt));
+          }
+        }
+      };
+      if (cachingOff) res = await createWithRetry(req(false));
       else {
         try {
-          res = await create(req(true));
+          res = await createWithRetry(req(true));
         } catch (e) {
           if (!cachingRejected(e)) throw e;
           cachingOff = true;
-          res = await create(req(false));
+          res = await createWithRetry(req(false));
         }
       }
       const text = res.choices[0]?.message?.content ?? "";

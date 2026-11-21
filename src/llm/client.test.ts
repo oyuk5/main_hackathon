@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { z } from "zod";
 import { config } from "../platform/config.js";
-import { buildRequest, cacheKeyFor, costOf, llmFor, PART_SEPARATOR, pricesFor, resetCachingForTests, type LlmDeps, type Usage } from "./client.js";
+import { buildRequest, cacheKeyFor, costOf, isRetryableRateLimit, llmFor, LLM_RATE_LIMIT_RETRIES, PART_SEPARATOR, pricesFor, rateLimitDelayMs, resetCachingForTests, type LlmDeps, type Usage } from "./client.js";
 
 // Prices as in docs/DECISIONS.md: smart 2/10, fast 0.10/0.50 USD per million tokens.
 // config is read-only by type; tests set it through a writable view.
@@ -128,4 +128,61 @@ test("other errors are not retried", async () => {
   };
   await assert.rejects(llmFor("p", null, deps).json({ purpose: "attach", model: "smart", system: "S", user: "U", schema: z.object({}) }));
   assert.equal(n, 1);
+});
+
+const rateLimited = (headers: Record<string, string> = {}, code: string | null = "rate_limit_exceeded") =>
+  Object.assign(new Error("429 Too Many Requests"), { status: 429, code, headers: new Headers(headers) });
+
+test("a 429 is retried after Retry-After and the portal's call succeeds", async () => {
+  const waits: number[] = [];
+  let n = 0;
+  const calls: unknown[] = [];
+  const deps: LlmDeps = {
+    create: async () => {
+      n += 1;
+      if (n <= 2) throw rateLimited(n === 1 ? { "retry-after": "3" } : {});
+      return { usage: { prompt_tokens: 10, completion_tokens: 1 }, choices: [{ message: { content: '{"ok":true}' } }] };
+    },
+    addLlmCall: (c) => void calls.push(c),
+    sleep: async (ms) => void waits.push(ms),
+  };
+  const out = await llmFor("p1", null, deps).json({ purpose: "attach", model: "smart", system: "S", user: "U", schema: z.object({ ok: z.boolean() }) });
+  assert.deepEqual(out, { ok: true });
+  assert.equal(n, 3);
+  assert.equal(waits[0], 3000);
+  assert.ok(waits[1]! >= 3000 && waits[1]! <= 5000, String(waits[1]));
+  assert.equal(calls.length, 1);
+});
+
+test("429 retries stop after the limit, and an exhausted quota is not retried", async () => {
+  let n = 0;
+  const deps: LlmDeps = {
+    create: async () => {
+      n += 1;
+      throw rateLimited();
+    },
+    addLlmCall: () => {},
+    sleep: async () => {},
+  };
+  const schema = z.object({ ok: z.boolean() });
+  await assert.rejects(llmFor("p1", null, deps).json({ purpose: "attach", model: "smart", system: "S", user: "U", schema }), /429/);
+  assert.equal(n, LLM_RATE_LIMIT_RETRIES + 1);
+
+  n = 0;
+  deps.create = async () => {
+    n += 1;
+    throw rateLimited({}, "insufficient_quota");
+  };
+  await assert.rejects(llmFor("p1", null, deps).json({ purpose: "attach", model: "smart", system: "S", user: "U", schema }), /429/);
+  assert.equal(n, 1);
+});
+
+test("rate-limit delays: retry-after-ms, seconds, HTTP date, else exponential backoff capped at 60 s", () => {
+  assert.equal(rateLimitDelayMs(rateLimited({ "retry-after-ms": "1500" }), 0), 1500);
+  assert.equal(rateLimitDelayMs(rateLimited({ "retry-after": "7" }), 0), 7000);
+  assert.equal(rateLimitDelayMs(rateLimited({ "retry-after": "600" }), 0), 60_000);
+  assert.equal(rateLimitDelayMs(rateLimited(), 0, () => 0.5), 2000);
+  assert.equal(rateLimitDelayMs(rateLimited(), 2, () => 0.5), 8000);
+  assert.equal(rateLimitDelayMs(rateLimited(), 10, () => 0.5), 60_000);
+  assert.equal(isRetryableRateLimit(Object.assign(new Error("x"), { status: 500 })), false);
 });

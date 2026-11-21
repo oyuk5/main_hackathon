@@ -3,7 +3,7 @@
  * no captcha solving. Every outgoing request to a portal goes through here, including
  * the requests a headless browser makes.
  */
-import { chromium, type Browser } from "playwright";
+import { chromium, type Browser, type Page } from "playwright";
 import { setTimeout as delay } from "node:timers/promises";
 import { config } from "./config.js";
 import type { PoliteBrowser, PoliteHttp } from "../shared/modules.js";
@@ -181,14 +181,33 @@ export function politeHttp(signal: AbortSignal, onRequest?: () => void): PoliteH
 // ------------------------------------------------------------ browser
 
 let browserPromise: Promise<Browser> | null = null;
-function sharedBrowser(): Promise<Browser> {
+type Launch = () => Promise<Browser>;
+const defaultLaunch: Launch = () => chromium.launch({ headless: true, args: ["--disable-dev-shm-usage"] }); // Docker gives /dev/shm only 64 MB
+let launch: Launch = defaultLaunch;
+
+/** Tests swap in a fake Chromium; null restores the real one. */
+export function setBrowserLaunchForTests(fn: Launch | null): void {
+  launch = fn ?? defaultLaunch;
+  browserPromise = null;
+}
+
+async function sharedBrowser(): Promise<Browser> {
+  // A Chromium that crashed or was killed is never handed out again: the next page gets a new one.
+  if (browserPromise) {
+    const current = browserPromise;
+    const alive = await current.then((b) => b.isConnected(), () => false);
+    if (!alive && browserPromise === current) browserPromise = null;
+  }
   if (!browserPromise) {
-    const launching = chromium.launch({ headless: true, args: ["--disable-dev-shm-usage"] }) // Docker gives /dev/shm only 64 MB;
+    const launching = launch();
     browserPromise = launching;
     // A failed launch must not be cached forever: the next page tries again.
     launching.catch(() => {
       if (browserPromise === launching) browserPromise = null;
     });
+    launching.then((b) => b.on("disconnected", () => {
+      if (browserPromise === launching) browserPromise = null;
+    }), () => {});
   }
   return browserPromise;
 }
@@ -203,8 +222,24 @@ export async function closeSharedBrowser(): Promise<void> {
 export function politeBrowser(signal: AbortSignal, onRequest?: () => void): PoliteBrowser {
   return {
     async withPage(fn) {
+      // All portals share one Chromium. If it crashes (or another portal's page takes it down), this
+      // portal's page dies with it through no fault of its own: retry once on a fresh browser.
+      // An error from the portal's own work, while the browser is still up, is never retried.
+      for (let attempt = 0; ; attempt++) {
+        let browser: Browser | null = null;
+        try {
+          browser = await sharedBrowser();
+          return await pageIn(browser, fn);
+        } catch (e) {
+          if (signal.aborted || attempt >= 1 || !browser || browser.isConnected()) throw e;
+        }
+      }
+    },
+  };
+
+  async function pageIn<T>(browser: Browser, fn: (page: Page) => Promise<T>): Promise<T> {
+    {
       if (signal.aborted) throw new Error("aborted");
-      const browser = await sharedBrowser();
       const context = await browser.newContext({ userAgent: config.userAgent, acceptDownloads: true });
       // DELETE must stop traffic within a minute: closing the context kills its pages,
       // pending navigations, clicks and downloads at once, instead of waiting for fn to finish.
@@ -240,6 +275,6 @@ export function politeBrowser(signal: AbortSignal, onRequest?: () => void): Poli
         signal.removeEventListener("abort", stop);
         await context.close().catch(() => {});
       }
-    },
-  };
+    }
+  }
 }
