@@ -1,5 +1,5 @@
 # A · Platform
-_Updated: Sat 00:58 CET. Only A and A's agent write here. Keep it under 15 lines and true._
+_Updated: Sat 01:04 CET. Only A and A's agent write here. Keep it under 15 lines and true._
 
 **Done**
 - Gmina renamed-classes repaired in 78.7 s ($0.014); Medic now sees the live detail and documents-hop pages and retries partial attachment loss.
@@ -11,4 +11,4 @@ _Updated: Sat 00:58 CET. Only A and A's agent write here. Keep it under 15 lines
 
 **Needs from others**
 - B: `src/attach/extractor.ts:run` on TenderNed (2,636 tenders, ~12 min): report page/detail progress and return an early bounded enrichment pass after validating the complete list; mark unchecked refs pending and resume in later reads.
-- B: Gmina scored 91% twice, zero wrong, with place-of-performance missing; independent postal/city hints shipped in `c9e1632`, awaiting live recheck.
+- Attach recheck at `29ec17a`: Gmina 100% twice, Stadtwerke 100%, Ville 100%; no wrong values in the attach-only evals.

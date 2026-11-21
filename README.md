@@ -116,6 +116,8 @@ Every model call is recorded with its purpose, tokens and cost: `GET /internal/l
 
 **Attach:** B’s [November 20, 2026, 23:12 CET attach-only eval](status/B.md) on three lab portals measured **100% attach accuracy**, **0 wrong values**, and **$0.033 per attach** on average.
 
+**Attach recheck:** November 21, 2026, approximately 00:59–01:04 CET, `lab/eval.ts --attach-only` on `29ec17a`: Gmina twice (13/13 each), Stadtwerke (14/14), and Ville (11/11) all scored **100%**. This was an attach-only recheck, not a new repair benchmark.
+
 **Repair:** D’s [November 20, 2026, 22:28 CET full lab eval](status/D.md) measured **$0.021** per scenario that started a repair, **85%** of breaking changes healed (**11 of 13**), and **16 s** median heal time. Watchtower started a repair on **3 of 6** harmless changes. These are separate lab runs, not real-portal averages.
 
 **At 1,000 portals:** using the lab average and assuming every portal needs its own model-assisted attach, budget about **1,000 × $0.033 = $33 once**, plus repair costs when portals change. Regular reads make no model calls and cost **$0 in model usage**. Family reuse can lower the initial cost.
