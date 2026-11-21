@@ -20,7 +20,7 @@ export const config = {
   maxFileBytes: num(process.env.MAX_FILE_BYTES, 250 * 1024 * 1024),
   userAgent: process.env.USER_AGENT ?? "WatchtowerBot/0.1 (+tender monitoring; polite, 1 req/s)",
   llm: {
-    maxPortalUsd: spendLimit(process.env.MAX_MODEL_USD_PER_PORTAL, 1),
+    maxPortalUsd: spendLimit(process.env.MAX_MODEL_USD_PER_PORTAL, 3),
     maxDayUsd: spendLimit(process.env.MAX_MODEL_USD_PER_DAY, 20),
     apiKey: process.env.OPENAI_API_KEY ?? "",
     baseUrl: process.env.OPENAI_BASE_URL || undefined,

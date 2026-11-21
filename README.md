@@ -65,7 +65,7 @@ Defaults below come from `src/platform/config.ts`, `src/platform/documents.ts`, 
 | `PRICE_SMART_IN`, `PRICE_SMART_OUT`, `PRICE_FAST_IN`, `PRICE_FAST_OUT` | No | `0`; set actual USD per million tokens for meaningful cost and spend limits. |
 | `PRICE_SMART_CACHED_IN`, `PRICE_FAST_CACHED_IN` | No | Half the corresponding input price, USD per million tokens. |
 | `LLM_PROMPT_CACHE` | No | Enabled; set `0` to disable. |
-| `MAX_MODEL_USD_PER_PORTAL`, `MAX_MODEL_USD_PER_DAY` | No | `1.00` lifetime per portal and `20` per local day; `0` disables the corresponding model calls. |
+| `MAX_MODEL_USD_PER_PORTAL`, `MAX_MODEL_USD_PER_DAY` | No | `3.00` per portal (deleting a portal resets it) and `20` per local day; `0` disables the corresponding model calls. |
 | `PORT`, `DATA_DIR` | No | `8080`; `/data` in Docker, `./data` locally. |
 | `READ_INTERVAL_MINUTES`, `FAILED_RETRY_MINUTES` | No | `30` each; interval between scheduled reads and between failed-portal probes. |
 | `DOC_REFS_PER_READ` | No | `300`; document reference budget per read. |
