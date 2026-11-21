@@ -240,12 +240,19 @@ async function runFlow(portalId: string, url: string, runId: string, controller:
   return judgeAndDeliver(portalId, runId, ctx, read);
 }
 
-async function judgeAndDeliver(portalId: string, runId: string, ctx: PortalContext, read: ReadOutcome) {
+async function judgeAndDeliver(portalId: string, runId: string, ctx: PortalContext, input: ReadOutcome) {
   const baseline = store.getBaseline(portalId);
+  // A few tenders with impossible dates are held back, so one bad record does not stop the rest.
+  const { read, heldBack } = holdBackImpossibleTenders(input);
+  if (heldBack.size > 0) ctx.log(`${count(heldBack.size, "tender")} held back from this delivery: submission deadline earlier than publication date (${[...heldBack].slice(0, 3).join(", ")}).`, "warn");
   const verdict = watch.evaluate(read, baseline);
 
   if (verdict.kind === "healthy" && read.kind === "ok") {
-    const { summary, documentsPending, documentFailures, documentsFetched } = await deliver(portalId, read, ctx);
+    const delivered = await deliver(portalId, read, ctx, undefined, heldBack);
+    const { documentsPending, documentFailures, documentsFetched } = delivered;
+    const summary = heldBack.size > 0
+      ? `${delivered.summary} ${count(heldBack.size, "tender")} held back: ${heldBack.size === 1 ? "its" : "their"} submission deadline is earlier than ${heldBack.size === 1 ? "its" : "their"} publication date.`
+      : delivered.summary;
     // Deleted meanwhile: write nothing, the same address may already be a new portal with this id.
     if (ctx.signal.aborted) return;
     const docState = classifyDocumentFailures(documentFailures, documentsFetched);
@@ -273,6 +280,25 @@ async function judgeAndDeliver(portalId: string, runId: string, ctx: PortalConte
   // broken: repair, keep serving the last correct tenders meanwhile
   finishRun(runId, "failed", verdict.reason);
   return beginRepair(portalId, runId, ctx, verdict, baseline);
+}
+
+/** At most this share of a read may be held back; more points at a broken rule, which goes to repair. */
+export const MAX_HELD_BACK_SHARE = 0.1;
+
+/**
+ * Removes tenders whose submission deadline falls before their publication date, when they are few
+ * (at most MAX_HELD_BACK_SHARE of the read, and at least one tender stays). Many such tenders mean the
+ * recipe reads the wrong value, so the read is returned whole and Watch sends it to repair.
+ */
+export function holdBackImpossibleTenders(read: ReadOutcome): { read: ReadOutcome; heldBack: Set<string> } {
+  const heldBack = new Set<string>();
+  if (read.kind !== "ok") return { read, heldBack };
+  const bad = read.tenders.filter((t) =>
+    t.publicationDate && t.submissionDeadline && isCalendarDate(t.publicationDate) &&
+    t.submissionDeadline.slice(0, 10) < t.publicationDate);
+  if (bad.length === 0 || bad.length > read.tenders.length * MAX_HELD_BACK_SHARE || bad.length === read.tenders.length) return { read, heldBack };
+  for (const t of bad) heldBack.add(t.id);
+  return { read: { ...read, tenders: read.tenders.filter((t) => !heldBack.has(t.id)) }, heldBack };
 }
 
 async function beginRepair(portalId: string, runId: string, ctx: PortalContext, verdict: Verdict, baseline: Baseline) {
@@ -405,9 +431,10 @@ function validDeadline(value: ExtractedTender["submissionDeadline"]): string | n
 }
 
 /** Stage metadata until downloads pass the publication policy. Files are still streamed to disk. */
-export async function deliver(portalId: string, read: OkRead, ctx: PortalContext, repairRecipe?: Recipe): Promise<{ summary: string; pendingNew: number; documentsPending: boolean; documentFailures: DocumentFailure[]; documentsFetched: number }> {
+export async function deliver(portalId: string, read: OkRead, ctx: PortalContext, repairRecipe?: Recipe, heldBack: ReadonlySet<string> = new Set()): Promise<{ summary: string; pendingNew: number; documentsPending: boolean; documentFailures: DocumentFailure[]; documentsFetched: number }> {
   const now = nowWithOffset();
-  const seen = new Set<string>();
+  // Held-back tenders are still on the portal: never close them for being absent from this delivery.
+  const seen = new Set<string>(heldBack);
   let fresh = 0;
   let changed = 0;
 
