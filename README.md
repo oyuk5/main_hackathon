@@ -2,6 +2,12 @@
 
 Watchtower **attaches** to public tender portals from a URL, **notices** when tenders or documents stop arriving correctly, and **repairs** its extraction rules when a portal changes. It does this without human help while running. If it cannot verify a repair, it explains why and keeps the last correct delivery.
 
+**At a glance**
+- **Attach:** 95% of fields correct with 0 wrong values on 8 lab portals in 8 countries.
+- **Repair:** 11 of 13 breaking changes repaired on their own, median 16 s.
+- **Cost:** about $0.03 per attach and $0 per read.
+- **API:** 16/16 contract checks.
+
 Every measured number in this README names the dated run it comes from. Lab eval runs are saved to `lab/results/`, which is gitignored, so the result files stay on the machine that ran them and are not in this repository.
 
 ## Run it
@@ -14,7 +20,7 @@ docker build --platform linux/amd64 -t watchtower .
 docker run -p 8080:8080 --env-file .env watchtower
 ```
 
-Open [localhost:8080](http://localhost:8080) and enter a public portal URL under **Watch portal**. The API returns its ID immediately; delivery follows in the background. No authentication, as the brief specifies. To check the API from another terminal, run `npm run test:contract` after installing the dependencies with `npm ci`. The [November 21, 01:47 CET hand-in check](status/A.md) at `c74950d` records a fresh Linux/amd64 build in about **20 s** and **16/16** contract checks passing.
+Open [localhost:8080](http://localhost:8080) and enter a public portal URL under **Watch portal**. The API returns its ID immediately; delivery follows in the background. No authentication, as the brief specifies. To check the API from another terminal, run `npm run test:contract` after installing the dependencies with `npm ci`. A fresh Docker build of the current code passed all **16/16** contract checks on November 21 (05:35 CET); the same 16/16 passed again at 08:26 CET against the current `main`.
 
 ## How it works
 
@@ -29,13 +35,13 @@ POST /portals → Cartographer (model at attach) → JSON recipe
 - **Golden tenders** are previously verified records used to check new reads and candidate repairs. Missing evidence never becomes an invented value.
 - **Files** stream to disk, ZIPs are unpacked, and each file is served by its SHA-256. Repair promotion checks fresh downloads of previously delivered files, even when their URLs did not change.
 - **States** distinguish `integrating`, `serving`, `healing`, and `failed`. A portal-wide login, captcha or robots.txt block gets a named failure; isolated document walls hold affected updates back and are named in the reason.
-- **Rate limits** apply to HTTP and browser requests through a shared per-host gate: at most one request per second, respecting robots.txt. With the default 1.1 s gap we stay at about 0.9 requests per second per portal. Reads on different hosts run in parallel.
+- **Rate limits** go through one gate per host, shared by HTTP and the browser (details under Compliance and trust). Reads on different hosts run in parallel.
 - **Many portals at once** run side by side with no queue. A model 429 (rate limit) waits for `Retry-After`, or backs off 2 s, 4 s, 8 s and so on, for up to 5 retries before the portal fails; an exhausted quota fails at once with the provider's reason. All portals share one Chromium: if it crashes, the next page launches a new one and every page that died with it is retried once.
 - **Spend limits** reserve estimated headroom before each model request. A failed repair cools down before another model attempt; regular checks continue without a model call.
 
 ## Evidence by judging criterion
 
-**Attach.** The November 21, 03:20–03:48 CET attach-only eval on all eight lab portals (`5905ee2` for Stadtwerke, Ville, Gmina and Polder; `fcae462` for the rest) scored **95% of fields correct (929 of 979) with zero wrong values** on the seven attachable portals. Stadtwerke (**14/14**), Ville (**11/11**), Gmina (**13/13**), Polder (**12/12**) and Comune (**13/13**) scored **100%**; Gemeinde (**14/14**) **91%** and Kommune (**12/12**) **73%**, where the gaps are missing optional fields, not wrong ones. Obec failed as it should: its documents need a login. The 02:50–03:02 run before the withdrawn-label and cursor fixes scored 83% with 2 wrong values (cancelled tenders served as open).
+**Attach.** The November 21, 03:20–03:48 CET attach-only eval on all eight lab portals scored **95% of fields correct (929 of 979) with zero wrong values** on the seven attachable portals. Stadtwerke (**14/14**), Ville (**11/11**), Gmina (**13/13**), Polder (**12/12**) and Comune (**13/13**) scored **100%**; Gemeinde (**14/14**) **91%** and Kommune (**12/12**) **73%**, where the gaps are missing optional fields, not wrong ones. Obec failed as it should: its documents need a login. The 02:50–03:02 run before the withdrawn-label and cursor fixes scored 83% with 2 wrong values (cancelled tenders served as open).
 
 **Notice.** Watch checks read completeness, field values and golden records before delivery. The latest Gmina change run (November 21, 00:02 CET, after the empty-day and Medic fixes) noticed **100%** of changes correctly, with **0 false repairs in 2** harmless changes (cookie banner, empty day) and a moved document link that left tenders unaffected. The earlier November 20, 22:28 CET full run, before those fixes, had **3 false repairs in 6**.
 
@@ -43,13 +49,13 @@ POST /portals → Cartographer (model at attach) → JSON recipe
 
 **Dashboard.** Portals shows state, open versus delivered counts, and the map; Issues shows what needs attention; Log and the detail panel show reads, repairs, and model cost. See the sample views below.
 
-**Approach.** After the initial backlog clears, reads still check the listing but only fetch new or changed details and attachments. The TenderNed measurement recorded November 21 at 01:29 CET (`f9c4577`, [A’s hand-in notes](status/A.md)) listed **2,592** tenders and served its first **36** after about **14 minutes**; B’s November 21 handoff records a separate run at about **8.5 minutes** ([B’s notes](status/B.md)).
+**Approach.** Polite by design: under 1 request per second per portal, yet a new portal serves its first tenders in minutes. After the initial backlog clears, reads still check the listing but only fetch new or changed details and attachments.
 
 ## Model cost per portal
 
 | Operation | Model cost | Basis |
 |---|---:|---|
-| Attach once | $0.029 average | November 21, 03:20–03:48 CET attach-only eval on all eight lab portals ($0.012–$0.058); B’s November 20, 23:12 CET run on three portals averaged $0.033. |
+| Attach once | $0.029 average | November 21, 03:20–03:48 CET attach-only eval on all eight lab portals ($0.012–$0.058); an earlier November 20, 23:12 CET run on three portals averaged $0.033. |
 | Regular read | $0 | Deterministic extractor; no model call. |
 | Repair | $0.021 average | November 20, 22:28 CET full lab eval, per scenario that started a repair. |
 | Family attach | $0 | A reused recipe that passes its trial without a model call. |

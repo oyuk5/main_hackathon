@@ -31,7 +31,7 @@ Total model cost for the ten first runs: **$0.39**.
 
 All three match.
 
-**Generic bug found and fixed: `91a28c9`.** Mégalis and e-Vergabe Bund (a hidden portal) both failed only because the last draft still held an **optional** rule that matched nothing. Since that commit, the last draft drops such rules and continues; the fields stay empty and are never guessed. Test: `cartographer-model.test.ts` › "a dead optional rule left in the last draft is dropped instead of failing the attach".
+**Generic bug found and fixed: `91a28c9`.** Mégalis and one of our hidden test portals both failed only because the last draft still held an **optional** rule that matched nothing. Since that commit, the last draft drops such rules and continues; the fields stay empty and are never guessed. Test: `cartographer-model.test.ts` › "a dead optional rule left in the last draft is dropped instead of failing the attach".
 
 A second Mégalis run on the fix still failed ($0.055 extra). Its draft 4 had also dropped the required deadline rule, so the fix rightly stayed off. Mégalis's table above is the first run.
 
