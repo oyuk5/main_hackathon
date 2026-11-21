@@ -1,6 +1,6 @@
 # Pitch video: Watchtower in 2:30
 
-For the team recording it. The viewers are Patterno's judges. **Hard limit 2:30.** The script runs about 2:29. One video serves as both the pitch and the demo (BuilderBase has a single "Pitch Video" field).
+For the team recording it. The viewers are Patterno's judges. **Hard limit 2:30.** The script runs about 2:31. One video serves as both the pitch and the demo (BuilderBase has a single "Pitch Video" field).
 
 ## Why it is built this way
 - **It opens with Patterno's own sentence.** Their brief says: "Today we connect every new portal by hand. When a portal changes, its tenders can stop arriving without anyone noticing." We read it back to them word for word. People trust a solution to the problem in their own words.
@@ -26,16 +26,16 @@ For the team recording it. The viewers are Patterno's judges. **Hard limit 2:30.
 
 | Time | Who | Screen | Say |
 |---|---|---|---|
-| 0:00–0:10 | Narrator | Black, then the quote on screen in white | "'Today we connect every new portal by hand. When a portal changes, its tenders can stop arriving without anyone noticing.' That's Patterno's own brief." |
+| 0:00–0:10 | Narrator | Black, then the quote on screen in white | "'Today we connect every new portal by hand. When a portal changes, its tenders can stop arriving without anyone noticing.' Your own brief." |
 | 0:10–0:19 | Narrator | Dashboard: "1 portal needs a person", the state cards, the map | "This is Watchtower at eight in the morning: every portal serving, repairing, or needing a person, and why." |
 | 0:19–0:50 | **B** (face 2 s) | Paste `http://localhost:4300/kommune/` → **Watch portal** → cut to **Serving** → open a tender: documents, the ZIP unpacked into files | "**Attach.** One address it has never seen. A model studies the portal once, for about three cents. Then every read is plain code: no model, zero cost. Every tender, every document, ZIPs unpacked, local deadlines. Always polite: under one request per second, no logins." |
 | 0:50–1:25 | **C** (face 2 s) | Run the mutator in the terminal → gmina turns **Being repaired** → **Serving** → open gmina: run history (read failed, repair ok), repair summary, cost | "**Repair.** Now we break it: a full redesign, every class name changed. Watchtower notices on the next read and keeps serving the last correct tenders. It repairs itself, and code checks the fix against tenders it already knows before it goes live. In about a minute. About a cent. Nobody touched it." |
 | 1:25–1:40 | **A** (face 2 s) | obec: **failed**, reason "Documents need a login"; Issues tab | "**Notice.** Some portals hide documents behind a login. We never log in: Watchtower says failed, and why. Your rule: a wrong value is worse than a missing one." |
 | 1:40–1:49 | **D** (face 2 s) | Fast cuts, about 3 s each: **Import list** with `video-import.xlsx` (preview, "already watched", duplicates merged) → **EN/DE** switch | "**Dashboard.** Add a whole spreadsheet of portals at once. Auch auf Deutsch." |
-| 1:49–2:10 | **D** | README "Evidence by judging criterion" (the Attach and Repair paragraphs), then `docs/SAVINGS.md` table | "**Approach.** Eight portals we built, in eight countries, checked against exact ground truth: 95 percent of fields right, zero wrong values. Eleven of thirteen breaking changes repaired themselves, median sixteen seconds. A second portal on the same software costs nothing: no model call. At 300 portals, about forty-eight thousand euros a year saved, on our estimate." |
-| 2:10–2:29 | Narrator | Dashboard with every portal green (remove obec in the dashboard right before this shot), then the four faces with names, then "Watchtower" | "You asked for a dashboard with a lot of green lights. Here it is: one container, port 8080, ready for production. We're [names]. This is Watchtower." |
+| 1:49–2:09 | **D** | README "Evidence by judging criterion" (the Attach and Repair paragraphs), then `docs/SAVINGS.md` table | "**Approach.** Eight portals we built, in eight countries, checked against exact ground truth: 95 percent of fields right, zero wrong values. Eleven of thirteen breaking changes repaired themselves, median sixteen seconds. A second portal on the same software costs nothing: no model call. At 300 portals, we estimate forty-eight thousand euros saved a year." |
+| 2:09–2:31 | Narrator | Dashboard with every portal green (remove obec in the dashboard right before this shot), then the four faces with names, then "Watchtower" | "You asked for a dashboard with a lot of green lights. Here it is: one container, port 8080, ready for production. We're Ivan, Ilia, Ilie and Valentine. This is Watchtower." |
 
-The Approach numbers come from the README: 95 % and zero wrong values from the November 21, 03:20–03:48 CET attach-only eval of all eight lab portals; 11 of 13 repaired, median 16 s, from the November 20, 22:28 CET full lab run; €48,000 from `docs/SAVINGS.md`. Say only these numbers. Fill in **[names]**.
+The Approach numbers come from the README: 95 % and zero wrong values from the November 21, 03:20–03:48 CET attach-only eval of all eight lab portals; 11 of 13 repaired, median 16 s, from the November 20, 22:28 CET full lab run; €48,000 from `docs/SAVINGS.md`. Say only these numbers.
 
 **If you are over 2:30, cut in this order:** the EN/DE shot, the ZIP close-up, the map. Never cut the repair scene or the opening quote.
 
