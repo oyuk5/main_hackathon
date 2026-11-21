@@ -94,6 +94,27 @@ DATA_DIR=/tmp/wt-readme-demo PORT=8083 npx tsx scripts/demo.ts
 
 Large portals can take several minutes to deliver their first verified batch. Browser-only portals are slower because their page requests share the same rate limit. Watchtower never logs in to a portal or solves a captcha.
 
+## Compliance and trust
+
+**Politeness.**
+- Every request to a host waits at least 1.1 s after the previous one (`MIN_REQUEST_GAP_MS`, never below 1 s). That is about 0.9 requests per second per host. The browser and the robots.txt request share the same gate.
+- robots.txt is honoured for list pages, detail pages, document downloads and every request the browser makes.
+- The default User-Agent says who we are: `WatchtowerBot/0.1 (+tender monitoring; polite, 1 req/s)`.
+- Watchtower holds no credentials and solves no captchas. A login wall, a captcha, a 401/403 or a robots.txt refusal makes the portal `failed`, with a reason that names the block. We do not work around it: no disguised User-Agent, no second route.
+
+**Data.**
+- Watchtower reads only what a portal publishes without login.
+- Tender documents can contain the names and contact details of buyers' staff, which is personal data under the GDPR. Watchtower stores documents only to serve them with their tender.
+- `DELETE /portals/{id}` removes that portal's tenders, runs, events, recipes, baseline and golden records.
+- What `DELETE` keeps: the model-cost ledger rows, and the document files under `DATA_DIR/files`. Those files are stored by sha256 and may be shared with other portals, and `/files/{sha256}` still serves them.
+
+**Honesty.**
+- A portal is `serving` only after the deterministic checks in `watch.evaluate` pass on that read; no model call is involved.
+- A repair is published only when the patched recipe passes the same checks again. When golden records exist, it must also reproduce at least one of them.
+- Values that fail the contract are dropped, not served. While a repair runs, the last correct tenders stay in place.
+
+**Cost control.** Model calls stop at `MAX_MODEL_USD_PER_PORTAL` (default $3 per portal) and `MAX_MODEL_USD_PER_DAY` (default $20 per local day). Regular reads make no model call.
+
 ## API
 
 | Call | Answer |
