@@ -31,8 +31,13 @@ const BROWSER_LOAD_MS = 45_000;
 
 // ------------------------------------------------------------ what the model answers
 
+const STEP_ACTIONS = ["recipe", "navigate", "give_up"] as const;
+type StepAction = (typeof STEP_ACTIONS)[number];
+
 export const CartographerStep = z.object({
-  action: z.enum(["recipe", "navigate", "give_up"]),
+  // Any string parses: the format is not strict, and a model sometimes names the action differently
+  // ("fix", "update_recipe"). stepAction() reads what the answer actually carries instead.
+  action: z.union([z.enum(STEP_ACTIONS), z.string()]),
   /** For navigate: the absolute address of the page that lists the tenders. */
   // Defaults, because the model often leaves out the fields its action does not use (the response
   // format is not strict), and a whole round was lost to that.
@@ -42,6 +47,17 @@ export const CartographerStep = z.object({
   recipe: Recipe.nullable().default(null),
 });
 export type CartographerStep = z.infer<typeof CartographerStep>;
+
+/**
+ * The step's action. An unknown name counts only when the answer says what it means: a recipe is a
+ * recipe step, a navigateTo address a navigate step. Anything else is null: a malformed answer.
+ */
+export function stepAction(step: CartographerStep): StepAction | null {
+  if ((STEP_ACTIONS as readonly string[]).includes(step.action)) return step.action as StepAction;
+  if (step.recipe) return "recipe";
+  if (step.navigateTo) return "navigate";
+  return null;
+}
 
 // ------------------------------------------------------------ looking at a page
 
@@ -1115,6 +1131,15 @@ export async function attachWithModel(ctx: PortalContext, deps: ModelAttachDeps 
       history.push(`Your previous answer was not a valid step: ${msg}. Answer again with the exact JSON shape.`);
       continue;
     }
+    const action = stepAction(step);
+    if (action === null) {
+      rounds += 1;
+      lastProblem = `the model answered action "${step.action}" with neither a recipe nor an address`;
+      ctx.log(`The model's answer was not a valid step (round ${rounds} of ${MAX_RECIPE_ROUNDS}): unknown action "${step.action}".`, "warn");
+      history.push(`Your previous answer used action "${step.action}". Use exactly one of "recipe", "navigate" or "give_up".`);
+      continue;
+    }
+    step.action = action;
 
     if (step.action === "give_up") {
       ctx.log(`The model gave up: ${step.reason}`, "warn");
