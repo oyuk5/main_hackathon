@@ -473,3 +473,66 @@ test("a repair interrupted by a restart does not count as a failed repair", asyn
     await remove(portal);
   }
 });
+
+test("the same address added twice at once gives one portal and one attach", async (t) => {
+  const url = "https://twice.example/";
+  const attach = t.mock.method(cartographer, "attach", async () => attached(url));
+  const [a, b] = await Promise.all([1, 2].map(() => app.inject({ method: "POST", url: "/portals", payload: { url } })));
+  try {
+    assert.equal(a!.statusCode, 201);
+    assert.equal(b!.statusCode, 201);
+    assert.equal(a!.json().id, b!.json().id);
+    await waitForIdle(a!.json().id);
+    assert.equal(attach.mock.callCount(), 1);
+  } finally {
+    await remove(`/portals/${a!.json().id}`);
+  }
+});
+
+test("an attach that finishes after DELETE leaves nothing behind for the re-added address", async (t) => {
+  const { store } = await import("./store.js");
+  const url = "https://late-attach.example/";
+  let calls = 0;
+  t.mock.method(cartographer, "attach", async (ctx: { signal: AbortSignal }) => {
+    calls += 1;
+    if (calls === 1) {
+      // An attach that notices the abort late and still returns its result.
+      await new Promise<void>((r) => ctx.signal.addEventListener("abort", () => r(), { once: true }));
+      await delay(50);
+      return attached(url, read(url, "Stale title"));
+    }
+    return attached(url, read(url, "Fresh title"));
+  });
+  const id = await add(url);
+  await delay(20);
+  assert.equal((await remove(`/portals/${id}`)).statusCode, 204);
+  const again = await add(url);
+  try {
+    assert.equal(again, id);
+    await delay(150);
+    await waitForIdle(id);
+    assert.deepEqual((await get(`/portals/${id}/tenders`)).json().map((x: { title: string }) => x.title), ["Fresh title"]);
+    assert.equal(store.listRecipes(id).length, 1);
+    assert.equal((await get(`/portals/${id}`)).json().state, "serving");
+  } finally {
+    await remove(`/portals/${id}`);
+  }
+});
+
+test("refresh spam during an attach returns the attach's run and starts nothing else", async (t) => {
+  const url = "https://refresh-spam.example/";
+  const pending = deferred<AttachOutcome>();
+  const attach = t.mock.method(cartographer, "attach", () => pending.promise);
+  const id = await add(url);
+  try {
+    const first = (await get(`/portals/${id}/runs`)).json()[0].id;
+    for (let i = 0; i < 20; i++) assert.equal(await refresh(id), first);
+    pending.resolve(attached(url));
+    await waitForIdle(id);
+    assert.equal(attach.mock.callCount(), 1);
+    assert.equal((await get(`/portals/${id}/runs`)).json().length, 1);
+    assert.equal((await get(`/portals/${id}`)).json().state, "serving");
+  } finally {
+    await remove(`/portals/${id}`);
+  }
+});
