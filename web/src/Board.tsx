@@ -187,14 +187,14 @@ function Card({ k, hover, setHover }: { k: Ticket; hover: string | null; setHove
           {k.working && <span className="ml-auto shrink-0 text-[12px] text-slate">{t("board.working")}</span>}
         </span>
         <span className="mt-1.5 block text-[15px] leading-snug font-semibold [overflow-wrap:anywhere]">{k.title}</span>
-        <span className="mt-1 block text-[13.5px] leading-snug text-slate">{k.body}</span>
+        <span className="mt-1 block text-[13.5px] leading-snug text-slate [overflow-wrap:anywhere]">{k.body}</span>
         {p.state === "failed" && nextStep(p.reason) && (
-          <span className="mt-2 block rounded-[4px] bg-failed-wash px-2.5 py-1.5 text-[13px] leading-snug text-ink">
+          <span className="mt-2 block rounded-[4px] bg-failed-wash px-2.5 py-1.5 text-[13px] leading-snug text-ink [overflow-wrap:anywhere]">
             <span className="font-semibold">{t("board.todo")}</span>{nextStep(p.reason)}
           </span>
         )}
         {k.tried && (
-          <span className="mt-2 block border-l-2 border-hairline pl-2.5 text-[13px] leading-snug text-slate">
+          <span className="mt-2 block border-l-2 border-hairline pl-2.5 text-[13px] leading-snug text-slate [overflow-wrap:anywhere]">
             <span className="font-semibold text-ink">{t("board.tried")}</span>{k.tried}
           </span>
         )}
