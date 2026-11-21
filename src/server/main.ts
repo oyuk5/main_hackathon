@@ -3,6 +3,9 @@ import { buildServer } from "../platform/server.js";
 import { orchestrator } from "../platform/orchestrator.js";
 import { store } from "../platform/store.js";
 import { seedDemo } from "../platform/seedDemo.js";
+import { installCrashGuard } from "../platform/crashguard.js";
+
+installCrashGuard();
 
 const demo = process.env.SEED_DEMO === "1";
 if (demo && store.listPortals().length === 0) {
