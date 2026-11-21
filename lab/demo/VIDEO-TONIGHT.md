@@ -37,7 +37,7 @@ Record each scene as its own clip. Stop recording during any wait, and start aga
 **Say:** "Now the portal is redesigned: every class name changes, so the old way of reading it breaks. Watchtower notices on the next read, keeps serving the last correct tenders, and repairs itself. Before the fix goes live, code checks it against tenders it already knows. About a cent, under a minute, and nobody touched it."
 
 ### 4 · When it can't deliver, it says so (1:25–1:40)
-**Show:** click our **obec** (port 4300): state **failed**, reason "Documents need a login…". Then click the **Issues** tab.
+**Show:** obec is not on the dashboard at first, so the opening shows "Nothing needs a person". Type `http://localhost:4300/obec/` into the address field → **Watch portal** → **stop recording**. Within about a minute it turns **failed** with the reason "Documents need a login…". **Start recording**, show that reason, then click the **Issues** tab.
 **Say:** "Some portals hide their documents behind a login. We never log in, so Watchtower reports it as failed and says why, in plain words. A wrong value is worse than a missing one."
 
 ### 5 · Built for an operator (1:40–1:58)
