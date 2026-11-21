@@ -38,6 +38,8 @@ Local development: `npm install`, `npx playwright install chromium` (once), then
 
 **Team: start with [docs/ONBOARDING.md](docs/ONBOARDING.md).**
 
+`Dockerfile` at the root is the image to evaluate. `Dockerfile.vercel` only builds a hosted showcase with sample data (`SEED_DEMO=1`); it is not needed to run or test Watchtower.
+
 ## How it works
 
 **The model proposes, code decides.** A model is used to learn a portal and to repair it. Reading a portal is plain code, so the regular work costs nothing in model usage and gives the same answer every time.
