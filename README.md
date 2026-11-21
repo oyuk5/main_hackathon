@@ -107,8 +107,8 @@ Large portals can take several minutes to deliver their first verified batch. Br
 **Data.**
 - Watchtower reads only what a portal publishes without login.
 - Tender documents can contain the names and contact details of buyers' staff, which is personal data under the GDPR. Watchtower stores documents only to serve them with their tender.
-- `DELETE /portals/{id}` removes that portal's tenders, runs, events, recipes, baseline and golden records.
-- What `DELETE` keeps: the model-cost ledger rows, and the document files under `DATA_DIR/files`. Those files are stored by sha256 and may be shared with other portals, and `/files/{sha256}` still serves them.
+- `DELETE /portals/{id}` removes that portal's tenders, runs, events, recipes, baseline and golden records, and its documents: each file is deleted from disk and `/files/{sha256}` answers 404, unless another portal's tenders still list the same file.
+- What `DELETE` keeps: the model-cost ledger rows, so spend stays accountable.
 
 **Honesty.**
 - A portal is `serving` only after the deterministic checks in `watch.evaluate` pass on that read; no model call is involved.
