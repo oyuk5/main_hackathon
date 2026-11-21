@@ -238,3 +238,25 @@ describe("request cancellation over plain HTTP", () => {
     }
   });
 });
+
+describe("the robots.txt request counts toward the per-host rate", () => {
+  it("keeps the gap between robots.txt and the first page request", { timeout: 10_000 }, async () => {
+    const at: Array<[string, number]> = [];
+    const server = http.createServer((req, res) => {
+      at.push([req.url ?? "", Date.now()]);
+      if (req.url === "/robots.txt") return void res.writeHead(200, { "content-type": "text/plain" }).end("User-agent: *\nDisallow:\n");
+      res.writeHead(200, { "content-type": "text/html" }).end("<p>list</p>");
+    });
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+    try {
+      const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+      await (await politeHttp(new AbortController().signal).fetch(`${base}/list`)).text();
+      assert.deepEqual(at.map(([u]) => u), ["/robots.txt", "/list"]);
+      const gap = at[1]![1] - at[0]![1];
+      assert.ok(gap >= 1000, `robots.txt and the first page were ${gap} ms apart`);
+    } finally {
+      server.closeAllConnections();
+      server.close();
+    }
+  });
+});
