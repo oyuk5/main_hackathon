@@ -53,6 +53,38 @@ describe("document pipeline edge cases", { concurrency: true }, () => {
     assert.equal(got.documents[0]?.fileName, "Leistungsverzeichnis_Los_ä.pdf");
   });
 
+  it("keeps a file whose Content-Disposition has broken percent-encoding or a language tag", async () => {
+    const pdf = (cd: string) => (_q: unknown, res: import("node:http").ServerResponse) => {
+      res.writeHead(200, { "content-type": "application/pdf", "content-disposition": cd });
+      res.end("%PDF-1.4\nodd name");
+    };
+    const got = await run(
+      {
+        "/broken.pdf": pdf("attachment; filename*=UTF-8''Los_%E4.pdf"),
+        "/lang": pdf("attachment; filename*=UTF-8'de'Los_%C3%A4.pdf"),
+        "/empty.pdf": pdf("attachment; filename=\"\""),
+      },
+      (b) => ["broken.pdf", "lang", "empty.pdf"].map((x) => ({ url: `${b}/${x}`, via: "http" as const })),
+    );
+    assert.deepEqual(got.problems, []);
+    assert.deepEqual(got.documents.map((d) => d.fileName), ["broken.pdf", "Los_ä.pdf", "empty.pdf"]);
+  });
+
+  it("names a redirect to a login page as a login wall, not a file", async () => {
+    const got = await run(
+      {
+        "/doc.pdf": (_q, res) => res.writeHead(302, { location: "/login?next=/doc.pdf" }).end(),
+        "/login": (_q, res) => {
+          res.writeHead(200, { "content-type": "text/html" });
+          res.end("<html><body><form action=/login><input name=user><input type=password name=pw><button>Log in</button></form></body></html>");
+        },
+      },
+      (b) => [{ url: `${b}/doc.pdf`, via: "http" }],
+    );
+    assert.deepEqual(got.documents, []);
+    assert.match(got.problems[0]!, /^Documents need a login/);
+  });
+
   it("keeps only the last path segment of a hostile file name", async () => {
     const got = await run({ "/doc": file("%PDF-1.4\nx", "../../etc/passwd") }, (b) => [{ url: `${b}/doc`, via: "http" }]);
     assert.equal(got.documents[0]?.fileName, "passwd");

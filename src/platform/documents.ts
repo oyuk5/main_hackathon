@@ -42,8 +42,14 @@ const capMb = () => Math.round(config.maxFileBytes / 1048576);
 
 function fileNameFrom(res: Response, ref: DocumentRef): string {
   const cd = res.headers.get("content-disposition") ?? "";
-  const star = /filename\*\s*=\s*(?:UTF-8|utf-8)''([^;]+)/.exec(cd);
-  if (star?.[1]) return safeName(decodeURIComponent(star[1].trim().replace(/"/g, "")));
+  // RFC 5987: charset'language'value; the language tag may be empty or set.
+  const star = /filename\*\s*=\s*UTF-8'[^']*'([^;]+)/i.exec(cd);
+  if (star?.[1]) {
+    // Broken percent-encoding must not cost the file: fall back to the other names.
+    try {
+      return safeName(decodeURIComponent(star[1].trim().replace(/"/g, "")));
+    } catch { /* fall through */ }
+  }
   const plain = /filename\s*=\s*"?([^";]+)"?/i.exec(cd);
   if (plain?.[1]) return safeName(plain[1].trim());
   if (ref.fileNameHint) return safeName(ref.fileNameHint);
