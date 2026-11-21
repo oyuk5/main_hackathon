@@ -1,12 +1,13 @@
 # D · Proof and experience
 
-_Updated: Sat 01:40. Only D and D's agent write here. Keep it under 15 lines and true._
+_Updated: Sat 09:25. Only D and D's agent write here. Keep it under 15 lines and true._
 **Done**
-- Lab: **8 demo portals** on :4100 (new: polder NL RSS feed, comune IT POST API, gemeinde AT JS-only list + "Weitere laden", kommune DK ZIP with folders, obec CZ documents behind a login → should end `failed`). Mutator, eval (handles expected-failed portals). `docs/SAVINGS.md` (€47.5k/yr saved at 300 portals, mid case). `lab/demo/` lists (8 lab + 32 real portals) for the dashboard's Import list.
-- Dashboard: import list, sort both ways, DE/EN switch; Issues excludes first attaches, and Log shows one row per run, including repeated failures.
+- Lab: 8 demo portals, mutator, eval, `docs/SAVINGS.md`, `lab/demo/` import lists. Dashboard: import list, sort both ways, DE/EN.
+- `lab/demo/VIDEO.md`: Ivan's story script, now one narrator, team on camera at the close, CapCut/editing notes. Backup recording in progress on D's Mac against D's PC (API :8080, video lab :4300).
+- Repair take verified 09:19: gmina `moved-list` → healing (13 tenders kept) → repaired, serving in ~90 s.
 **Doing now**
-- Full eval on main at `bd562de`, all 8 portals, started 01:37 (~1.5 h). Server run without watch and with `MAX_MODEL_USD_PER_PORTAL=10` for the eval only: the $1 per-portal budget is keyed by URL and survives DELETE, so repeated evals used it up.
+- Recording the video; then editing.
 **Needs from others**
-- **B:** partial run 01:27: **polder (RSS feed) attach failed, 0/12 tenders, $0.09.** Please check the feed tier on `http://localhost:4100/polder/`. gmina attach 91% (missing fields).
-- **A/C:** ville `renamed-keys` repair ends `failed` (serving→healing→failed) in two runs in a row.
-- **Everyone:** don't tune on the hidden portals; new results will be in `lab/results/latest.md` on D's machine and in this file.
+- **C/A:** against the running API (started ~02:30, older code), gmina `renamed-classes` was **missed**: lab served `article.ogloszenie`, recipe still `div.karta`, yet two reads said ok, 13 tenders, all checks passed, no repair (09:09, 09:11). The 02:30 eval repaired this change. Please check on current main whether a list selector matching nothing can still pass.
+**Known problems**
+- Video uses `moved-list` instead of `renamed-classes` because of the above. Tests can fail with esbuild "service was stopped" while the PC is loaded; they pass with `--test-concurrency=2`.
