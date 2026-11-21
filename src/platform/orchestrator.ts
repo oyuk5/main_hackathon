@@ -279,7 +279,10 @@ async function beginRepair(portalId: string, runId: string, ctx: PortalContext, 
     ctx.log("The last repair failed; waiting before spending model calls on another attempt.", "warn");
     return failPortal(portalId, join(reason, "A previous repair failed; waiting before trying another"), config.pendingReadMinutes);
   }
-  store.setState(portalId, "healing", labelled("Repairing", reason));
+  // `healing` means "still serving the last correct tenders". A portal that never served stays
+  // `integrating` while its first recipe is repaired, so the state never promises tenders it lacks.
+  const neverServed = !store.getPortal(portalId)?.last_success_at;
+  store.setState(portalId, neverServed ? "integrating" : "healing", neverServed ? join("Attaching: repairing the first recipe", labelled("The first read looked wrong", reason)) : labelled("Repairing", reason));
   ctx.log(join(labelled("Read looks wrong", reason), "Starting a repair"), "warn");
 
   const repairId = "r_" + crypto.randomUUID().slice(0, 12);

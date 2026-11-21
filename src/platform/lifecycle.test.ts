@@ -271,6 +271,28 @@ for (const passesRecheck of [false, true]) {
   });
 }
 
+test("a portal whose first read looks wrong stays integrating while its first recipe is repaired", async (t) => {
+  const url = "https://first-read-wrong.example/";
+  const initial = attached(url);
+  const pending = deferred<RepairOutcome>();
+  t.mock.method(cartographer, "attach", async () => initial);
+  t.mock.method(watch, "evaluate", () => ({ kind: "broken", reason: "388 tenders have invalid publication dates.", checks: [] }));
+  t.mock.method(medic, "repair", () => pending.promise);
+  const id = await add(url);
+  const portal = `/portals/${id}`;
+  try {
+    for (let i = 0; i < 100 && (await get(`${portal}/runs`)).json()[0]?.kind !== "repair"; i++) await delay(50);
+    const entry = (await get(portal)).json();
+    assert.equal(entry.state, "integrating");
+    assert.equal(entry.lastSuccessAt, null);
+    assert.match(entry.reason, /^Attaching: repairing the first recipe\. The first read looked wrong: 388 tenders/);
+    assert.deepEqual((await get(`${portal}/tenders`)).json(), []);
+  } finally {
+    await remove(portal);
+    pending.resolve({ kind: "failed", reason: "Test ended." });
+  }
+});
+
 test("a repair that cannot fetch its documents does not replace the last good delivery or recipe", { timeout: 12_000 }, async (t) => {
   const fake = await fakePortal({
     "/original.pdf": file("%PDF-1.4\noriginal", "original.pdf"),
