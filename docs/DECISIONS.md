@@ -44,3 +44,4 @@ Sat 00:50 · A · Hint postal code and city independently when a detail label sh
 Sat · A/B · Reject known broken document rules and missing canonical tender URLs, and cancel oversized browser downloads while in flight · incomplete evidence must not be reported as a successful delivery
 - Sat 01:25 · A · Removed the optional Clerk sign-in (code, packages, README section) · the brief says there is no authentication; a login earns no criterion and risks blocking judges
 Sat 01:40 · A · Recognize an HTTP 429 list response carrying captcha markers before model or browser fallback · explicit challenges must fail with a captcha reason, not a model error
+- Sat 02:03 · A · Failed-attach reasons keep only the first sentence of the last problem (B's cartographer.ts) · real platformazakupowa.pl showed the model's correction instructions and recipe keys to the operator

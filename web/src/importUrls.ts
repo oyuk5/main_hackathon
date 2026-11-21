@@ -36,7 +36,8 @@ export function urlsInText(text: string, source: string): FoundUrl[] {
       continue;
     }
     if (!/^https?:$/.test(u.protocol) || !(u.hostname.includes(".") || u.hostname === "localhost") ||NOT_PORTALS.test(u.hostname)) continue;
-    const host = u.hostname.toLowerCase().replace(/^www\./, "");
+    // u.host keeps a non-default port, so localhost:4100 and localhost:4300 count as different portals.
+    const host = u.host.toLowerCase().replace(/^www\./, "");
     out.push({ url: u.href, key: `${host}${u.pathname.replace(/\/+$/, "")}${u.search}`, host, source });
   }
   return out;

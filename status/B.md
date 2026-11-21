@@ -1,6 +1,6 @@
 # B · Attach
 
-_Updated: Sat 00:40. Only B and B's agent write here. Keep it under 15 lines and true._
+_Updated: Sat 02:05. Only B and B's agent write here. Keep it under 15 lines and true._
 
 **Done**
 - Extractor (html, jsonApi, feed, **browser**: JS lists, `list.before` search steps, clickNext, click downloads); no model call on reads. Known recipe TenderNed; families ($0 for the 2nd portal on known software). DTVP read live via browser tier (draft recipe `recipes/dtvp.draft.json`, 40/40 fields).
@@ -8,7 +8,7 @@ _Updated: Sat 00:40. Only B and B's agent write here. Keep it under 15 lines and
 - Cartographer rejects drafts with known broken document rules; Extractor no longer substitutes summary URLs and leaves ambiguous local deadlines null. Gmina live recheck pending.
 
 **Doing now**
-- gmina: the model still skips procedureType/contractNature/place (73% there); same located-label approach as CPV next.
+- API field check `npx tsx src/attach/api-fields.check.ts`: all 15 track-description fields correct on every serving lab portal (ALL FIELDS OK). Next: real portals with it.
 **Needs from others**
 - A: first serve is now dominated by `deliver` document downloads (~6 of 8.5 min on TenderNed). A smaller document budget while a portal has no tenders yet (~60 refs) would serve in ~3 min.
 - A: env vars for README + `.env.example`: `PRICE_SMART_CACHED_IN`, `PRICE_FAST_CACHED_IN`, `LLM_PROMPT_CACHE=0`; ledger `cached_tokens` column. Demo: starts real reads by itself.

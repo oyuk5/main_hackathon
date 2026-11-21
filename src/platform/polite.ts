@@ -183,7 +183,7 @@ export function politeHttp(signal: AbortSignal, onRequest?: () => void): PoliteH
 let browserPromise: Promise<Browser> | null = null;
 function sharedBrowser(): Promise<Browser> {
   if (!browserPromise) {
-    const launching = chromium.launch({ headless: true });
+    const launching = chromium.launch({ headless: true, args: ["--disable-dev-shm-usage"] }) // Docker gives /dev/shm only 64 MB;
     browserPromise = launching;
     // A failed launch must not be cached forever: the next page tries again.
     launching.catch(() => {

@@ -912,6 +912,70 @@ export async function cpvHint(
   return lines.join("\n");
 }
 
+// ------------------------------------------------------------ located label rules (procedure, nature, place)
+
+const LABEL_FIELDS: Array<{ field: "procedureType" | "contractNature" | "postalCode" | "city"; label: RegExp; rule: (label: string) => FieldRule }> = [
+  { field: "procedureType", label: /verfahrensart|vergabeart|type de proc[ée]dure|^proc[ée]dure|procedimiento|tryb (udzielenia|post[ęe]powania)|procedura|aanbestedingsprocedure|procedure type/i, rule: (l) => ({ label: l, parse: "procedureType" }) },
+  { field: "contractNature", label: /leistungsart|auftragsart|art des auftrags|nature du march[ée]|type de march[ée]|tipo de contrato|rodzaj zam[óo]wienia|tipo di appalto|type opdracht|contract type|type of contract/i, rule: (l) => ({ label: l, parse: "contractNature" }) },
+  { field: "postalCode", label: /ort der (leistung|ausf[üu]hrung)|erf[üu]llungsort|lieu d.ex[ée]cution|lugar de ejecuci[óo]n|miejsce (realizacji|wykonania)|luogo di esecuzione|plaats van uitvoering|place of performance/i, rule: (l) => ({ label: l, regex: "\\b(\\d{2}-\\d{3}|\\d{4,5}|[A-Z]{1,2}\\d[A-Z\\d]? ?\\d[A-Z]{2})\\b", parse: "postalCode" }) },
+  { field: "city", label: /ort der (leistung|ausf[üu]hrung)|erf[üu]llungsort|lieu d.ex[ée]cution|lugar de ejecuci[óo]n|miejsce (realizacji|wykonania)|luogo di esecuzione|plaats van uitvoering|place of performance/i, rule: (l) => ({ label: l, regex: "(?:\\d{2}-\\d{3}|\\d{4,5})\\s+([^,;()]+?)\\s*(?:[,;(]|$)", parse: "text" }) },
+];
+
+/** Reads one field rule on a page already fetched, with the real Extractor; no request, no model. */
+async function readFieldRule(field: string, rule: FieldRule, page: { url: string; body: string }, ctx: PortalContext): Promise<unknown> {
+  const recipe = Recipe.parse({
+    schemaVersion: 1,
+    tier: "html",
+    timeZone: "Europe/Berlin",
+    list: { request: { url: page.url }, pagination: { type: "none" }, item: "body" },
+    listFields: { id: { const: "field-check" }, url: { const: page.url.replace(/[{}]/g, "") }, [field]: rule },
+  });
+  const local: PortalContext = {
+    portalId: `${ctx.portalId}#field-check`,
+    url: page.url,
+    http: { fetch: async () => new Response(page.body, { status: 200, headers: { "content-type": "text/html; charset=utf-8" } }) },
+    browser: { withPage: () => Promise.reject(new Error("no browser for a field check")) },
+    llm: ctx.llm,
+    log: () => {},
+    signal: ctx.signal,
+  };
+  const out = await readSample(recipe, local, { maxPages: 1, maxItems: 1 });
+  const t = out.kind === "ok" ? out.tenders[0] : undefined;
+  if (!t) return undefined;
+  if (field === "postalCode") return t.placeOfPerformance?.postalCode ?? undefined;
+  if (field === "city") return t.placeOfPerformance?.city ?? undefined;
+  return (t as unknown as Record<string, unknown>)[field];
+}
+
+/**
+ * For procedure type, contract type and place of performance the recipe leaves out although the page
+ * shows their labels: label rules checked on that page with the real Extractor. Only checked rules are
+ * offered, so the model can copy them. Null when nothing checked out.
+ */
+export async function labelHints(recipe: Recipe, page: { url: string; body: string }, where: "listFields" | "detail.fields", ctx: PortalContext): Promise<string | null> {
+  const t = page.body.trimStart();
+  if (t.startsWith("{") || t.startsWith("[")) return null;
+  const $ = cheerio.load(page.body);
+  $("script,style,nav,header,footer").remove();
+  const ok: string[] = [];
+  for (const f of LABEL_FIELDS) {
+    if (hasRule(recipe, f.field) || hasRule(recipe, `placeOfPerformance.${f.field}`)) continue;
+    let label: string | null = null;
+    $("th, dt, td, label, strong, b, span, div, p").each((_, el) => {
+      if (label) return;
+      const own = $(el).clone().children().remove().end().text().replace(/\s+/g, " ").trim().replace(/[:：]\s*$/, "");
+      if (own.length >= 3 && own.length <= 60 && f.label.test(own)) label = own;
+    });
+    if (!label) continue;
+    const rule = f.rule(label);
+    const got = await readFieldRule(f.field, rule, page, ctx).catch(() => undefined);
+    if (got !== undefined && got !== null && got !== "") ok.push(`"${f.field}": ${JSON.stringify(rule)}   (reads ${JSON.stringify(got)})`);
+  }
+  if (ok.length === 0) return null;
+  const home = where === "detail.fields" ? 'detail.fields (add detail: { "urlFrom": "url", … } if the recipe has none)' : "listFields";
+  return `The ${where === "detail.fields" ? `tender's own page (${page.url})` : "list item"} shows these fields and the recipe has no rule for them. Checked on that page, these rules read them; add them to ${home} as they are, do not skip them:\n${ok.join("\n")}`;
+}
+
 async function showTenderPage(deps: ModelAttachDeps, recipe: Recipe, read: ReadOutcome, ctx: PortalContext): Promise<TenderPageView | null> {
   if (read.kind !== "ok" || read.tenders.length === 0) return null;
   const start = documentsStart(recipe, read.tenders[0]!);
@@ -1170,6 +1234,19 @@ export async function attachWithModel(ctx: PortalContext, deps: ModelAttachDeps 
         }
       }
     }
+    // Procedure, contract type and place: checked label rules from the tender page, for up to three drafts.
+    if (sample.kind === "ok" && sample.tenders.length > 0 && drafts <= 3 && recipe.tier === "html") {
+      const start = documentsStart(recipe, sample.tenders[0]!);
+      if (!tenderPage && start) {
+        const got = await (deps.page ?? fetchText)(ctx, start).catch((e) => {
+          if (ctx.signal.aborted) throw e;
+          return null;
+        });
+        if (got && got.status >= 200 && got.status < 300) tenderPage = { url: got.url, body: got.text };
+      }
+      const hint = tenderPage ? await labelHints(recipe, tenderPage, recipe.detail ? "detail.fields" : "detail.fields", ctx) : null;
+      if (hint) withdrawnBlock.push(hint);
+    }
     const blocking = drafts === 1 ? [...judged.errors, ...judged.warnings, ...docsBlock, ...withdrawnBlock] : [...judged.errors, ...docsBlock, ...withdrawnBlock];
     if (blocking.length === 0) {
       if (judged.docs.length) ctx.log(`The recipe has no working documents rule: ${judged.docs[0]}`, "warn");
@@ -1203,12 +1280,18 @@ export async function attachWithModel(ctx: PortalContext, deps: ModelAttachDeps 
   }
 
   if (hint && !everRead) return { kind: "blocked", reason: `${capital(hint)}, and no tender list could be read without it.` };
-  return { kind: "failed", reason: `Could not learn this portal in ${MAX_RECIPE_ROUNDS} drafts: ${lower(lastProblem)}` };
+  return { kind: "failed", reason: `Could not learn this portal in ${MAX_RECIPE_ROUNDS} drafts: ${lower(firstSentence(lastProblem))}` };
 }
 
 function capital(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
+/** The operator reads the problem, not the fix we asked the model for: keep its first sentence. */
+export function firstSentence(s: string): string {
+  const m = /^.*?[.!?](?=\s+[A-Z(]|$)/s.exec(s.trim());
+  return m ? m[0] : s.trim();
+}
+
 function lower(s: string): string {
   const t = s.trim().replace(/\.$/, "");
   return (t.charAt(0).toLowerCase() + t.slice(1)) + ".";

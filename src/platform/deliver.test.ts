@@ -368,3 +368,16 @@ test("robots.txt on document downloads counts as a block, not a repair", async (
   assert.equal(classifyDocumentFailures([robots, robots], 3)?.kind, "blocked");
   assert.match(classifyDocumentFailures([robots, robots], 3)!.reason, /robots\.txt disallows/);
 });
+
+test("a deleted and re-added portal starts with a fresh model budget", () => {
+  const id = "budget-reset";
+  store.insertPortal({ id, url: "https://budget-reset.example/", state: "integrating", reason: "Attaching.", createdAt: "2026-11-20T18:00:00+01:00" });
+  store.insertRun({ id: "r_budget1", portalId: id, kind: "read", startedAt: "2026-11-20T18:00:00+01:00" });
+  store.addLlmCall({ portalId: id, runId: "r_budget1", purpose: "attach", model: "m", inputTokens: 1, outputTokens: 1, costUsd: 0.9, at: "2026-11-20T18:01:00+01:00" });
+  assert.equal(store.modelSpend(id, "2026-11-20").portal, 0.9);
+  store.deletePortal(id);
+  store.insertPortal({ id, url: "https://budget-reset.example/", state: "integrating", reason: "Attaching.", createdAt: "2026-11-20T19:00:00+01:00" });
+  assert.equal(store.modelSpend(id, "2026-11-20").portal, 0);
+  assert.equal(store.modelSpend(id, "2026-11-20").day, 0.9); // the day cap still counts it
+  assert.equal(store.ledger(id).length, 1); // and the cost history is kept
+});

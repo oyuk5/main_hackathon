@@ -205,7 +205,7 @@ export const store = {
 
   // ---------------------------------------------------------------- ledger
   modelSpend(portalId: string | null, day: string) {
-    const row = db.prepare(`SELECT COALESCE(SUM(CASE WHEN portal_id = ? THEN cost_usd END), 0) AS portal,
+    const row = db.prepare(`SELECT COALESCE(SUM(CASE WHEN portal_id = ? AND (run_id IS NULL OR run_id IN (SELECT id FROM runs)) THEN cost_usd END), 0) AS portal,
       COALESCE(SUM(CASE WHEN substr(at, 1, 10) = ? THEN cost_usd END), 0) AS day FROM llm_calls`).get(portalId, day);
     return { portal: Number(row?.portal), day: Number(row?.day) };
   },

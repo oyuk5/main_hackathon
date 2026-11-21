@@ -279,7 +279,10 @@ async function beginRepair(portalId: string, runId: string, ctx: PortalContext, 
     ctx.log("The last repair failed; waiting before spending model calls on another attempt.", "warn");
     return failPortal(portalId, join(reason, "A previous repair failed; waiting before trying another"), config.pendingReadMinutes);
   }
-  store.setState(portalId, "healing", labelled("Repairing", reason));
+  // `healing` means "still serving the last correct tenders". A portal that never served stays
+  // `integrating` while its first recipe is repaired, so the state never promises tenders it lacks.
+  const neverServed = !store.getPortal(portalId)?.last_success_at;
+  store.setState(portalId, neverServed ? "integrating" : "healing", neverServed ? join("Attaching: repairing the first recipe", labelled("The first read looked wrong", reason)) : labelled("Repairing", reason));
   ctx.log(join(labelled("Read looks wrong", reason), "Starting a repair"), "warn");
 
   const repairId = "r_" + crypto.randomUUID().slice(0, 12);
@@ -446,7 +449,9 @@ export async function deliver(portalId: string, read: OkRead, ctx: PortalContext
         : !row ? "new" : previousFileCounts.has(et.id) ? "changed" : row.refs_hash === refsHashOf.get(et.id) ? "none" : row.refs_hash === "" ? "retry" : "changed";
       return { id: et.id, need, refs: et.documentRefs.length, open: statusOf(et) === "open", publicationDate: et.publicationDate ?? null };
     }),
-    config.docRefsPerRead,
+    // Until a portal has served once, fetch a small first batch so its first tenders appear in
+    // minutes; the rest follow in the next reads, one minute apart.
+    store.getPortal(portalId)?.last_success_at || repairRecipe ? config.docRefsPerRead : Math.min(config.firstDocRefs, config.docRefsPerRead),
   );
 
   let pendingRefs = 0;

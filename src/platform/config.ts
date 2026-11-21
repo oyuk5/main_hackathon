@@ -12,6 +12,8 @@ export const config = {
   failedRetryMinutes: num(process.env.FAILED_RETRY_MINUTES, 30),
   /** Document refs fetched per read at most; the rest follow in the next reads (see budget.ts). */
   docRefsPerRead: Math.max(1, num(process.env.DOC_REFS_PER_READ, 300)),
+  /** Document refs fetched by a portal's first delivery, so its first tenders arrive within minutes. */
+  firstDocRefs: Math.max(1, num(process.env.FIRST_DOC_REFS, 60)),
   /** While documents are pending, the next read follows this soon instead of the normal interval. */
   pendingReadMinutes: 1,
   /** Minimum gap between two requests to one host. The brief allows at most 1 per second. */
@@ -20,12 +22,12 @@ export const config = {
   maxFileBytes: num(process.env.MAX_FILE_BYTES, 250 * 1024 * 1024),
   userAgent: process.env.USER_AGENT ?? "WatchtowerBot/0.1 (+tender monitoring; polite, 1 req/s)",
   llm: {
-    maxPortalUsd: spendLimit(process.env.MAX_MODEL_USD_PER_PORTAL, 1),
+    maxPortalUsd: spendLimit(process.env.MAX_MODEL_USD_PER_PORTAL, 3),
     maxDayUsd: spendLimit(process.env.MAX_MODEL_USD_PER_DAY, 20),
     apiKey: process.env.OPENAI_API_KEY ?? "",
     baseUrl: process.env.OPENAI_BASE_URL || undefined,
-    smartModel: process.env.MODEL_SMART ?? "",
-    fastModel: process.env.MODEL_FAST ?? "",
+    smartModel: process.env.MODEL_SMART || "gpt-6.2-sol", // the models we measured; override per deployment
+    fastModel: process.env.MODEL_FAST || "gpt-6-luna",
     /** USD per million tokens, for the cost ledger. Set from the provider's price page. */
     priceInPerMTok: { smart: num(process.env.PRICE_SMART_IN, 0), fast: num(process.env.PRICE_FAST_IN, 0) },
     priceOutPerMTok: { smart: num(process.env.PRICE_SMART_OUT, 0), fast: num(process.env.PRICE_FAST_OUT, 0) },

@@ -1,0 +1,10 @@
+Name,Country,Software,Address,Notes
+Gemeente Polderwijk,NL,lab,http://localhost:4300/polder/,Video lab: RSS feed
+Comune di Valdoria,IT,lab,http://localhost:4300/comune/,"Video lab: JavaScript app, POST search"
+Marktgemeinde Almbach,AT,lab,http://localhost:4300/gemeinde/,Video lab: list only after JavaScript runs
+Stadtwerke Lindenau,DE,lab,http://localhost:4300/stadtwerke/,Video lab: HTML table
+Ville de Rivemont,FR,lab,http://localhost:4300/ville/,Video lab: JSON app
+Gmina Lipowo,PL,lab,http://localhost:4300/gmina/,Video lab: already watched (shows as greyed out)
+Obec Lipnice,CZ,lab,http://localhost:4300/obec/,"Video lab: already watched, failed (documents need a login)"
+TenderNed,NL,own,https://www.tenderned.nl/aankondigingen/overzicht,"Real national portal, already watched"
+TenderNed (duplicate row),NL,own,https://www.tenderned.nl/aankondigingen/overzicht/,Same portal again: the import merges duplicates
