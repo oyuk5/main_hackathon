@@ -34,9 +34,9 @@ POST /portals → Cartographer (model at attach) → JSON recipe
 
 **Attach.** The November 21, 00:59–01:04 CET attach-only recheck at `29ec17a` (recorded in `7e04b69`) scored **100%, zero wrong values**: Gmina twice (**13/13** each), Stadtwerke (**14/14**), Ville (**11/11**). The November 20, 22:28 CET full lab run scored **73%, zero wrong values**; missing fields reduced that score (D’s archived `status/D.md` at `931e012`).
 
-**Notice.** Watch checks read completeness, field values and golden records before delivery. The 22:28 full run triggered **3 false repairs in 6** harmless changes. A separate November 21, 00:15 CET Gmina empty-day check had **0 in 1** and stayed `serving` (audit commit `b357b5d`).
+**Notice.** Watch checks read completeness, field values and golden records before delivery. The latest Gmina change run (November 21, 00:02 CET, after the empty-day and Medic fixes) noticed **100%** of changes correctly, with **0 false repairs in 2** harmless changes (cookie banner, empty day) and a moved document link that left tenders unaffected. The earlier November 20, 22:28 CET full run, before those fixes, had **3 false repairs in 6**; each case is now covered by a unit test.
 
-**Repair.** The 22:28 full run healed **11 of 13** breaking changes (**85%**), with a **16 s** median. In a separate November 21, 00:29 CET Gmina test, renamed classes repaired in **78.7 s** for **$0.014** (`da52b36` repair check). These are lab observations, not live-portal guarantees.
+**Repair.** The 22:28 full run healed **11 of 13** breaking changes (**85%**), with a **16 s** median. The 00:02 Gmina run healed moved list, new pagination and date format (median **45 s**, **$0.063** per repair); renamed classes failed there and stayed honest, and after the Medic retry fix it repaired in **78.7 s** for **$0.014** (November 21, 00:29 CET). These are lab observations, not live-portal guarantees.
 
 **Dashboard.** Portals shows state, open versus delivered counts, and the map; Issues shows what needs attention; Log and the detail panel show reads, repairs, and model cost. See the sample views below.
 
