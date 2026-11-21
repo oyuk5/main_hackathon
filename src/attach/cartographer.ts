@@ -52,6 +52,8 @@ export interface Look {
   rendered: string | null;
   json: CapturedJson[];
   feeds: string[];
+  /** Path prefixes of scripts or data requests the browser refused because robots.txt forbids them. */
+  robotsBlocked?: string[];
 }
 
 export interface CapturedJson {
@@ -70,10 +72,23 @@ async function fetchText(ctx: PortalContext, url: string): Promise<{ url: string
 }
 
 /** Loads the page in the browser and keeps the JSON the page itself fetched: often a clean API. */
-async function sniff(ctx: PortalContext, url: string): Promise<{ rendered: string | null; json: CapturedJson[] }> {
+async function sniff(ctx: PortalContext, url: string): Promise<{ rendered: string | null; json: CapturedJson[]; robotsBlocked: string[] }> {
   try {
     return await ctx.browser.withPage(async (page) => {
       const json: CapturedJson[] = [];
+      // The polite browser refuses requests robots.txt forbids (net::ERR_BLOCKED_BY_CLIENT). When the
+      // page's own scripts or data calls are among them, the list can never render for us.
+      const refused = new Set<string>();
+      page.on("requestfailed", (req) => {
+        try {
+          if (!/BLOCKED_BY_CLIENT/i.test(req.failure()?.errorText ?? "")) return;
+          if (!["script", "xhr", "fetch", "document"].includes(req.resourceType())) return;
+          const u = new URL(req.url());
+          refused.add(`${u.host}/${u.pathname.split("/")[1] ?? ""}/`);
+        } catch {
+          // ignore
+        }
+      });
       page.on("response", (res) => {
         void (async () => {
           try {
@@ -94,12 +109,12 @@ async function sniff(ctx: PortalContext, url: string): Promise<{ rendered: strin
       await page.goto(url, { waitUntil: "domcontentloaded", timeout: BROWSER_LOAD_MS }).catch(() => {});
       await page.waitForLoadState("networkidle", { timeout: 10_000 }).catch(() => {});
       const rendered = await page.content().catch(() => null);
-      return { rendered: rendered && rendered.length > 200 ? rendered : null, json };
+      return { rendered: rendered && rendered.length > 200 ? rendered : null, json, robotsBlocked: [...refused] };
     });
   } catch (e) {
     if (ctx.signal.aborted) throw e;
     ctx.log(`The browser could not load ${url}; working from the plain page.`, "warn");
-    return { rendered: null, json: [] };
+    return { rendered: null, json: [], robotsBlocked: [] };
   }
 }
 
@@ -112,8 +127,8 @@ export async function look(ctx: PortalContext, url: string): Promise<Look> {
   const served = servedListSize(first.text);
   if (!blockedHard && served >= SERVED_LIST_MIN) ctx.log(`The page as served already lists ${served} linked items; reading it without the browser.`);
   const skipBrowser = blockedHard || served >= SERVED_LIST_MIN;
-  const { rendered, json } = skipBrowser ? { rendered: null, json: [] } : await sniff(ctx, first.url);
-  return { url: first.url, status: first.status, raw: first.text, rendered, json: rankJson(json), feeds };
+  const { rendered, json, robotsBlocked } = skipBrowser ? { rendered: null, json: [], robotsBlocked: [] as string[] } : await sniff(ctx, first.url);
+  return { url: first.url, status: first.status, raw: first.text, rendered, json: rankJson(json), feeds, robotsBlocked };
 }
 
 /** Similar linked items the served page needs to count as "already shows the list". */
@@ -390,6 +405,8 @@ Recipe rules (schemaVersion is 1):
 function describeLook(l: Look): string {
   const parts = [`Address: ${l.url} (HTTP ${l.status})`, zoneHint(l.url)];
   if (l.feeds.length) parts.push(`Feeds linked from the page:\n${l.feeds.join("\n")}`);
+  if (l.robotsBlocked?.length)
+    parts.push(`robots.txt forbids these paths, so the browser did not load the page's scripts or data from them (we never read them): ${l.robotsBlocked.join(", ")}. If the tender list depends on them, give up and say robots.txt forbids it.`);
   if (l.json.length) {
     parts.push(
       "JSON calls the page made (most list-like first):\n" +
@@ -1037,6 +1054,8 @@ export async function attachWithModel(ctx: PortalContext, deps: ModelAttachDeps 
   if (current.status === 401 || current.status === 403) return { kind: "blocked", reason: `${capital(hint!)}.` };
 
   let navigations = 0;
+  /** Paths robots.txt kept the browser from loading, over every page looked at. */
+  const robotsRefused = new Set<string>(current.robotsBlocked ?? []);
   /** True once any draft read at least one tender: then a login box on the page is not what stops us. */
   let everRead = false;
   let rounds = 0;
@@ -1077,6 +1096,7 @@ export async function attachWithModel(ctx: PortalContext, deps: ModelAttachDeps 
 
     if (step.action === "give_up") {
       ctx.log(`The model gave up: ${step.reason}`, "warn");
+      if (!everRead && robotsRefused.size) return { kind: "blocked", reason: robotsReason(robotsRefused) };
       const namesBlock = /log ?in|sign(ed)? ?in|password|account|registr|captcha|anmeld|zaloguj|iniciar sesi/i.test(step.reason);
       if (hint && !everRead && namesBlock) return { kind: "blocked", reason: `${capital(hint)}; ${lower(step.reason)}` };
       return { kind: "failed", reason: `Could not learn this portal: ${lower(step.reason)}` };
@@ -1106,6 +1126,7 @@ export async function attachWithModel(ctx: PortalContext, deps: ModelAttachDeps 
         continue;
       }
       hint = blockHint(current.raw, current.status) ?? hint;
+      for (const r of current.robotsBlocked ?? []) robotsRefused.add(r);
       if (isCaptchaResponse(current.status, current.raw)) return { kind: "blocked", reason: "The portal blocks the tender list with a captcha." };
       if (current.status === 401 || current.status === 403) return { kind: "blocked", reason: `${capital(blockHint(current.raw, current.status)!)}.` };
       history.length = 0; // a new page: earlier feedback was about the old one
@@ -1280,7 +1301,13 @@ export async function attachWithModel(ctx: PortalContext, deps: ModelAttachDeps 
   }
 
   if (hint && !everRead) return { kind: "blocked", reason: `${capital(hint)}, and no tender list could be read without it.` };
+  if (!everRead && robotsRefused.size) return { kind: "blocked", reason: robotsReason(robotsRefused) };
   return { kind: "failed", reason: `Could not learn this portal in ${MAX_RECIPE_ROUNDS} drafts: ${lower(firstSentence(lastProblem))}` };
+}
+
+function robotsReason(paths: Set<string>): string {
+  const list = [...paths].slice(0, 3).map((p) => p.replace(/^[^/]+/, "")).join(", ");
+  return `robots.txt forbids ${list}, which this portal needs to show its tender list (its scripts or data), so Watchtower does not read it.`;
 }
 
 function capital(s: string): string {
