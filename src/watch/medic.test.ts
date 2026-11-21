@@ -331,6 +331,21 @@ describe("createMedic", () => {
     assert.match(llmCalls[2]!.user, /None of the known \(golden\) tenders/);
   });
 
+  it("retries a patch that no longer sees a cancellation, and asks for the renamed withdrawn rule", async () => {
+    const before = makeRecipe();
+    const patched = makeRecipe({ list: { ...before.list, item: "div.card" } });
+    const { ctx, llmCalls } = makeContext({ llmHandler: async () => ({ recipe: patched, changeNote: "Renamed keys" }) });
+    const reads = [makeOkRead([makeTender()]), makeOkRead([{ ...makeTender(), withdrawn: true }])];
+    const medic = createMedic(makeDeps({ extractor: { read: async () => reads.shift()! }, verifyGolden: () => ({ checked: 1, matched: 1, mismatches: [] }) }));
+    const baseline = { ...makeBaseline(1), withdrawnIds: ["T-1"] };
+
+    const outcome = await medic.repair({ recipe: before, verdict: makeBrokenVerdict(), baseline }, ctx);
+
+    assert.equal(outcome.kind, "ok");
+    assert.equal(llmCalls.length, 2);
+    assert.match(llmCalls[1]!.user, /T-1 were cancelled before the change[\s\S]*withdrawn rule/);
+  });
+
   it("shows the known tender and its linked document page in a minimal repair prompt", async () => {
     const before = makeRecipe({ documents: { hops: [], files: { css: "a.plik", attr: "href" }, via: "http" } });
     const { ctx, llmCalls } = makeContext({ llmHandler: async () => ({ recipe: before, changeNote: "Kept the list" }) });

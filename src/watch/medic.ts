@@ -246,6 +246,17 @@ async function verifyCandidate(
       sampleTenders,
     };
   }
+  // A cancelled tender that the patch reads as open would be served as open: the platform refuses it.
+  const withdrawnIds = (baseline as Baseline & { withdrawnIds?: readonly string[] }).withdrawnIds ?? [];
+  const reopened = read.tenders.filter((t) => withdrawnIds.includes(t.id) && !t.withdrawn);
+  if (reopened.length > 0) {
+    return {
+      kind: "retry",
+      promptReason: `Tenders ${reopened.slice(0, 3).map((t) => t.id).join(", ")} were cancelled before the change, but the patched recipe no longer marks them withdrawn. The cancellation field was probably renamed too: update the withdrawn rule (listFields.withdrawn or detail.fields.withdrawn) to the new name.`,
+      operatorReason: `The patch no longer sees the cancellation of ${plural(reopened.length, "withdrawn tender")}.`,
+      sampleTenders,
+    };
+  }
   return { kind: "ok", read, golden };
 }
 

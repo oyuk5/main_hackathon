@@ -296,7 +296,8 @@ async function beginRepair(portalId: string, runId: string, ctx: PortalContext, 
     .filter((tender) => tender.documents.length > 0)
     .map((tender) => [tender.id, tender.documents.length]));
   // Extra field for the Medic; it joins Baseline in modules.ts once C agrees (status/A.md).
-  const repairBaseline: Baseline & { publishedDocumentCounts: Record<string, number> } = { ...baseline, publishedDocumentCounts };
+  const withdrawnIds = store.listTenders(portalId).filter((tender) => tender.status === "withdrawn").map((tender) => tender.id);
+  const repairBaseline: Baseline & { publishedDocumentCounts: Record<string, number>; withdrawnIds: string[] } = { ...baseline, publishedDocumentCounts, withdrawnIds };
   const fixed = await medic.repair({ recipe, verdict, baseline: repairBaseline }, rctx);
   if (ctx.signal.aborted) return;
   if (fixed.kind !== "ok") {
