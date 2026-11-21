@@ -48,3 +48,4 @@ Sat 01:40 · A · Recognize an HTTP 429 list response carrying captcha markers b
 Sat 02:16 · A · Normalize required date fields independently of a learned parser hint · eTenders listing timestamps must reach Watch as canonical dates or null
 Sat 02:20 · A · Fall back to browser evidence on an HTTP redirect loop and require a compatible recipe · public cookie negotiation may need a browser without signing in
 Sat 02:27 · A · Sample up to three distinct tender pages for attachment evidence · the first Platforma tender may have no files even when other rows expose a download table
+- Sat 02:29 · A · Medic gets the withdrawn tender ids in its baseline (`withdrawnIds`, next to `publishedDocumentCounts`) and retries a patch that reads them as open (C's medic.ts) · ville renamed-keys failed at the platform's lost-cancellation guard without a retry; now ville heals 3/3, 0 false repairs
