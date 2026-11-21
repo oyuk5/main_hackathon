@@ -23,8 +23,15 @@ export const LLM_TIMEOUT_MS = 90_000;
 export const LLM_MAX_RETRIES = 0;
 /** 429 rate-limit answers are retried this many times, waiting Retry-After or an exponential backoff. */
 export const LLM_RATE_LIMIT_RETRIES = 5;
+/** Request timeouts are retried this many times with the same exponential backoff. */
+export const LLM_TIMEOUT_RETRIES = 2;
 const BACKOFF_BASE_MS = 2_000;
 const BACKOFF_MAX_MS = 60_000;
+
+/** The SDK's request timeout (APIConnectionTimeoutError): the provider was slow, a later try may answer. */
+export function isTimeout(e: unknown): boolean {
+  return e instanceof OpenAI.APIConnectionTimeoutError;
+}
 
 /** A 429 the provider may lift by waiting: not an exhausted quota, which no wait fixes. */
 export function isRetryableRateLimit(e: unknown): boolean {
@@ -203,10 +210,16 @@ export function llmFor(portalId: string | null, runId: string | null, deps: LlmD
       // Many portals attach at once and share one key: a 429 waits and retries instead of failing the portal.
       const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
       const createWithRetry = async (body: Body) => {
+        let timeouts = 0;
         for (let attempt = 0; ; attempt++) {
           try {
             return await create(body);
           } catch (e) {
+            if (isTimeout(e)) {
+              if (timeouts >= LLM_TIMEOUT_RETRIES) throw e;
+              await sleep(rateLimitDelayMs(null, timeouts++));
+              continue;
+            }
             if (!isRetryableRateLimit(e) || attempt >= LLM_RATE_LIMIT_RETRIES) throw e;
             await sleep(rateLimitDelayMs(e, attempt));
           }

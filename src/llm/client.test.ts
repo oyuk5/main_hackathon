@@ -2,7 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { z } from "zod";
 import { config } from "../platform/config.js";
-import { buildRequest, cacheKeyFor, costOf, isRetryableRateLimit, llmFor, LLM_RATE_LIMIT_RETRIES, PART_SEPARATOR, pricesFor, rateLimitDelayMs, resetCachingForTests, type LlmDeps, type Usage } from "./client.js";
+import { APIConnectionTimeoutError } from "openai";
+import { buildRequest, cacheKeyFor, costOf, isRetryableRateLimit, llmFor, LLM_RATE_LIMIT_RETRIES, LLM_TIMEOUT_RETRIES, PART_SEPARATOR, pricesFor, rateLimitDelayMs, resetCachingForTests, type LlmDeps, type Usage } from "./client.js";
 
 // Prices as in docs/DECISIONS.md: smart 2/10, fast 0.10/0.50 USD per million tokens.
 // config is read-only by type; tests set it through a writable view.
@@ -185,4 +186,33 @@ test("rate-limit delays: retry-after-ms, seconds, HTTP date, else exponential ba
   assert.equal(rateLimitDelayMs(rateLimited(), 2, () => 0.5), 8000);
   assert.equal(rateLimitDelayMs(rateLimited(), 10, () => 0.5), 60_000);
   assert.equal(isRetryableRateLimit(Object.assign(new Error("x"), { status: 500 })), false);
+});
+
+test("a request timeout is retried with backoff, at most twice", async () => {
+  const waits: number[] = [];
+  let n = 0;
+  const deps: LlmDeps = {
+    create: async () => {
+      n += 1;
+      if (n <= 2) throw new APIConnectionTimeoutError();
+      return { usage: { prompt_tokens: 10, completion_tokens: 1 }, choices: [{ message: { content: '{"ok":true}' } }] };
+    },
+    addLlmCall: () => {},
+    sleep: async (ms) => void waits.push(ms),
+  };
+  const schema = z.object({ ok: z.boolean() });
+  const out = await llmFor("p1", null, deps).json({ purpose: "attach", model: "smart", system: "S", user: "U", schema });
+  assert.deepEqual(out, { ok: true });
+  assert.equal(n, 3);
+  assert.equal(waits.length, 2);
+  assert.ok(waits[0]! >= 1500 && waits[0]! <= 2500, String(waits[0]));
+
+  n = 0;
+  deps.create = async () => {
+    n += 1;
+    throw new APIConnectionTimeoutError();
+  };
+  await assert.rejects(llmFor("p1", null, deps).json({ purpose: "attach", model: "smart", system: "S", user: "U", schema }), /timed out/);
+  assert.equal(n, LLM_TIMEOUT_RETRIES + 1);
+  assert.equal(LLM_TIMEOUT_RETRIES, 2);
 });
