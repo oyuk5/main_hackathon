@@ -554,7 +554,9 @@ function parseOne(kind: ParseKind | "countryCode", v: unknown, rule: FieldRule, 
 }
 
 function parseField(field: string, rule: FieldRule, raws: unknown[], recipe: Recipe, base: string): unknown {
-  const kind = rule.parse ?? defaultParse(field);
+  // A model may select the right date cell but label its parser as text or date.
+  // Normalize the required date fields before Watch sees them, not after publication.
+  const kind = field === "publicationDate" || field === "submissionDeadline" ? defaultParse(field) : rule.parse ?? defaultParse(field);
   if (kind === "cpv") {
     const out: string[] = [];
     for (const r of raws) for (const c of normalizeCpvList(r)) if (!out.includes(c)) out.push(c);

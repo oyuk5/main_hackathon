@@ -97,6 +97,18 @@ const row = (ref: string, href: string | null, title: string, pub: string, extra
   `<tr class="row"><td class="ref">${ref}</td><td>${href ? `<a href="${href}">${title}</a>` : title}</td><td class="pub">${pub}</td><td>${extra}</td></tr>`;
 const table = (rows: string) => page(`<main><table class="results"><tbody>${rows}</tbody></table></main>`);
 
+test("eTenders date cells are normalized even when the learned recipe calls them text", async () => {
+  // Date cells from the saved public eTenders result page; omit the real tender metadata.
+  routes.set("/etenders-date-cells", () => ({ body: table('<tr><td class="ref">1</td><td><a href="/notice/1">Notice</a></td><td class="pub">20/11/2026 19:02:15</td><td class="deadline">11/12/2026 15:00:00</td></tr>') }));
+  const result = ok(await extractor.read(recipe({
+    timeZone: "Europe/Dublin",
+    list: { request: { url: `${base}/etenders-date-cells`, method: "GET" }, pagination: { type: "none" }, item: "tr", emptyText: [] },
+    listFields: { id: { css: ".ref" }, title: { css: "a" }, url: { css: "a", attr: "href" }, publicationDate: { css: ".pub", parse: "text" }, submissionDeadline: { css: ".deadline", parse: "text" } },
+  }), makeCtx()));
+  assert.equal(result.tenders[0]?.publicationDate, "2026-11-20");
+  assert.equal(result.tenders[0]?.submissionDeadline, "2026-12-11T15:00:00+00:00");
+});
+
 // ------------------------------------------------------------ html
 
 test("html: table list with pageParam, detail pages, label selectors and German local times", async () => {
