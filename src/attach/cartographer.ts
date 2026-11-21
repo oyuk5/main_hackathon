@@ -106,7 +106,7 @@ async function sniff(ctx: PortalContext, url: string): Promise<{ rendered: strin
 export async function look(ctx: PortalContext, url: string): Promise<Look> {
   const first = await fetchText(ctx, url);
   const feeds = findFeeds(first.text, first.url);
-  const blockedHard = first.status === 401 || first.status === 403;
+  const blockedHard = first.status === 401 || first.status === 403 || isCaptchaResponse(first.status, first.text);
   // The browser is slow at 1 request per second (every script waits its turn). Only JavaScript apps
   // need it: when the served page already shows a list of linked items, the extractor can read that.
   const served = servedListSize(first.text);
@@ -178,6 +178,10 @@ function rankJson(all: CapturedJson[]): CapturedJson[] {
 // ------------------------------------------------------------ blocks
 
 const CAPTCHA_MARKERS = /g-recaptcha|grecaptcha|h-captcha|hcaptcha|cf-turnstile|challenge-platform|cf-chl|friendlycaptcha/i;
+
+function isCaptchaResponse(status: number, html: string): boolean {
+  return status === 429 && CAPTCHA_MARKERS.test(html);
+}
 
 /** A login or captcha in the way, in plain words, or null. */
 export function blockHint(html: string, status: number): string | null {
@@ -965,6 +969,7 @@ export async function attachWithModel(ctx: PortalContext, deps: ModelAttachDeps 
   }
   if (current.status >= 500) return { kind: "failed", reason: `The portal answers HTTP ${current.status}; it is not reachable right now.` };
   let hint = blockHint(current.raw, current.status);
+  if (isCaptchaResponse(current.status, current.raw)) return { kind: "blocked", reason: "The portal blocks the tender list with a captcha." };
   if (current.status === 401 || current.status === 403) return { kind: "blocked", reason: `${capital(hint!)}.` };
 
   let navigations = 0;
@@ -1037,6 +1042,7 @@ export async function attachWithModel(ctx: PortalContext, deps: ModelAttachDeps 
         continue;
       }
       hint = blockHint(current.raw, current.status) ?? hint;
+      if (isCaptchaResponse(current.status, current.raw)) return { kind: "blocked", reason: "The portal blocks the tender list with a captcha." };
       if (current.status === 401 || current.status === 403) return { kind: "blocked", reason: `${capital(blockHint(current.raw, current.status)!)}.` };
       history.length = 0; // a new page: earlier feedback was about the old one
       workingFields.clear();

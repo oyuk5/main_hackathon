@@ -42,3 +42,5 @@ Sat 00:35 · A · Name minority document walls in the serving reason · unaffect
 Sat 00:42 · A · Gate each attach and repair request on portal and daily ledger spend with in-flight reservations · concurrent jobs must not consume the same model headroom
 Sat 00:50 · A · Hint postal code and city independently when a detail label shows both · a city-only rule still leaves the verified place incomplete
 Sat · A/B · Reject known broken document rules and missing canonical tender URLs, and cancel oversized browser downloads while in flight · incomplete evidence must not be reported as a successful delivery
+- Sat 01:25 · A · Removed the optional Clerk sign-in (code, packages, README section) · the brief says there is no authentication; a login earns no criterion and risks blocking judges
+Sat 01:40 · A · Recognize an HTTP 429 list response carrying captcha markers before model or browser fallback · explicit challenges must fail with a captcha reason, not a model error

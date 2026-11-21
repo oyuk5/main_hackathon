@@ -143,6 +143,49 @@ test("a healthy listing with a document login wall reports failed, not serving",
   }
 });
 
+for (const wall of ["login", "captcha"] as const) {
+  test(`a list ${wall} wall fails through the public API without a model call`, async (t) => {
+    const fake = await fakePortal({ "/": (_req, res) => res.writeHead(wall === "login" ? 401 : 429, { "content-type": "text/html" })
+      .end(wall === "login" ? '<form><input type="password"></form>' : '<html><title>CAPTCHA</title><div class="g-recaptcha"></div></html>') });
+    const url = `${fake.base}/`;
+    const model = t.mock.method(medic, "repair", async () => ({ kind: "failed", reason: "Unexpected repair." }));
+    const id = await add(url);
+    const portal = `/portals/${id}`;
+    try {
+      await waitForIdle(id);
+      const entry = (await get(portal)).json();
+      assert.equal(entry.state, "failed");
+      assert.match(entry.reason, new RegExp(wall, "i"));
+      assert.deepEqual((await get(`${portal}/tenders`)).json(), []);
+      assert.equal(model.mock.callCount(), 0);
+    } finally { await remove(portal); await fake.close(); }
+  });
+}
+
+test("a document captcha wall fails while a permitted oversized file does not", async (t) => {
+  const fake = await fakePortal({
+    "/captcha": (_req, res) => res.writeHead(200, { "content-type": "text/html" }).end('<html><title>CAPTCHA</title><div class="g-recaptcha"></div></html>'),
+    "/large.pdf": (_req, res) => { res.writeHead(200, { "content-type": "application/pdf", "content-length": 251 * 1024 * 1024 }); res.flushHeaders(); },
+  });
+  const url = `${fake.base}/`;
+  let path = "captcha";
+  t.mock.method(cartographer, "attach", async () => attached(url, read(url, "Listed tender", [{ url: url + path, via: "http" }])));
+  try {
+    const first = await add(url);
+    await waitForIdle(first);
+    const blocked = (await get(`/portals/${first}`)).json();
+    assert.equal(blocked.state, "failed");
+    assert.match(blocked.reason, /captcha/i);
+    await remove(`/portals/${first}`);
+    path = "large.pdf";
+    const second = await add(url);
+    await waitForIdle(second);
+    assert.equal((await get(`/portals/${second}`)).json().state, "serving");
+    assert.deepEqual((await get(`/portals/${second}/tenders`)).json()[0].documents, []);
+    await remove(`/portals/${second}`);
+  } finally { await fake.close(); }
+});
+
 test("DELETE cancels the backoff before a second extraction attempt", { timeout: 10_000 }, async (t) => {
   const url = "https://backoff.example/";
   t.mock.method(cartographer, "attach", async () => attached(url));

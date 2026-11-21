@@ -102,6 +102,13 @@ function newPortal(): string {
 }
 const byId = (p: string) => Object.fromEntries(store.listTenders(p).map((t) => [t.id, t]));
 
+test("delivery omits blank optional fields, empty CPV lists, and empty places", async () => {
+  const p = newPortal();
+  await deliver(p, read([{ ...tender(1, 0), description: "  ", referenceNumber: "\t", cpvCodes: [], placeOfPerformance: { postalCode: null, city: "", countryCode: null } }]), ctx());
+  const delivered = byId(p).T1!;
+  for (const key of ["description", "referenceNumber", "cpvCodes", "placeOfPerformance"]) assert.equal(Object.hasOwn(delivered, key), false, key);
+});
+
 test("pending document references never update or publish a tender", async () => {
   const p = newPortal();
   await deliver(p, read([tender(1, 0)]), ctx());

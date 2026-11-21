@@ -385,7 +385,9 @@ function sanitize(et: ExtractedTender, documents: TenderDocument[], status: Tend
   };
   for (const k of ["referenceNumber", "description", "procedureType", "contractNature", "cpvCodes", "placeOfPerformance"] as const) {
     const v = et[k];
-    if (v !== undefined && v !== null && shape[k].safeParse(v).success) (t as Record<string, unknown>)[k] = v;
+    if (v === undefined || v === null || (typeof v === "string" && !v.trim()) || (Array.isArray(v) && !v.length)) continue;
+    if (k === "placeOfPerformance" && typeof v === "object" && !Object.values(v).some((part) => typeof part === "string" && part.trim())) continue;
+    if (shape[k].safeParse(v).success) (t as Record<string, unknown>)[k] = v;
   }
   return t;
 }

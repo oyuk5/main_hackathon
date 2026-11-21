@@ -45,8 +45,10 @@ describe("robots.txt enforcement", () => {
 
   async function portal() {
     const hits: string[] = [];
+    const times: number[] = [];
     const server = http.createServer((req, res) => {
       hits.push(req.url ?? "");
+      times.push(performance.now());
       if (req.url === "/robots.txt") return res.end("User-agent: *\nDisallow: /secret\n");
       if (req.url === "/page")
         return res.end(`<!doctype html><html><body>page<script>fetch("/secret/data").catch(()=>{});fetch("/open/data").catch(()=>{})</script></body></html>`);
@@ -54,7 +56,7 @@ describe("robots.txt enforcement", () => {
     });
     await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
     const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-    return { base, hits, close: () => new Promise<void>((r) => (server.closeAllConnections(), server.close(() => r()))) };
+    return { base, hits, times, close: () => new Promise<void>((r) => (server.closeAllConnections(), server.close(() => r()))) };
   }
 
   it("blocks a disallowed path over HTTP before any request is made", async () => {
@@ -78,6 +80,7 @@ describe("robots.txt enforcement", () => {
       });
       assert.ok(p.hits.includes("/open/data"), `allowed fetch missing: ${p.hits.join(", ")}`);
       assert.ok(!p.hits.includes("/secret/data"), "disallowed fetch reached the portal");
+      for (let i = 1; i < p.times.length; i++) assert.ok(p.times[i]! - p.times[i - 1]! >= 1000, `browser requests too close: ${p.hits[i - 1]} → ${p.hits[i]}`);
     } finally {
       await p.close();
     }
@@ -172,7 +175,7 @@ describe("redirects over plain HTTP", () => {
       const hops = p.hits.filter((h) => h.path !== "/robots.txt");
       assert.deepEqual(hops.map((h) => h.path), ["/a", "/b", "/c"]);
       assert.equal(hops[1]!.cookie, "lang=en");
-      for (let i = 1; i < hops.length; i++) assert.ok(hops[i]!.at - hops[i - 1]!.at >= 900, `hop ${i} came ${hops[i]!.at - hops[i - 1]!.at} ms after the last`);
+      for (let i = 1; i < hops.length; i++) assert.ok(hops[i]!.at - hops[i - 1]!.at >= 1000, `hop ${i} came ${hops[i]!.at - hops[i - 1]!.at} ms after the last`);
     } finally {
       await p.close();
     }

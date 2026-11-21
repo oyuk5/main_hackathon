@@ -76,6 +76,7 @@ In company deployments, put the dashboard behind company single sign-on via a re
 | `MAX_MODEL_USD_PER_PORTAL` | no | 1.00 | Recorded model spend limit per portal across its lifetime; `0` disables its model calls. |
 | `MAX_MODEL_USD_PER_DAY` | no | 20 | Recorded model spend limit across all portals per server-local day; `0` disables model calls. |
 | `PORT` | no | 8080 | HTTP port. |
+| `SEED_DEMO` | no | 0 | Set to `1` to seed sample data in an empty database and disable scheduled reads. |
 | `DATA_DIR` | no | `/data` in the container | SQLite database and downloaded files. |
 | `READ_INTERVAL_MINUTES` | no | 30 | Time between regular reads of a serving portal. |
 | `FAILED_RETRY_MINUTES` | no | 30 | Time between retries of a failed portal. |
