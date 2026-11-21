@@ -68,7 +68,7 @@ Defaults below come from `src/platform/config.ts`, `src/platform/documents.ts`, 
 | `MAX_MODEL_USD_PER_PORTAL`, `MAX_MODEL_USD_PER_DAY` | No | `3.00` per portal (deleting a portal resets it) and `20` per local day; `0` disables the corresponding model calls. |
 | `PORT`, `DATA_DIR` | No | `8080`; `/data` in Docker, `./data` locally. |
 | `READ_INTERVAL_MINUTES`, `FAILED_RETRY_MINUTES` | No | `30` each; interval between scheduled reads and between failed-portal probes. |
-| `DOC_REFS_PER_READ` | No | `300`; document reference budget per read. |
+| `DOC_REFS_PER_READ`, `FIRST_DOC_REFS` | No | `300` document references per read, `60` until a portal first serves, so its first tenders arrive within minutes. |
 | `MIN_REQUEST_GAP_MS` | No | `1100`, minimum `1000`; per-host pacing. |
 | `MAX_FILE_BYTES`, `BROWSER_STEP_MS` | No | `262144000` (250 MiB); `20000` ms for browser download steps. |
 | `USER_AGENT` | No | `WatchtowerBot/0.1 (+tender monitoring; polite, 1 req/s)`. |

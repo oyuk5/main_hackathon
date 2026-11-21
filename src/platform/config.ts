@@ -12,6 +12,8 @@ export const config = {
   failedRetryMinutes: num(process.env.FAILED_RETRY_MINUTES, 30),
   /** Document refs fetched per read at most; the rest follow in the next reads (see budget.ts). */
   docRefsPerRead: Math.max(1, num(process.env.DOC_REFS_PER_READ, 300)),
+  /** Document refs fetched by a portal's first delivery, so its first tenders arrive within minutes. */
+  firstDocRefs: Math.max(1, num(process.env.FIRST_DOC_REFS, 60)),
   /** While documents are pending, the next read follows this soon instead of the normal interval. */
   pendingReadMinutes: 1,
   /** Minimum gap between two requests to one host. The brief allows at most 1 per second. */

@@ -449,7 +449,9 @@ export async function deliver(portalId: string, read: OkRead, ctx: PortalContext
         : !row ? "new" : previousFileCounts.has(et.id) ? "changed" : row.refs_hash === refsHashOf.get(et.id) ? "none" : row.refs_hash === "" ? "retry" : "changed";
       return { id: et.id, need, refs: et.documentRefs.length, open: statusOf(et) === "open", publicationDate: et.publicationDate ?? null };
     }),
-    config.docRefsPerRead,
+    // Until a portal has served once, fetch a small first batch so its first tenders appear in
+    // minutes; the rest follow in the next reads, one minute apart.
+    store.getPortal(portalId)?.last_success_at || repairRecipe ? config.docRefsPerRead : Math.min(config.firstDocRefs, config.docRefsPerRead),
   );
 
   let pendingRefs = 0;
