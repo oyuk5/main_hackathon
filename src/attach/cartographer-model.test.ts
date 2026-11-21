@@ -563,3 +563,18 @@ test("a failed attach reason keeps only the problem, not the instructions for th
   assert.equal(firstSentence("title found on only 2 of 9 tenders."), "title found on only 2 of 9 tenders.");
   assert.equal(firstSentence("The list moved to example.org/a.b and stopped"), "The list moved to example.org/a.b and stopped");
 });
+
+test("a dead optional rule left in the last draft is dropped instead of failing the attach", async () => {
+  portal(6);
+  const dead = goodRecipe();
+  dead.listFields.procedureType = { css: "td.never" };
+  const ctx = scripted(`${base}/m/list`, Array.from({ length: 10 }, () => step("recipe", { recipe: dead })));
+  const out = await attachWithModel(ctx);
+  assert.equal(ctx.prompts.length, MAX_RECIPE_ROUNDS, "the model still gets every correction round");
+  assert.equal(out.kind, "ok", (out as { reason?: string }).reason);
+  const ok = out as Extract<typeof out, { kind: "ok" }>;
+  assert.equal(ok.recipe.listFields.procedureType, undefined, "the rule that never matched is removed");
+  assert.equal(ok.read.tenders.length, 6);
+  assert.ok(ok.read.tenders.every((t) => t.procedureType == null));
+  assert.ok(ctx.logs.some((l) => /procedureType/.test(l) && /left out|removed|dropped/i.test(l)), ctx.logs.join("\n"));
+});

@@ -19,6 +19,8 @@ import { pickGolden } from "./golden.js";
 
 /** First draft plus at most 3 correction rounds, as the area rules say. */
 export const MAX_RECIPE_ROUNDS = 4;
+/** The judge's message for an optional rule that matched nothing (see judgeSample). */
+const DEAD_OPTIONAL_RULE = /^The (\w+) rule found no value on any of \d+ tenders\./;
 /** Hops from the given address to the real list (landing page, summary page). */
 export const MAX_NAVIGATIONS = 2;
 const PAGE_CHARS = 14_000;
@@ -1293,7 +1295,18 @@ export async function attachWithModel(ctx: PortalContext, deps: ModelAttachDeps 
       const hint = tenderPage ? await labelHints(recipe, tenderPage, recipe.detail ? "detail.fields" : "detail.fields", ctx) : null;
       if (hint) withdrawnBlock.push(hint);
     }
-    const blocking = drafts === 1 ? [...judged.errors, ...judged.warnings, ...docsBlock, ...withdrawnBlock] : [...judged.errors, ...docsBlock, ...withdrawnBlock];
+    let blocking = drafts === 1 ? [...judged.errors, ...judged.warnings, ...docsBlock, ...withdrawnBlock] : [...judged.errors, ...docsBlock, ...withdrawnBlock];
+    // Last draft and the only problems left are optional rules that never matched: drop those rules
+    // (the fields stay empty, never guessed) instead of failing a recipe whose required fields all work.
+    if (rounds >= MAX_RECIPE_ROUNDS && blocking.length > 0 && blocking.every((b) => DEAD_OPTIONAL_RULE.test(b))) {
+      const dead = blocking.map((b) => DEAD_OPTIONAL_RULE.exec(b)![1]!);
+      for (const f of dead) {
+        delete (recipe.listFields as Record<string, unknown>)[f];
+        if (recipe.detail) delete (recipe.detail.fields as Record<string, unknown>)[f];
+      }
+      ctx.log(`Left out the ${dead.join(", ")} rule${dead.length === 1 ? "" : "s"}: no sampled tender had a value, so ${dead.length === 1 ? "that field stays" : "those fields stay"} empty.`, "warn");
+      blocking = [];
+    }
     if (blocking.length === 0) {
       if (judged.docs.length) ctx.log(`The recipe has no working documents rule: ${judged.docs[0]}`, "warn");
       ctx.log("The draft read cleanly; reading the whole list once.");
