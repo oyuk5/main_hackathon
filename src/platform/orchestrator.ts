@@ -556,8 +556,10 @@ export async function deliver(portalId: string, read: OkRead, ctx: PortalContext
     .filter((d): d is string => !!d && isCalendarDate(d))
     .reduce<string | null>((min, d) => (min === null || d < min ? d : min), null);
   for (const t of store.listTenders(portalId)) {
-    const close = mayClose({ wholeList, submissionDeadline: t.submissionDeadline, now: Date.now(), toEpoch: dateTimeEpoch, publicationDate: t.publicationDate, oldestSeen });
-    if (!seen.has(t.id) && t.status === "open" && close) {
+    // A held-back tender is still listed, so it never closes for being absent, but a passed deadline still closes it.
+    const isHeldBack = heldBack.has(t.id);
+    const close = mayClose({ wholeList: wholeList && !isHeldBack, submissionDeadline: t.submissionDeadline, now: Date.now(), toEpoch: dateTimeEpoch, publicationDate: t.publicationDate, oldestSeen });
+    if ((!seen.has(t.id) || isHeldBack) && t.status === "open" && close) {
       const closed: TenderT = { ...t, status: "closed", lastChangedAt: now };
       store.upsertTender(portalId, closed, hashTender(closed), store.getTenderRow(portalId, t.id)?.refs_hash ?? "", now);
     }

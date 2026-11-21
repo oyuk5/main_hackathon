@@ -381,3 +381,17 @@ test("a deleted and re-added portal starts with a fresh model budget", () => {
   assert.equal(store.modelSpend(id, "2026-11-20").day, 0.9); // the day cap still counts it
   assert.equal(store.ledger(id).length, 1); // and the cost history is kept
 });
+
+test("a held-back tender is never closed for being absent, but a passed deadline still closes it", async () => {
+  store.insertPortal({ id: "p_hold", url: "https://hold.example/", state: "integrating", reason: "Attaching.", createdAt: "2026-11-20T18:00:00+01:00" });
+  await deliver("p_hold", read([tender(1, 0), tender(2, 0)]), ctx());
+  // T1 was served open; its stored deadline has since passed. T2 still has a future deadline.
+  const t1 = store.listTenders("p_hold").find((t) => t.id === "T1")!;
+  store.upsertTender("p_hold", { ...t1, submissionDeadline: "2026-11-02T12:00:00+01:00" }, "stale", "", "2026-11-20T18:00:00+01:00");
+  // Both are held back from the next read (no pagination: the read counts as the whole list).
+  await deliver("p_hold", read([tender(3, 0)]), ctx(), undefined, new Set(["T1", "T2"]));
+  const status = Object.fromEntries(store.listTenders("p_hold").map((t) => [t.id, t.status]));
+  assert.equal(status.T1, "closed");
+  assert.equal(status.T2, "open");
+  assert.equal(status.T3, "open");
+});
