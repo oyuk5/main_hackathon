@@ -91,6 +91,7 @@ The winning system goes into production. The winning team is fast-tracked to an 
 _Write answers from mentoring here, with the date and who said it._
 
 - Fri kickoff (team notes): they call our API from their own setup and grade it against portals they built, plus real ones. They will help the winning team run it in production; the visit to Hamburg is covered.
+- Sat ~01:50 (D, from the team): the video limit is **2 minutes 30 seconds**, not 3 minutes. Whether the Patterno demo and the MAIN pitch can be one video is still open: check the BuilderBase form.
 
 ### Open questions (ask at mentoring, then move the answer above)
 1. How often will they call `refresh`, and how long is the test run? (Sets our read interval and how many detail pages we can afford at 1 req/s.)

@@ -1,6 +1,6 @@
-# Video script: Watchtower in 3 minutes
+# Video script: Watchtower in 2:30
 
-For whoever records. The viewers are Patterno's judges: they care about attach, notice, repair, the dashboard, and cost per portal.
+For whoever records. The viewers are Patterno's judges: they care about attach, notice, repair, the dashboard, and cost per portal. **Hard limit: 2 minutes 30 seconds.** The script runs about 2:20, leaving room for cuts. That is about 330 spoken words in total, so keep every line short.
 
 ## Before you record (10 minutes)
 
@@ -11,20 +11,22 @@ For whoever records. The viewers are Patterno's judges: they care about attach, 
    `LAB=http://localhost:4300 npx tsx lab/mutate.ts gmina renamed-classes --refresh`
 5. Recorder: Win+Alt+R (Xbox Game Bar) or OBS, 1080p. Record the scenes separately and cut the waits.
 
-## The script (about 2:50)
+## The script (about 2:20)
 
 | Time | Screen | Say |
 |---|---|---|
-| 0:00–0:15 | Dashboard, "Nothing needs a person" | "Patterno gathers tenders from 4,500 portals, connected by hand. When a portal changes, its tenders quietly stop. Watchtower connects portals on its own, notices when one breaks, and repairs it." |
-| 0:15–0:35 | Point at the four state cards, the table, the map, "Model usage so far" | "Every portal is in one of four states: being attached, serving, being repaired, or needs a person. An operator sees at 8 a.m. what delivers and what doesn't." |
-| 0:35–1:05 | Paste `http://localhost:4300/kommune/` into the address field → **Watch portal**. Cut to it **serving**. Open it: tenders, then one tender's documents (a ZIP is unpacked into its files). | "We give it only an address it has never seen. A model learns how to read the portal once, about three cents. After that, every read is plain code: no model, zero cost. It delivers every open tender with its documents, ZIPs unpacked, deadlines in local time." |
-| 1:05–1:50 | Terminal: run the mutator command. Dashboard: gmina turns **Being repaired**, then back to **Serving**. Open gmina: run history (read failed → repair ok), the repair summary, the cost of the repair. | "Now the portal changes, like a redesign: every class name is different. Watchtower notices on the next read, keeps serving the last correct tenders, and repairs itself: the model patches the recipe, and code checks it against tenders it already knows before anything goes live. About one cent, under a minute, nobody touched it." |
-| 1:50–2:10 | **obec**: failed, reason "documents need a login". Optional: Platforma Zakupowa failed because robots.txt blocks downloads. | "When it can't deliver, it says so. This portal hides documents behind a login; we don't log in, so it's failed, with the reason in plain words. A wrong value is worse than a missing one." |
-| 2:10–2:25 | Optional: **Import list**, drop `lab/demo/portals.xlsx`, show the preview. Flip **EN/DE**. | "Operators can add hundreds of portals from a spreadsheet, in English or German." |
-| 2:25–2:50 | `lab/results/latest.md` (or the README cost table) | "Our eval breaks portals in many ways and checks the result against exact ground truth. [Heal rate]% of breaking changes repaired by themselves, median [N] seconds. Attach about three cents per portal, a repair about two cents, regular reads free. At 300 portals that saves about 47,000 euros a year." |
-| 2:50–3:00 | Dashboard | "One container, API and dashboard on port 8080. Watchtower." |
+| 0:00–0:12 | Dashboard, "Nothing needs a person" | "Patterno gathers tenders from 4,500 portals, connected by hand. When one changes, its tenders quietly stop. Watchtower fixes that." |
+| 0:12–0:25 | Point at the four state cards, the table, the map | "Every portal is attaching, serving, being repaired, or needs a person. One look at 8 a.m. tells you which." |
+| 0:25–0:50 | Paste `http://localhost:4300/kommune/` → **Watch portal**. Cut to it **serving**. Open a tender: its documents, a ZIP unpacked into files. | "We give it an address it has never seen. A model learns the portal once, for about three cents. Every read after that is plain code: no model, no cost. Tenders, documents, ZIPs unpacked." |
+| 0:50–1:25 | Terminal: run the mutator. Dashboard: gmina **Being repaired**, then **Serving**. Open gmina: run history (read failed → repair ok), repair summary, cost. | "Now the portal is redesigned: every class name changes. Watchtower notices on the next read, keeps serving the last correct tenders, and repairs itself. Code checks the fix against known tenders before it goes live. About a cent, under a minute, nobody touched it." |
+| 1:25–1:40 | **obec**: failed, reason "documents need a login" | "When it can't deliver, it says so. These documents need a login, and we never log in, so: failed, with the reason in plain words." |
+| 1:40–2:05 | `lab/results/latest.md` (or the README cost table) | "We break portals in many ways and check against exact ground truth: [heal rate]% repaired on their own, median [N] seconds. Attach three cents, repair two, reads free. At 300 portals, that's about 47,000 euros saved a year." |
+| 2:05–2:20 | Dashboard | "One container. API and dashboard on port 8080. Watchtower." |
 
-Fill in the bracketed numbers from the latest eval before recording the final video.
+Fill in the bracketed numbers from the latest eval before recording the final video. Cut for time if needed: the map pointing (0:12) and the ZIP close-up go first; never cut the repair scene.
+
+## Ad version with the whole team (same timing)
+A narrator opens (0:00–0:25) and closes (2:05–2:20). B speaks over the attach scene, C over the repair, A over the failed portal and "one container", D over the numbers. About 50–70 words each. Record the screen first without sound, then each person records their lines over their scene, on a phone in a quiet room at the same distance from the mic.
 
 ## If something goes wrong
 - A portal stays **Being attached** for long: cut, wait, record that scene again. Small lab portals serve in 1–3 minutes.
