@@ -436,6 +436,32 @@ test("withdrawnText marks cancelled tenders", async () => {
   assert.equal(res.tenders[1]!.withdrawn, true);
 });
 
+test("a status cell or badge in the row marks the tender withdrawn without any recipe words", async () => {
+  routes.set("/wl", () => ({
+    body: table(
+      row("L-1", "/wl/1", "Aktiv", "01.03.2026", "Laufend") +
+        row("L-2", "/wl/2", "Alt", "01.03.2026", "<strong class=\"hinweis\">Widerrufen</strong>") +
+        row("L-3", "/wl/3", "Dansk", "01.03.2026", "Annulleret") +
+        row("L-4", "/wl/4", "AUFGEHOBEN: Neubau", "01.03.2026") +
+        row("L-5", "/wl/5", "Hinweis", "01.03.2026", "Ausschreibungen können jederzeit widerrufen werden, auch ohne Angabe von Gründen."),
+    ),
+  }));
+  const res = ok(await extractor.read(simple("/wl", { listFields: { id: { css: "td.ref" }, url: { css: "a", attr: "href" }, title: { css: "a" } } }), makeCtx()));
+  assert.deepEqual(
+    res.tenders.map((t) => [t.id, t.withdrawn === true]),
+    [["L-1", false], ["L-2", true], ["L-3", true], ["L-4", true], ["L-5", false]],
+  );
+});
+
+test("a withdrawn rule over the status text counts without a regex", async () => {
+  routes.set("/wr", () => ({ body: table(row("R-1", "/wr/1", "A", "01.03.2026", "Aktiv") + row("R-2", "/wr/2", "B", "01.03.2026", "Annulleret")) }));
+  const r = simple("/wr");
+  r.listFields.withdrawn = { css: "td:nth-child(4)" } as never;
+  const res = ok(await extractor.read(r, makeCtx()));
+  assert.equal(res.tenders[0]!.withdrawn, undefined);
+  assert.equal(res.tenders[1]!.withdrawn, true);
+});
+
 test("dedupes tenders by id, first wins", async () => {
   routes.set("/dup", () => ({ body: table(row("S-1", "/s/1", "Erst", "01.03.2026") + row("S-1", "/s/1b", "Zweit", "01.03.2026")) }));
   const res = ok(await extractor.read(simple("/dup", { listFields: { id: { css: "td.ref" }, url: { css: "a", attr: "href" }, title: { css: "a" } } }), makeCtx()));

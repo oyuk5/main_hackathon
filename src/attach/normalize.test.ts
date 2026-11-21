@@ -1,6 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  hasCancelledTitlePrefix,
+  isCancellationLabel,
+  isStatusLabel,
   absoluteUrl,
   cleanText,
   mapContractNature,
@@ -286,4 +289,37 @@ test("absoluteUrl", () => {
   assert.equal(absoluteUrl(null, base), null);
   assert.equal(absoluteUrl("https://ok.example/a", "not a url"), "https://ok.example/a");
   assert.equal(absoluteUrl("/rel", "not a url"), null);
+});
+
+test("cancellation labels in every lab language, never sentences or negations", () => {
+  for (const label of ["Widerrufen", "Aufgehoben", "zurückgezogen", "Annulé", "annulée", "Ingetrokken", "Geannuleerd", "Annullato", "revocato", "Anulada", "anulado", "Aflyst", "Annulleret", "ZRUŠENO", "Unieważnione", "Cancelled", "WITHDRAWN", "Status: Annulleret"]) {
+    assert.equal(isCancellationLabel(label), true, label);
+  }
+  for (const text of [
+    "Laufend",
+    "Aktiv",
+    "Zurück zur Übersicht",
+    "Ausschreibungen können jederzeit vom Auftraggeber widerrufen werden",
+    "Nicht widerrufen",
+    "not cancelled",
+    "",
+    null,
+  ]) {
+    assert.equal(isCancellationLabel(text), false, String(text));
+  }
+});
+
+test("a cancellation marker only counts at the start of a title", () => {
+  assert.equal(hasCancelledTitlePrefix("AUFGEHOBEN: Neubau Kita Nord"), true);
+  assert.equal(hasCancelledTitlePrefix("[Annulé] Travaux de voirie"), true);
+  assert.equal(hasCancelledTitlePrefix("(Widerrufen) Winterdienst"), true);
+  assert.equal(hasCancelledTitlePrefix("Cancelled - Road works"), true);
+  assert.equal(hasCancelledTitlePrefix("Reinigung nach widerrufenem Vertrag"), false);
+  assert.equal(hasCancelledTitlePrefix("Aufgehobene Decken im Rathaus"), false);
+  assert.equal(hasCancelledTitlePrefix("Neubau: Aufgehoben"), false);
+});
+
+test("status labels", () => {
+  for (const l of ["Status", "Status:", "Stav", "Tilstand", "Statut", "Stato", "Estado", "tenderStatus", "procedure_status"]) assert.equal(isStatusLabel(l), true, l);
+  for (const l of ["Titel", "Beschreibung", "Statusbericht Bauamt", null]) assert.equal(isStatusLabel(l), false, String(l));
 });

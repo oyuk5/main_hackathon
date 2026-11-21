@@ -25,6 +25,9 @@ import type { DocumentRef, ExtractedTender, Extractor, FieldFill, PortalContext,
 import {
   absoluteUrl,
   cleanText,
+  hasCancelledTitlePrefix,
+  isCancellationLabel,
+  isStatusLabel,
   mapContractNature,
   mapProcedureType,
   normalizeCpvList,
@@ -298,6 +301,67 @@ function jsonLeaves(v: unknown, out: string[] = [], depth = 0): string[] {
   else if (Array.isArray(v)) for (const x of v) jsonLeaves(x, out, depth + 1);
   else if (v && typeof v === "object") for (const x of Object.values(v)) jsonLeaves(x, out, depth + 1);
   return out;
+}
+
+/** Elements whose text is never a tender's own status: form controls and scripts. */
+const NOT_A_LABEL = new Set(["option", "select", "button", "script", "style", "input", "textarea"]);
+
+/**
+ * A JSON item whose status key says cancelled: `"status": "CANCELLED"`, or `"status": {"label": "Annulé"}`.
+ * Only status-like keys count; other values (a description that mentions a cancellation) never do.
+ */
+function jsonStatusCancelled(v: unknown, depth = 0): boolean {
+  if (depth > 3 || !v || typeof v !== "object") return false;
+  if (Array.isArray(v)) return false;
+  for (const [key, value] of Object.entries(v as Record<string, unknown>)) {
+    if (isStatusLabel(key)) {
+      if (isCancellationLabel(value)) return true;
+      if (value && typeof value === "object" && !Array.isArray(value) && Object.values(value).some((x) => isCancellationLabel(x))) return true;
+    } else if (value && typeof value === "object" && jsonStatusCancelled(value, depth + 1)) return true;
+  }
+  return false;
+}
+
+/**
+ * A list row that carries a short cancellation label of its own: a status cell or a badge whose whole
+ * text is "Widerrufen" or "Annulleret". Sentences in the row never count.
+ */
+function rowHasCancellationLabel(scope: Scope): boolean {
+  if (scope.kind === "json") return jsonStatusCancelled(scope.value);
+  let found = false;
+  scope.el.find("*").each((_i, node) => {
+    const el = node as Element;
+    if (found || NOT_A_LABEL.has(el.name?.toLowerCase() ?? "")) return;
+    // Only innermost elements: their text is one label, not a whole row.
+    if (el.children.some((c) => c.type === "tag")) return;
+    if (isCancellationLabel(textOfNodes([el]))) found = true;
+  });
+  return found;
+}
+
+/**
+ * The tender's own page states a cancelled status beside a status label: `<tr><th>Status</th><td>Widerrufen</td>`,
+ * `<dt>Stav</dt><dd>Zrušeno</dd>`, or one element reading "Status: Annulleret". Page boilerplate never counts.
+ */
+function pageStatusCancelled(scope: Scope): boolean {
+  if (scope.kind === "json") return jsonStatusCancelled(scope.value);
+  const $ = scope.$;
+  let found = false;
+  scope.el.find("tr, dt").each((_i, node) => {
+    if (found) return;
+    const row = $(node);
+    const label = row.is("dt") ? row.text() : row.children("th, td").first().text();
+    const value = row.is("dt") ? row.nextAll("dd").first().text() : row.children("th, td").eq(1).text();
+    if (isStatusLabel(label) && isCancellationLabel(value)) found = true;
+  });
+  if (found) return true;
+  scope.el.find("*").each((_i, node) => {
+    const el = node as Element;
+    if (found || NOT_A_LABEL.has(el.name?.toLowerCase() ?? "") || el.children.some((c) => c.type === "tag")) return;
+    const m = /^([^:：]{2,40})[:：]\s*(.+)$/.exec(textOfNodes([el]));
+    if (m && isStatusLabel(m[1]) && isCancellationLabel(m[2])) found = true;
+  });
+  return found;
 }
 
 function scopeText(scope: Scope): string {
@@ -582,6 +646,8 @@ function withdrawnFlag(rule: FieldRule, raws: unknown[]): true | null {
     if (s === "true" || s === "1") return true;
     // With a regex, the match itself is the signal (e.g. regex "Aufgehoben" over a status cell).
     if (rule.regex !== undefined && s !== "") return true;
+    // A rule over the status text itself ("Widerrufen", "Annulleret") counts without a regex.
+    if (isCancellationLabel(r)) return true;
   }
   return null;
 }
@@ -1161,7 +1227,7 @@ async function run(st: ReadState, started: number): Promise<ReadOutcome> {
               hasDetailUrl = true;
             }
             values = merge(values, detailFields);
-            detailWithdrawn = hasWithdrawnText(recipe, scopeText(rootScope(detailDoc)));
+            detailWithdrawn = hasWithdrawnText(recipe, scopeText(rootScope(detailDoc))) || pageStatusCancelled(rootScope(detailDoc));
           } catch (e) {
             if (e instanceof Cancelled) throw e;
             ok = false;
@@ -1217,7 +1283,14 @@ async function run(st: ReadState, started: number): Promise<ReadOutcome> {
     ids.add(id);
     const tender = toTender(recipe, id, url, values, refs);
     if (pending) tender.documentRefsPending = true;
-    if (values[WITHDRAWN_FIELD] === true || detailWithdrawn || hasWithdrawnText(recipe, scopeText(item.scope))) tender.withdrawn = true;
+    if (
+      values[WITHDRAWN_FIELD] === true ||
+      detailWithdrawn ||
+      hasWithdrawnText(recipe, scopeText(item.scope)) ||
+      rowHasCancellationLabel(item.scope) ||
+      hasCancelledTitlePrefix(tender.title)
+    )
+      tender.withdrawn = true;
     if (deferred) deferredCount += 1;
     done.push({ index, tender, values: { ...values, id, url }, deferred });
   }

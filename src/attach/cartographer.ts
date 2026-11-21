@@ -692,7 +692,7 @@ const defaultDeps: ModelAttachDeps = {
 // ------------------------------------------------------------ evidence on the pages
 
 /** Words and keys portals use for a cancelled tender. */
-const CANCELLED = /aufgehoben|zurückgezogen|annul[ée]e?s?\b|\bannulee\b|"annul|ingetrokken|geannuleerd|vroegtijdig be[ëe]indigd|\bcancel+ed\b|"cancel|\bwithdrawn\b|uniewa[żz]nion|anulad[oa]|annullat[oa]|revocad[oa]/i;
+const CANCELLED = /aufgehoben|zurückgezogen|annul[ée]e?s?\b|\bannulee\b|"annul|ingetrokken|geannuleerd|vroegtijdig be[ëe]indigd|\bcancel+ed\b|"cancel|\bwithdrawn\b|uniewa[żz]nion|anulad[oa]|annullat[oa]|revocad[oa]|revocat[oa]|widerrufen|annulleret|aflyst|avlyst|zru[šs]en[oay]/i;
 
 const OPTIONAL_EVIDENCE: Array<{ fields: string[]; name: string; re: RegExp }> = [
   { fields: ["cpvCodes"], name: "CPV codes", re: /\bcpv\b|\b\d{8}-\d\b/i },

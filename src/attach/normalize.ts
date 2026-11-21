@@ -36,6 +36,76 @@ function fold(s: string): string {
 }
 
 // ---------------------------------------------------------------------------
+// Cancellation words
+// ---------------------------------------------------------------------------
+
+/**
+ * Words portals use for a tender the buyer cancelled, folded (lowercase, no accents). Matched only
+ * against a tender's own status or label text and the start of its title, never a whole page, so
+ * boilerplate like "Ausschreibungen können widerrufen werden" cannot mark a tender withdrawn.
+ */
+export const CANCELLATION_WORDS: readonly string[] = [
+  // de
+  "aufgehoben", "widerrufen", "zuruckgezogen", "zurueckgezogen",
+  // fr
+  "annule", "annulee", "annules", "annulees",
+  // nl
+  "ingetrokken", "geannuleerd",
+  // it
+  "annullato", "annullata", "annullati", "annullate", "revocato", "revocata",
+  // es / pt
+  "anulada", "anulado", "anuladas", "anulados", "revocada", "revocado",
+  // da / no
+  "aflyst", "annulleret", "avlyst",
+  // cs
+  "zruseno", "zrusena", "zruseny",
+  // pl
+  "uniewaznione", "uniewazniony", "uniewazniona", "uniewaznienie",
+  // en
+  "cancelled", "canceled", "withdrawn",
+];
+
+const CANCELLATION_SET = new Set(CANCELLATION_WORDS);
+const NEGATIONS = new Set(["nicht", "kein", "keine", "not", "non", "niet", "geen", "nie", "ne", "no", "ikke", "ej", "pas"]);
+const CANCELLATION_ALT = CANCELLATION_WORDS.join("|");
+/** A title that opens with a cancellation word: "AUFGEHOBEN: …", "[Annulé] …", "(Widerrufen) …", "Cancelled - …". */
+const CANCELLED_TITLE = new RegExp(`^\\s*(?:[\\[(]\\s*(?:${CANCELLATION_ALT})\\s*[\\])]|(?:${CANCELLATION_ALT})\\s*[:|\\-–—])`);
+
+/** Labels longer than this are sentences, not status labels. */
+const MAX_LABEL_CHARS = 40;
+const MAX_LABEL_WORDS = 4;
+
+/**
+ * True when `text` is a short status label that says cancelled ("Widerrufen", "Status: Annulleret",
+ * "ZRUŠENO"). A sentence or a longer text never counts, even when it contains the word.
+ */
+export function isCancellationLabel(text: unknown): boolean {
+  const clean = cleanText(text);
+  if (!clean || clean.length > MAX_LABEL_CHARS) return false;
+  const words = fold(clean).split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+  if (words.length === 0 || words.length > MAX_LABEL_WORDS) return false;
+  // "nicht widerrufen", "not cancelled", "non annullato": a negated label is no cancellation.
+  if (words.some((w) => NEGATIONS.has(w))) return false;
+  return words.some((w) => CANCELLATION_SET.has(w));
+}
+
+/** True when the title opens with a cancellation marker followed by a separator or in brackets. */
+export function hasCancelledTitlePrefix(title: unknown): boolean {
+  const clean = cleanText(title);
+  return clean !== null && CANCELLED_TITLE.test(fold(clean));
+}
+
+/** Field names that hold a tender's status in a JSON item or a label on its page, folded. */
+export function isStatusLabel(label: unknown): boolean {
+  const clean = cleanText(label);
+  if (!clean) return false;
+  // tenderStatus → tender_status, so a camelCase JSON key ends in its own word.
+  const s = fold(clean.replace(/(\p{Ll})(\p{Lu})/gu, "$1_$2")).replace(/[:\s]+$/, "");
+  return /^(status|state|statut|stato|estado|estado do processo|stav|stav zakazky|tilstand|zustand|stand|verfahrensstand|status postepowania|status procedury|udbudsstatus|status van de aanbesteding|etat|phase)$/.test(s)
+    || /(^|_|-)(status|state|stato|estado|statut|stav)$/.test(s);
+}
+
+// ---------------------------------------------------------------------------
 // Dates
 // ---------------------------------------------------------------------------
 
