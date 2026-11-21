@@ -337,7 +337,8 @@ async function viaBrowser(ref: DocumentRef, ctx: PortalContext): Promise<{ docum
       await session.send("Page.enable");
     };
     catchDownloads(page);
-    await watchSize(page);
+    // Live size watching is a safety net; the streamed byte limit still applies if CDP is unavailable.
+    await watchSize(page).catch(() => {});
     page.context().on("page", (popup) => {
       catchDownloads(popup);
       void watchSize(popup).catch(() => {});
