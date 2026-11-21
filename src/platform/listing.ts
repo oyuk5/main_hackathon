@@ -12,8 +12,21 @@
  */
 import { MAX_LIST_PAGES, type Recipe } from "../shared/recipe.js";
 
-export function sawWholeList(pagination: Recipe["list"]["pagination"] | undefined, listPages: number, aborted: boolean): boolean {
+/**
+ * List sizes portals use as a page size. A recipe without pagination that reads exactly one of these
+ * may be seeing only the first page of a longer list (a pager the recipe does not follow), so the
+ * read does not count as the whole list.
+ */
+export const TYPICAL_PAGE_SIZES: ReadonlySet<number> = new Set([10, 15, 20, 25, 30, 50, 100]);
+
+/** True when a recipe without pagination read exactly a typical page size: possibly only page 1. */
+export function maybeFirstPageOnly(pagination: Recipe["list"]["pagination"] | undefined, itemsSeen: number | undefined): boolean {
+  return (!pagination || pagination.type === "none") && itemsSeen !== undefined && TYPICAL_PAGE_SIZES.has(itemsSeen);
+}
+
+export function sawWholeList(pagination: Recipe["list"]["pagination"] | undefined, listPages: number, aborted: boolean, itemsSeen?: number): boolean {
   if (aborted) return false;
+  if (maybeFirstPageOnly(pagination, itemsSeen)) return false;
   if (!pagination || pagination.type === "none") return true;
   // The Extractor never reads past MAX_LIST_PAGES, whatever the recipe asks: a read that reached it is capped.
   return listPages < Math.min(pagination.maxPages, MAX_LIST_PAGES);

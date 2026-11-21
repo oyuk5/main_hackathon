@@ -20,7 +20,7 @@ import { INTERRUPTED, store } from "./store.js";
 import { politeBrowser, politeHttp } from "./polite.js";
 import { documentFetcher, removeOrphanFiles } from "./documents.js";
 import { count, join, labelled, sentence } from "./reason.js";
-import { mayClose, sawWholeList } from "./listing.js";
+import { mayClose, maybeFirstPageOnly, sawWholeList } from "./listing.js";
 import { ModelBudgetError, planDocuments, type Need } from "./budget.js";
 import { dateTimeEpoch, isCalendarDate } from "./calendar.js";
 import { llmFor } from "../llm/client.js";
@@ -519,7 +519,11 @@ export async function deliver(portalId: string, read: OkRead, ctx: PortalContext
     : classifyDocumentFailures(documentFailures, documentsFetched) !== null;
   if (rejectDelivery) return { summary: "Downloads did not pass.", pendingNew: 0, documentsPending: false, documentFailures, documentsFetched };
   for (const { tender, hash, refsHash } of staged) store.upsertTender(portalId, tender, hash, refsHash, now);
-  const wholeList = sawWholeList((repairRecipe ?? store.currentRecipe(portalId))?.list.pagination, read.diagnostics.listPages, ctx.signal.aborted);
+  const pagination = (repairRecipe ?? store.currentRecipe(portalId))?.list.pagination;
+  const wholeList = sawWholeList(pagination, read.diagnostics.listPages, ctx.signal.aborted, read.diagnostics.itemsSeen);
+  if (maybeFirstPageOnly(pagination, read.diagnostics.itemsSeen)) {
+    ctx.log(`The list showed exactly ${read.diagnostics.itemsSeen} tenders, a typical page size, and the recipe follows no pages: it may be only the first page, so no tender is closed for being absent (passed deadlines still close).`);
+  }
   const oldestSeen = unique
     .map((et) => et.publicationDate)
     .filter((d): d is string => !!d && isCalendarDate(d))

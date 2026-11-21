@@ -37,3 +37,19 @@ test("a recipe asking for more than 200 pages is capped at 200: a read that reac
   assert.equal(sawWholeList({ type: "pageParam", start: 1, maxPages: 500 }, 200, false), false);
   assert.equal(sawWholeList({ type: "pageParam", start: 1, maxPages: 500 }, 199, false), true);
 });
+
+test("a list without pagination that shows exactly a typical page size may be page 1 only: nothing closes on absence", () => {
+  const none = { type: "none" } as const;
+  // (a) 10 items, no pagination: possibly the first page of more.
+  assert.equal(sawWholeList(none, 1, false, 10), false);
+  assert.equal(mayClose({ wholeList: sawWholeList(none, 1, false, 10), submissionDeadline: "2099-01-01T12:00:00+01:00", now: Date.parse("2026-11-21T09:00:00+01:00"), toEpoch: Date.parse }), false);
+  // A passed deadline still closes.
+  assert.equal(mayClose({ wholeList: sawWholeList(none, 1, false, 10), submissionDeadline: "2026-11-01T12:00:00+01:00", now: Date.parse("2026-11-21T09:00:00+01:00"), toEpoch: Date.parse }), true);
+  // (b) 7 items: as before, the whole list.
+  assert.equal(sawWholeList(none, 1, false, 7), true);
+  assert.equal(sawWholeList(none, 1, false), true);
+  // (c) real pagination types are unchanged, whatever the item count.
+  assert.equal(sawWholeList({ type: "pageParam", start: 1, maxPages: 40 }, 3, false, 20), true);
+  assert.equal(sawWholeList({ type: "pageParam", start: 1, maxPages: 40 }, 40, false, 20), false);
+  assert.equal(sawWholeList({ type: "nextLink", selector: { css: "a.next" }, maxPages: 50 }, 2, false, 100), true);
+});
