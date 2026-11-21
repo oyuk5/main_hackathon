@@ -33,7 +33,7 @@ POST /portals → Cartographer (model at attach) → JSON recipe
 
 ## Evidence by judging criterion
 
-**Attach.** The November 21, 02:50–03:02 CET attach-only eval on all eight lab portals at `a3de073` scored **83% of fields correct (814 of 979) with 2 wrong values** on the seven attachable portals. Stadtwerke (**14/14**), Ville (**11/11**), Gmina (**13/13**) and Polder (**12/12**) scored **100%**. Gemeinde scored **90%** and Kommune **72%**; each served one cancelled tender as open. Comune delivered **5 of 13** tenders (**21%**). Obec failed as it should: its documents need a login. The earlier 00:59–01:04 CET recheck at `29ec17a` scored **100%, zero wrong values** on Gmina, Stadtwerke and Ville. The November 20, 22:28 CET full lab run scored **73%, zero wrong values**; missing fields reduced that score (D’s archived `status/D.md` at `931e012`).
+**Attach.** The November 21, 03:20–03:48 CET attach-only eval on all eight lab portals (`5905ee2` for Stadtwerke, Ville, Gmina and Polder; `fcae462` for the rest) scored **95% of fields correct (929 of 979) with zero wrong values** on the seven attachable portals. Stadtwerke (**14/14**), Ville (**11/11**), Gmina (**13/13**), Polder (**12/12**) and Comune (**13/13**) scored **100%**; Gemeinde (**14/14**) **91%** and Kommune (**12/12**) **73%**, where the gaps are missing optional fields, not wrong ones. Obec failed as it should: its documents need a login. The 02:50–03:02 run before the withdrawn-label and cursor fixes scored 83% with 2 wrong values (cancelled tenders served as open).
 
 **Notice.** Watch checks read completeness, field values and golden records before delivery. The latest Gmina change run (November 21, 00:02 CET, after the empty-day and Medic fixes) noticed **100%** of changes correctly, with **0 false repairs in 2** harmless changes (cookie banner, empty day) and a moved document link that left tenders unaffected. The earlier November 20, 22:28 CET full run, before those fixes, had **3 false repairs in 6**.
 
@@ -47,7 +47,7 @@ POST /portals → Cartographer (model at attach) → JSON recipe
 
 | Operation | Model cost | Basis |
 |---|---:|---|
-| Attach once | $0.029 average | November 21, 02:50–03:02 CET attach-only eval on all eight lab portals ($0.009–$0.060); B’s November 20, 23:12 CET run on three portals averaged $0.033. |
+| Attach once | $0.029 average | November 21, 03:20–03:48 CET attach-only eval on all eight lab portals ($0.012–$0.058); B’s November 20, 23:12 CET run on three portals averaged $0.033. |
 | Regular read | $0 | Deterministic extractor; no model call. |
 | Repair | $0.021 average | November 20, 22:28 CET full lab eval, per scenario that started a repair. |
 | Family attach | $0 | A reused recipe that passes its trial without a model call. |
