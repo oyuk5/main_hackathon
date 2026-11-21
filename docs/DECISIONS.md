@@ -52,3 +52,4 @@ Sat 02:27 · A · Sample up to three distinct tender pages for attachment eviden
 Sat 02:47 · A · Remove `Patterno-Track-Description.pdf` from the repo and gitignore it (local copy kept outside the repo) · the repo is public; the file still exists in git history
 Sat 03:50 · A · Recipes get cursor pagination (`type: "cursor"`, next cursor by selector, sent as `{cursor}`; a quoted "{cursor}" in a JSON body is null on page 1) · comune's API pages by opaque cursor and only page 1 was read
 Sat 03:50 · A · List page cap raised to 200 (`MAX_LIST_PAGES` in recipe.ts), clamped in the Extractor and in `sawWholeList` · 40–50 pages hid tenders on big portals; a capped read must never count as the whole list
+Sat 05:40 · A · DELETE also removes the portal's document files from disk, keeping a file another portal's tenders still list or that another portal stored in this process · documents can hold personal data; `/files/{sha256}` must not outlive the portal
