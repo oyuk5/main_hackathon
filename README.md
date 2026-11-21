@@ -2,6 +2,8 @@
 
 Watchtower **attaches** to public tender portals from a URL, **notices** when tenders or documents stop arriving correctly, and **repairs** its extraction rules when a portal changes. It does this without human help while running. If it cannot verify a repair, it explains why and keeps the last correct delivery.
 
+Every measured number in this README names the dated run it comes from. Lab eval runs are saved to `lab/results/`, which is gitignored, so the result files stay on the machine that ran them and are not in this repository.
+
 ## Run it
 
 Create a local `.env` from `.env.example` if needed. Set `OPENAI_API_KEY`; set `MODEL_SMART` and `MODEL_FAST` if your provider uses names other than the defaults below. Use the root Dockerfile, not `Dockerfile.vercel` (the hosted demo).
