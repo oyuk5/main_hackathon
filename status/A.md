@@ -4,7 +4,7 @@ _Updated: Sat 00:58 CET. Only A and A's agent write here. Keep it under 15 lines
 **Done**
 - Gmina renamed-classes repaired in 78.7 s ($0.014); Medic now sees the live detail and documents-hop pages and retries partial attachment loss.
 - Optional operator sign-in is off by default, scoped to `/internal/*`; Linux/amd64 Docker passed 16/16 contract checks and Playwright saw no Clerk requests at 375/1440 px. Enabled access tested with mocks.
-- Internal `openCount`, explicit minority document-wall reasons, cached usage, and ledger-based model budget checks shipped. Typecheck, web build and 364 tests passed; public contract 16/16.
+- Internal `openCount`, explicit minority document-wall reasons, cached usage, and ledger-based model budgets shipped. Browser downloads now cancel on Chromium's live byte counts; known-length and streaming regressions passed.
 
 **Doing now**
 - Full three-portal eval and TenderNed first-serving measurement running from isolated `29ec17a` after dev watcher restarts interrupted earlier runs.

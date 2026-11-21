@@ -1059,6 +1059,7 @@ async function run(st: ReadState, started: number): Promise<ReadOutcome> {
   const done: { index: number; tender: ExtractedTender; values: Values; deferred: boolean }[] = [];
   const ids = new Set<string>();
   let dropped = 0;
+  let missingTenderUrls = 0;
   let awards = 0;
   const recipeKey = sha256(JSON.stringify([recipe.detail, recipe.documents, recipe.timeZone, recipe.withdrawnText, recipe.listFields[WITHDRAWN_FIELD] ?? null]));
   const detailStart = Date.now();
@@ -1099,6 +1100,8 @@ async function run(st: ReadState, started: number): Promise<ReadOutcome> {
     // True when this read could not look at the tender's detail page or documents (cap or failure):
     // empty refs then mean "unknown", not "no documents", and the platform holds the tender back.
     let pending = false;
+    const requiresDetailUrl = recipe.detail?.fields.url !== undefined;
+    let hasDetailUrl = !requiresDetailUrl;
     // True when only the per-read budget left the tender pending (not a failed page).
     let deferred = false;
     // JSON lists often carry each tender's files in the item itself ("pieces": [{ "lien": … }]). A
@@ -1124,11 +1127,13 @@ async function run(st: ReadState, started: number): Promise<ReadOutcome> {
         detailUrl = t ? absoluteUrl(t, item.scope.url) : null;
       }
       const tenderUrl = typeof values.url === "string" ? values.url : null;
+      const detailIsSummary = requiresDetailUrl && detailUrl !== null && detailUrl === absoluteUrl(tenderUrl, item.scope.url);
       const cacheKey = `${ctx.portalId}|${detailUrl ?? tenderUrl ?? ""}`;
       const hash = sha256(`${recipeKey}|${item.raw}`);
       const cached = detailUrl || tenderUrl ? detailCache.get(cacheKey) : undefined;
       if (cached && cached.hash === hash) {
         values = merge(values, cached.fields);
+        hasDetailUrl = !requiresDetailUrl || typeof cached.fields.url === "string";
         refs = cached.refs ?? [];
         detailWithdrawn = cached.withdrawn;
         enriched += 1;
@@ -1145,6 +1150,14 @@ async function run(st: ReadState, started: number): Promise<ReadOutcome> {
             if (page.status < 200 || page.status >= 300) throw new Error(`it answers ${statusLabel(page)}`);
             detailDoc = parseDoc(page, recipe.tier);
             detailFields = extractFields(st, recipe.detail.fields, rootScope(detailDoc), values);
+            if (requiresDetailUrl) {
+              const candidate = typeof detailFields.url === "string" ? absoluteUrl(detailFields.url, detailDoc.url) : null;
+              if (!candidate || (detailIsSummary && candidate === detailUrl)) {
+                throw new Error("the link to the tender's own page is missing or still points to the summary");
+              }
+              detailFields.url = candidate;
+              hasDetailUrl = true;
+            }
             values = merge(values, detailFields);
             detailWithdrawn = hasWithdrawnText(recipe, scopeText(rootScope(detailDoc)));
           } catch (e) {
@@ -1153,9 +1166,11 @@ async function run(st: ReadState, started: number): Promise<ReadOutcome> {
             ctx.log(`Detail page ${detailUrl} could not be read (${(e as Error).message}); keeping the list values.`, "warn");
           }
         }
-        if (recipe.documents && !itemRefs) {
+        if (recipe.documents && !itemRefs && hasDetailUrl) {
           try {
-            let start = detailDoc;
+            // If the detail request opened the list's intermediate link, look for files on the
+            // actual tender. Keep a separate detail API as the source for recipes that use one.
+            let start = detailIsSummary ? null : detailDoc;
             const url = typeof values.url === "string" ? values.url : null;
             const firstStep = recipe.documents.hops?.[0] ?? recipe.documents.files;
             if (!start && url && firstStep.const !== undefined) {
@@ -1188,6 +1203,10 @@ async function run(st: ReadState, started: number): Promise<ReadOutcome> {
 
     const id = cleanText(templateValue(values.id));
     const url = typeof values.url === "string" ? absoluteUrl(values.url, item.scope.url) : null;
+    if (!hasDetailUrl && !deferred) {
+      missingTenderUrls += 1;
+      continue;
+    }
     if (!id || !url) {
       dropped += 1;
       continue;
@@ -1213,6 +1232,12 @@ async function run(st: ReadState, started: number): Promise<ReadOutcome> {
   }
   if (dropped > 0) ctx.log(`${dropped} list entries had no id or address and were left out.`, "warn");
   if (awards > 0) ctx.log(`Left out ${awards} award notices: results of finished procedures, not open tenders.`);
+  // A partial list is unsafe: Platform might otherwise close existing tenders whose links broke.
+  if (missingTenderUrls > 0) return {
+    kind: "error",
+    reason: `Could not find the tender's own page for ${missingTenderUrls} list entries. The summary is not a substitute.`,
+    diagnostics: { requests: st.requests, listPages, itemsSeen },
+  };
   // Regular reads only: during a dry-run the Cartographer checks the documents rule itself, against
   // the tender page it shows the model.
   const docsProblem = st.limits ? null : documentsRuleProblem(st);

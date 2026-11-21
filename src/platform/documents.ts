@@ -315,14 +315,33 @@ async function viaHttp(ref: DocumentRef, ctx: PortalContext): Promise<{ document
 async function viaBrowser(ref: DocumentRef, ctx: PortalContext): Promise<{ documents: TenderDocument[]; problems: string[] }> {
   return ctx.browser.withPage(async (page) => {
     let download: Download | undefined;
+    let overCap = false;
     let wake: (() => void) | undefined;
+    const cancelOversized = () => {
+      overCap = true;
+      void download?.cancel().catch(() => {});
+    };
     const catchDownloads = (p: Page) =>
       p.on("download", (d) => {
         download ??= d;
+        if (overCap) void d.cancel().catch(() => {});
         wake?.();
       });
+    // The Playwright Download stream is only available after Chromium finishes writing its copy.
+    // Watch Chromium's live counters instead, leaving the stream limit as a final check.
+    const watchSize = async (p: Page) => {
+      const session = await p.context().newCDPSession(p);
+      session.on("Page.downloadProgress", ({ receivedBytes, totalBytes }) => {
+        if (!overCap && Math.max(receivedBytes, totalBytes) > config.maxFileBytes) cancelOversized();
+      });
+      await session.send("Page.enable");
+    };
     catchDownloads(page);
-    page.context().on("page", catchDownloads);
+    await watchSize(page);
+    page.context().on("page", (popup) => {
+      catchDownloads(popup);
+      void watchSize(popup).catch(() => {});
+    });
 
     /** Waits up to `ms` for a download to start. */
     const waitForDownload = (ms: number) =>
@@ -374,6 +393,7 @@ async function viaBrowser(ref: DocumentRef, ctx: PortalContext): Promise<{ docum
     const d: Download = download;
     const name = safeName(d.suggestedFilename() || ref.fileNameHint || nameFromUrl(d.url()));
     const failure = await d.failure();
+    if (overCap) return { documents: [], problems: [`Left out ${name}: it is over ${capMb()} MB.`] };
     if (failure) return { documents: [], problems: [`Could not download ${name} from ${ref.url}: ${failure}.`] };
     const t = await toTemp((await d.createReadStream()) as AsyncIterable<Buffer>);
     if (!t) {

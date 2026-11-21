@@ -462,7 +462,7 @@ test("a missing documents rule: the model sees one tender's page, and the second
   assert.deepEqual(refs, [`${base}/m/file/get/a100`, `${base}/m/file/get/b100`]);
 });
 
-test("a recipe without documents is accepted from the third draft on, and from the second when no page shows files", async () => {
+test("a recipe without documents can pass when no files are shown, but cannot drop visible files", async () => {
   portal(6);
   for (let i = 0; i < 6; i++) routes.set(`/m/t/${100 + i}`, () => ({ body: page(`<h1>Sanierung ${i}</h1><p>Unterlagen beim Amt.</p>`) }));
   const noDocs = { ...goodRecipe(), documents: null };
@@ -475,9 +475,25 @@ test("a recipe without documents is accepted from the third draft on, and from t
 
   clearDetailCache();
   for (let i = 0; i < 6; i++) routes.set(`/m/t/${100 + i}`, () => ({ body: tenderWithFiles(100 + i) }));
-  const stubborn = scripted(`${base}/m/list`, [step("recipe", { recipe: noDocs }), step("recipe", { recipe: noDocs }), step("recipe", { recipe: noDocs })]);
-  assert.equal((await attachWithModel(stubborn)).kind, "ok");
-  assert.equal(stubborn.prompts.length, 3);
+  const stubborn = scripted(`${base}/m/list`, Array.from({ length: 4 }, () => step("recipe", { recipe: noDocs })));
+  const failed = await attachWithModel(stubborn);
+  assert.equal(failed.kind, "failed");
+  if (failed.kind === "failed") assert.match(failed.reason, /no documents rule/i);
+  assert.equal(stubborn.prompts.length, 4);
+});
+
+test("a final draft pointing to HTML instead of files is not promoted", async () => {
+  portal(6);
+  for (let i = 100; i < 106; i++) {
+    routes.set(`/m/t/${i}`, () => ({ body: page(`<a class="tab" href="/m/attachments/${i}">Unterlagen anzeigen</a>`) }));
+    routes.set(`/m/attachments/${i}`, () => ({ body: page(`<a href="/m/f/${i}.pdf">PDF</a>`) }));
+  }
+  const wrong: Recipe = { ...goodRecipe(), documents: { hops: [], files: { css: "a.tab", attr: "href", all: true }, via: "http" } };
+  const ctx = scripted(`${base}/m/list`, Array.from({ length: 4 }, () => step("recipe", { recipe: wrong })));
+  const out = await attachWithModel(ctx);
+  assert.equal(out.kind, "failed");
+  if (out.kind === "failed") assert.match(out.reason, /web page instead of the tender files/i);
+  assert.match(ctx.prompts[1]!, /add it as a hop/i);
 });
 
 test("checkFilesRule says exactly how a files selector fares on the tender page that was shown", () => {

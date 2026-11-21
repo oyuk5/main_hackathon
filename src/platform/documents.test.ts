@@ -107,7 +107,7 @@ async function fakePortal(): Promise<Fake> {
       case "/missing":
         return send(404, "text/plain", "gone");
       case "/huge-declared":
-        res.writeHead(200, { "content-type": "application/zip", "content-length": String(2 * 1024 ** 3) });
+        res.writeHead(200, { "content-type": "application/zip", "content-length": String(2 * 1024 ** 3), "content-disposition": 'attachment; filename="huge.zip"' });
         res.write(Buffer.alloc(1024));
         req.socket.on("close", () => (stats.closedAt = Date.now()));
         return;
@@ -130,6 +130,17 @@ async function fakePortal(): Promise<Fake> {
         slowReached();
         const t = setInterval(() => res.write(Buffer.alloc(1024)), 50);
         res.on("close", () => (clearInterval(t), (stats.closedAt = Date.now())));
+        return;
+      }
+      case "/huge-browser-stream": {
+        res.writeHead(200, { "content-type": "application/zip", "content-disposition": 'attachment; filename="huge.zip"' });
+        const chunk = Buffer.alloc(64 * 1024);
+        const timer = setInterval(() => {
+          stats.streamedBytes += chunk.length;
+          res.write(chunk);
+          if (stats.streamedBytes >= 10 * CAP) res.end();
+        }, 25);
+        res.on("close", () => (clearInterval(timer), (stats.closedAt = Date.now())));
         return;
       }
       case "/portal":
@@ -256,6 +267,21 @@ describe("document pipeline", { concurrency: true }, () => {
     const got = await fetchFrom((b) => [{ url: `${b}/captcha-but-open`, via: "browser", clickPath: ["#dl"] }]);
     assert.deepEqual(got.problems, []);
     assert.equal(got.documents[0]?.sha256, sha(PDF));
+  });
+
+  it("cancels a browser download with an oversized declared length before it completes", async (t) => {
+    if (!(await requireChromium(t))) return;
+    const got = await fetchFrom((b) => [{ url: `${b}/huge-declared`, via: "browser" }]);
+    assert.deepEqual(got.documents, []);
+    assert.match(got.problems[0]!, /over 1 MB/);
+  });
+
+  it("cancels a browser download without a declared length while it is streaming", async (t) => {
+    if (!(await requireChromium(t))) return;
+    const got = await fetchFrom((b) => [{ url: `${b}/huge-browser-stream`, via: "browser" }]);
+    assert.deepEqual(got.documents, []);
+    assert.match(got.problems[0]!, /over 1 MB/);
+    assert.ok(got.stats.streamedBytes < 10 * CAP, `server sent ${got.stats.streamedBytes} bytes`);
   });
 
   it("names a login wall in the browser when no file arrives", async (t) => {

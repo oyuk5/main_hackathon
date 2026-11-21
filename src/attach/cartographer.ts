@@ -375,6 +375,7 @@ Recipe rules (schemaVersion is 1):
 - parse: date | datetime | cpv | url | procedureType | contractNature | postalCode | text. Dates in any European format are fine; add "format" (e.g. "dd.MM.yyyy HH:mm") only if unusual. The deadline needs a time; if the page shows only a date, still map it (it will become null, never a guess).
 - cpvCodes: point the rule at the element that holds the codes, e.g. { "label": "<the CPV label exactly as shown>", "all": true, "parse": "cpv" } in detail.fields; parse "cpv" reads every code in that text (with or without check digit). Never take codes from navigation, footers or lists of other tenders.
 - detail: { urlFrom: "url" (a field name) or a template like "https://site/api/{id}", fields: {...} } for values only on the tender's own page. Use it when the list lacks buyer, deadline, reference or CPV.
+- If a list link opens a summary, set detail.urlFrom to "url" and map the actual tender link with detail.fields.url. The summary is not a valid fallback; document rules then start on the actual tender.
 - documents: { hops: [selectors leading to the page that lists files], files: selector with all:true for the file links, via: "http" }. When a JSON list item already lists its files (e.g. "pieces": [{"lien": …}]), use no hops and files.jsonPath relative to the item (e.g. "$.pieces[*].lien"). It starts on the detail page if there is one, else on the tender's own page (url); the extractor follows HTTP redirects and keeps cookies. files.css matches the download links (attr defaults to "href"); pick the tender's own file list (e.g. a table of attachments), never links that every page has (help, terms, manuals). Use hops only when the files are on another page (a "documents" tab). Tenders without files are fine. After your first draft you are shown one tender's own page with the links that look like files; use it. Use null only when the tender pages list no files at all.
 - withdrawnText: words that mean the buyer cancelled the tender.
 - A WRONG VALUE IS WORSE THAN A MISSING ONE. Leave a field out rather than guess; never map a field to something that only looks similar.
@@ -973,6 +974,7 @@ export async function attachWithModel(ctx: PortalContext, deps: ModelAttachDeps 
   /** The first tender's own page goes to the model once per list page, for the documents rule. */
   let tenderPageShown = false;
   let fileLinksSeen = false;
+  let badDocumentLink: string | null = null;
   let tenderPage: { url: string; body: string } | null = null;
   /** Drafts that were dry-run (rounds also count malformed answers and refused navigations). */
   let drafts = 0;
@@ -1042,6 +1044,7 @@ export async function attachWithModel(ctx: PortalContext, deps: ModelAttachDeps 
       tier = "smart";
       tenderPageShown = false;
       fileLinksSeen = false;
+      badDocumentLink = null;
       tenderPage = null;
       continue;
     }
@@ -1075,8 +1078,7 @@ export async function attachWithModel(ctx: PortalContext, deps: ModelAttachDeps 
       for (const [f, fill] of Object.entries(sample.diagnostics.fieldFill)) if (fill.filled > 0) workingFields.add(f);
     }
     // Documents are easy to forget and invisible on the list page: the model sees one tender's own
-    // page once, and when it shows links that look like files, a missing or wrong documents rule
-    // blocks the second draft too. After that a recipe without documents is accepted.
+    // page once. Evidence of actual documents keeps a bad rule blocking even on the final draft.
     let docsView = "";
     drafts += 1;
     const optionalGaps = OPTIONAL_EVIDENCE.some((e) => !e.fields.some((f) => hasRule(recipe, f)));
@@ -1104,16 +1106,13 @@ export async function attachWithModel(ctx: PortalContext, deps: ModelAttachDeps 
         const got = deps.page ? await deps.page(ctx, ref.url).catch(() => null) : null;
         const view = got ? tenderPageView(got.text, got.url, got.status, got.contentType).text.slice(0, 4000) : "";
         const problem = `documents.files gives ${ref.url}, which answers with a web page (${type.split(";")[0]}), not a file. It is a page that lists the files: add it as a hop (documents.hops, the selector of that link on the tender page) and point documents.files at the file links on that page.${view ? `\nThat page:\n${view}` : ""}`;
-        if (rounds < MAX_RECIPE_ROUNDS) judged.errors.push(problem);
-        else {
-          ctx.log("The documents rule leads to web pages, not files; serving the tenders without documents rather than failing every download.", "warn");
-          delete (recipe as { documents?: unknown }).documents;
-        }
+        badDocumentLink = problem;
+        judged.errors.push(rounds < MAX_RECIPE_ROUNDS ? problem : "The documents rule leads to a web page instead of the tender files.");
       }
     }
     // Evidence from what the portal shows: the list page, the JSON calls, the list items, one tender page.
     // Counted by drafts that were dry-run, so a malformed answer does not use up the hints.
-    const docsBlock = drafts === 1 || (drafts === 2 && fileLinksSeen) ? judged.docs : [];
+    const docsBlock = drafts === 1 || fileLinksSeen || badDocumentLink ? judged.docs : [];
     let withdrawnBlock: string[] = [];
     let listItems: string[] | null = null;
     if (sample.kind === "ok" && sample.tenders.length > 0) {

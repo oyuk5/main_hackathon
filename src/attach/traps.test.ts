@@ -178,12 +178,11 @@ test("deadlines shown in local time keep their wall time and get the offset of t
   }
 });
 
-test("deadline in the repeated autumn hour keeps its wall time with a valid offset", () => {
-  for (const { zone } of ZONES) {
-    const out = parseDateTime("25.10.2026 02:30", zone)!;
-    if (zone === "Europe/Lisbon") assert.match(out, /^2026-10-25T02:30:00\+0[01]:00$/);
-    else assert.match(out, /^2026-10-25T02:30:00\+0[12]:00$/, zone);
-  }
+test("deadline in the repeated autumn hour is null unless the source has an explicit offset", () => {
+  assert.equal(parseDateTime("25.10.2026 02:30", "Europe/Berlin"), null);
+  assert.equal(parseDateTime("25.10.2026 01:30", "Europe/Lisbon"), null);
+  assert.equal(parseDateTime("2026-10-25T02:30:00+02:00", "Europe/Berlin"), "2026-10-25T02:30:00+02:00");
+  assert.equal(parseDateTime("2026-10-25T02:30:00+01:00", "Europe/Berlin"), "2026-10-25T02:30:00+01:00");
 });
 
 test("deadline in the skipped spring hour is null, not shifted", () => {
@@ -213,23 +212,27 @@ test("list links to a summary page: the tender url is the real tender page found
       body: page(`<h1>Kurzfassung</h1><p>Vergabestelle: Stadt Köln</p><a class="go" href="/vergabe/tender?id=${n}&amp;lang=de">Zur Ausschreibung</a>`),
     }));
   }
+  routes.set("/vergabe/tender", (url) => ({ body: page(`<a class="file" href="/files/${url.searchParams.get("id")}.pdf">Unterlagen</a>`) }));
   const r = recipe({
     list: { request: { url: "/notices", method: "GET" }, pagination: { type: "none" }, item: "li.n", emptyText: [] },
     listFields: { id: { css: "span.az" }, url: { css: "a.more", attr: "href" }, title: { css: "a.more" } },
     detail: { urlFrom: "url", fields: { url: { css: "a.go", attr: "href" }, buyerName: { label: "Vergabestelle" } } },
+    documents: { hops: [], files: { css: "a.file", attr: "href", all: true }, via: "http" },
   });
   const first = ok(await extractor.read(r, makeCtx()));
   assert.deepEqual(first.tenders.map((t) => t.url), [`${base}/vergabe/tender?id=1&lang=de`, `${base}/vergabe/tender?id=2&lang=de`]);
   assert.equal(first.tenders[0]!.buyerName, "Stadt Köln");
+  assert.equal(first.tenders[0]!.documentRefs[0]?.url, `${base}/files/1.pdf`);
   for (const t of first.tenders) assert.ok(!t.url.includes("/summary/"), "never the summary page");
   const second = ok(await extractor.read(r, makeCtx()));
   assert.deepEqual(second.tenders, first.tenders, "the cached detail keeps the tender page");
 
-  // When the summary page lost its link, the list value stays (a real http address) rather than a guess.
+  // When the summary page loses its link, a partial list would close healthy, known tenders.
   clearDetailCache();
   routes.set("/summary/2", () => ({ body: page("<h1>Kurzfassung</h1>") }));
-  const third = ok(await extractor.read(r, makeCtx()));
-  assert.equal(third.tenders[1]!.url, `${base}/summary/2`);
+  const third = await extractor.read(r, makeCtx());
+  assert.equal(third.kind, "error");
+  if (third.kind === "error") assert.match(third.reason, /summary is not a substitute/);
 });
 
 // ------------------------------------------------------------ 2c. legacy encodings

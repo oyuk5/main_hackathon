@@ -3,7 +3,7 @@
  * Rule: a wrong value is worse than a missing one. When unsure return null
  * (or undefined for the enum mappers).
  */
-import { formatWithOffset, localWallTime } from "../shared/time.js";
+import { formatWithOffset, localWallTime, offsetMinutes } from "../shared/time.js";
 
 // ---------------------------------------------------------------------------
 // Text
@@ -347,8 +347,18 @@ export function parseDateTime(v: unknown, timeZone: string, format?: string): st
   try {
     const wall = `${pad2(h)}:${pad2(time.mi)}:${pad2(time.s)}`;
     const out = localWallTime(ymd(y, m, d), wall, timeZone);
-    // A wall time inside the spring-forward gap does not exist; never serve a shifted time.
-    return out.slice(0, 19) === `${ymd(y, m, d)}T${wall}` ? out : null;
+    const wallDateTime = `${ymd(y, m, d)}T${wall}`;
+    // A spring gap does not exist. During a fall overlap the same clock time can name two instants.
+    if (out.slice(0, 19) !== wallDateTime) return null;
+    const instant = Date.parse(out);
+    const currentOffset = offsetMinutes(new Date(instant), timeZone);
+    for (const delta of [-86_400_000, 86_400_000]) {
+      const otherOffset = offsetMinutes(new Date(instant + delta), timeZone);
+      if (otherOffset === currentOffset) continue;
+      const alternative = new Date(instant + (currentOffset - otherOffset) * 60_000);
+      if (formatWithOffset(alternative, timeZone).slice(0, 19) === wallDateTime) return null;
+    }
+    return out;
   } catch {
     return null;
   }
