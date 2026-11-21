@@ -95,6 +95,8 @@ There is no authentication, as the brief specifies: the API and the dashboard an
 
 Reads run in parallel across portals and are rate-limited to at most one request per second per portal. Portals on the same software can reuse one learned family recipe if it passes a deterministic trial, without another model call for attach.
 
+The first read on a large portal does a bounded amount of detail and document work, but downloads are still limited to one request per second per portal: in our TenderNed run, 2,592 tenders were listed and the first 36 were served after about 14 minutes. Small portals in our lab served their first tenders in 1–3 minutes; once the initial backlog clears, later reads check the listing and fetch only new or changed details and attachments.
+
 Attach and repair reserve estimated worst-case request headroom before sending each model call. Set the input and output prices to match the provider for these local limits to reflect actual spend. Provider billing is authoritative; usage a provider does not report is not visible to the ledger.
 
 Every model call is recorded with its purpose, tokens and cost: `GET /internal/ledger` for all portals, `GET /internal/portals/{id}` for one. The ledger includes `cached_tokens` only when a nonzero count has been recorded by the model client.
