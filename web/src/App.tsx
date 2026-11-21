@@ -2,7 +2,7 @@
  * Operator dashboard styled after Docker Desktop: clean dark/light surfaces, 1px hairlines,
  * vertical column header dividers, Docker Blue primary controls, and 10px status circles.
  */
-import { Fragment, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { Board, openIssues } from "./Board";
 import { Chart } from "./Chart";
 import { Detail } from "./Detail";
@@ -51,11 +51,11 @@ function useRoute() {
   return { openId: route.id, tab };
 }
 
-export function App({ operator }: { operator?: ReactNode }) {
-  return <LangProvider><Dashboard operator={operator} /></LangProvider>;
+export function App() {
+  return <LangProvider><Dashboard /></LangProvider>;
 }
 
-function Dashboard({ operator }: { operator?: ReactNode }) {
+function Dashboard() {
   useT();
   const { data, failing, reload } = usePoll<PortalRow[]>("/internal/overview");
   const { data: ledger } = usePoll<LedgerRow[]>("/internal/ledger", 10_000);
@@ -96,7 +96,7 @@ function Dashboard({ operator }: { operator?: ReactNode }) {
 
   return (
     <div className="min-h-dvh text-ink">
-      <Header onAdded={reload} operator={operator} />
+      <Header onAdded={reload} />
       {/* Pinned over the page, so it never pushes the layout down and leaves no gap when the API is fine. */}
       {failing && (
         <p role="alert" className="fixed bottom-4 left-1/2 z-40 w-[min(560px,calc(100%-32px))] -translate-x-1/2 rounded-[6px] border border-failed/40 bg-paper px-4 py-2.5 text-center text-[13px] text-failed shadow-[0_8px_24px_rgb(0_0_0/0.18)]">
@@ -223,7 +223,7 @@ function DashboardSkeleton() {
 
 // ------------------------------------------------------------ header & tabs
 
-function Header({ onAdded, operator }: { onAdded: () => void; operator?: ReactNode }) {
+function Header({ onAdded }: { onAdded: () => void }) {
   const [url, setUrl] = useState("");
   const [note, setNote] = useState<{ ok: boolean; text: string } | null>(null);
   const [sending, setSending] = useState(false);
@@ -271,7 +271,6 @@ function Header({ onAdded, operator }: { onAdded: () => void; operator?: ReactNo
         <div className="order-2 ml-auto flex items-center gap-2 sm:order-3 sm:ml-0">
           <LangSwitch />
           <ThemeSwitch />
-          {operator}
         </div>
         {/* German button labels are longer: on a phone the address gets its own row. */}
         <form onSubmit={add} className={`order-3 flex w-full gap-2 sm:order-2 sm:ml-auto sm:w-auto ${lang === "de" ? "max-sm:flex-wrap" : ""}`}>

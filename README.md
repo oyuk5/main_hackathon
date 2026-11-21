@@ -87,18 +87,9 @@ In company deployments, put the dashboard behind company single sign-on via a re
 | `TZ_DISPLAY` | no | `Europe/Berlin` | Time zone for times the system itself writes. |
 | `LOG_LEVEL` | no | `warn` | Server log level. |
 
-## Operator sign-in (optional)
+## Access
 
-Leave both Clerk keys unset for evaluation. The dashboard and internal routes then remain open, and the browser does not load Clerk. For an operator deployment, create an application in the Clerk Dashboard, enable your preferred sign-in methods, and configure its instance for the dashboard's origin. Copy the publishable and secret keys from the application's API Keys page into the server environment and restart Watchtower; no rebuild is needed.
-
-| Variable | Purpose |
-|---|---|
-| `CLERK_PUBLISHABLE_KEY` | Public key returned at runtime by `/auth/config`. |
-| `CLERK_SECRET_KEY` | Server-only key. Both keys are required to enable sign-in. |
-| `CLERK_ALLOWED_EMAILS` | Optional comma-separated list of verified primary email addresses. |
-| `CLERK_ALLOWED_ORG` | Optional Clerk organization ID (`org_…`); the operator must have it active in their session. |
-
-If both restrictions are set, both must match. Only `/internal/*` is protected; the public API, including its write routes and file downloads, stays open by design. Use a reverse proxy or a private network if your deployment also needs to restrict the public API.
+There is no authentication, as the brief specifies: the API and the dashboard answer without a login. In a production deployment, put the dashboard behind your own single sign-on (for example a reverse proxy) and keep the API on a private network.
 
 ## Approach: scale and model cost
 
