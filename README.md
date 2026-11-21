@@ -32,7 +32,7 @@ POST /portals → Cartographer (model at attach) → JSON recipe
 
 ## Evidence by judging criterion
 
-**Attach.** The November 21, 00:59–01:04 CET attach-only recheck at `29ec17a` (recorded in `7e04b69`) scored **100%, zero wrong values**: Gmina twice (**13/13** each), Stadtwerke (**14/14**), Ville (**11/11**). The November 20, 22:28 CET full lab run scored **73%, zero wrong values**; missing fields reduced that score (D’s archived `status/D.md` at `931e012`).
+**Attach.** The November 21, 02:50–03:02 CET attach-only eval on all eight lab portals at `a3de073` scored **83% of fields correct (814 of 979) with 2 wrong values** on the seven attachable portals. Stadtwerke (**14/14**), Ville (**11/11**), Gmina (**13/13**) and Polder (**12/12**) scored **100%**. Gemeinde scored **90%** and Kommune **72%**; each served one cancelled tender as open. Comune delivered **5 of 13** tenders (**21%**). Obec failed as it should: its documents need a login. The earlier 00:59–01:04 CET recheck at `29ec17a` scored **100%, zero wrong values** on Gmina, Stadtwerke and Ville. The November 20, 22:28 CET full lab run scored **73%, zero wrong values**; missing fields reduced that score (D’s archived `status/D.md` at `931e012`).
 
 **Notice.** Watch checks read completeness, field values and golden records before delivery. The latest Gmina change run (November 21, 00:02 CET, after the empty-day and Medic fixes) noticed **100%** of changes correctly, with **0 false repairs in 2** harmless changes (cookie banner, empty day) and a moved document link that left tenders unaffected. The earlier November 20, 22:28 CET full run, before those fixes, had **3 false repairs in 6**.
 
@@ -46,12 +46,12 @@ POST /portals → Cartographer (model at attach) → JSON recipe
 
 | Operation | Model cost | Basis |
 |---|---:|---|
-| Attach once | $0.033 average | B’s November 20, 23:12 CET attach-only eval on three lab portals; the earlier 22:28 full run averaged $0.040. |
+| Attach once | $0.029 average | November 21, 02:50–03:02 CET attach-only eval on all eight lab portals ($0.009–$0.060); B’s November 20, 23:12 CET run on three portals averaged $0.033. |
 | Regular read | $0 | Deterministic extractor; no model call. |
 | Repair | $0.021 average | November 20, 22:28 CET full lab eval, per scenario that started a repair. |
 | Family attach | $0 | A reused recipe that passes its trial without a model call. |
 
-At the $0.033 lab average, **1,000 independent attaches would cost about $33 once**, plus repairs when portals change. This assumes no family reuse and excludes hosting and storage. The ledger uses configured prices and reported usage; provider billing is authoritative.
+At the $0.029 lab average, **1,000 independent attaches would cost about $29 once**, plus repairs when portals change. This assumes no family reuse and excludes hosting and storage. The ledger uses configured prices and reported usage; provider billing is authoritative.
 
 ## Environment variables
 
