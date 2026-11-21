@@ -876,14 +876,15 @@ function firstPageProblem(p: Page): ReadOutcome | null {
 
 // ------------------------------------------------------------ list request
 
-function listRequest(recipe: Recipe, ctx: PortalContext, index: number): { url: string; init: RequestInit } {
+function listRequest(recipe: Recipe, ctx: PortalContext, index: number, cursor: string | null = null): { url: string; init: RequestInit } {
   const pg = recipe.list.pagination;
   const vars: Values = {
     page: (pg.type === "pageParam" ? (pg.start ?? 1) : 1) + (pg.type === "pageParam" ? index : 0),
     offset: pg.type === "offsetParam" ? index * pg.pageSize : 0,
     pageSize: pg.type === "offsetParam" ? pg.pageSize : "",
+    cursor: cursor ?? "",
   };
-  const fill = (s: string, encode: boolean) => s.replace(/\{(page|offset|pageSize|today|daysAgo:\d{1,4})\}/g, (_, k: string) => {
+  const fill = (s: string, encode: boolean) => s.replace(/\{(page|offset|pageSize|cursor|today|daysAgo:\d{1,4})\}/g, (_, k: string) => {
     const v = datePlaceholder(k, recipe.timeZone) ?? String(vars[k] ?? "");
     return encode ? encodeURIComponent(v) : v;
   });
@@ -892,7 +893,10 @@ function listRequest(recipe: Recipe, ctx: PortalContext, index: number): { url: 
   const headers: Record<string, string> = {};
   for (const [k, v] of Object.entries(req.headers ?? {})) headers[k] = fill(v, false);
   const init: RequestInit = { method: req.method ?? "GET", headers };
-  if (req.body !== undefined && (req.method ?? "GET") === "POST") init.body = fill(req.body, false);
+  if (req.body !== undefined && (req.method ?? "GET") === "POST") {
+    // A quoted "{cursor}" in a JSON body is a JSON value: null on the first page, then the cursor as a string.
+    init.body = fill(req.body.replace(/"\{cursor\}"/g, () => (cursor === null ? "null" : JSON.stringify(cursor))), false);
+  }
   return { url, init };
 }
 
@@ -1043,10 +1047,13 @@ async function run(st: ReadState, started: number): Promise<ReadOutcome> {
   let listSkeletonHash: string | undefined;
   let emptyStateText: string | undefined;
   let nextUrl: string | null = null;
+  let cursor: string | null = null;
+  const seenCursors = new Set<string>();
 
   for (let i = 0; i < maxPages; i++) {
     checkAbort(ctx);
-    let req = listRequest(recipe, ctx, i);
+    if (pg.type === "cursor" && i > 0 && cursor === null) break;
+    let req = listRequest(recipe, ctx, i, cursor);
     if (pg.type === "nextLink" && i > 0) {
       if (!nextUrl) break;
       req = { url: nextUrl, init: { method: "GET", headers: req.init.headers } };
@@ -1120,6 +1127,13 @@ async function run(st: ReadState, started: number): Promise<ReadOutcome> {
     if (pg.type === "nextLink") {
       const next = resolveSelector(st, pg.selector, rootScope(doc), {}, { defaultAttr: "href", all: false })[0];
       nextUrl = typeof next === "string" ? absoluteUrl(next.trim(), doc.url) : null;
+    }
+    if (pg.type === "cursor") {
+      const next = resolveSelector(st, pg.next, rootScope(doc), {}, { all: false })[0];
+      const value = typeof next === "number" && Number.isFinite(next) ? String(next) : typeof next === "string" ? next.trim() : "";
+      // No cursor, or one we already sent: the list ends here.
+      cursor = value !== "" && !seenCursors.has(value) ? value : null;
+      if (cursor !== null) seenCursors.add(cursor);
     }
   }
 

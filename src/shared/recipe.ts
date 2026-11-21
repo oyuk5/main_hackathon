@@ -36,7 +36,7 @@ export type FieldRule = z.infer<typeof FieldRule>;
 
 export const RequestSpec = z.object({
   /**
-   * url, headers and body may contain {page}, {offset}, {pageSize}, and dates in the recipe's timeZone:
+   * url, headers and body may contain {page}, {offset}, {pageSize}, {cursor} (cursor pagination), and dates in the recipe's timeZone:
    * {today} = today as YYYY-MM-DD, {daysAgo:N} = the date N days before today (e.g. "published since").
    * Const selectors may use {today} / {daysAgo:N} too.
    */
@@ -51,6 +51,13 @@ export const Pagination = z.discriminatedUnion("type", [
   z.object({ type: z.literal("pageParam"), start: z.number().int().default(1), maxPages: z.number().int().default(50) }),
   z.object({ type: z.literal("offsetParam"), pageSize: z.number().int(), maxPages: z.number().int().default(50) }),
   z.object({ type: z.literal("nextLink"), selector: Selector, maxPages: z.number().int().default(50) }),
+  /**
+   * An API that answers each page with an opaque cursor for the next one. `next` reads it from the
+   * response (usually JSONPath, e.g. "$.next"); the next request sends it through {cursor} in the url,
+   * headers or body. In a JSON body write "{cursor}" in quotes: the first request sends null there,
+   * later ones the cursor as a JSON string. The list ends when the response has no cursor.
+   */
+  z.object({ type: z.literal("cursor"), next: Selector, maxPages: z.number().int().default(50) }),
   z.object({ type: z.literal("clickNext"), selector: z.string(), maxPages: z.number().int().default(50) }),
 ]);
 

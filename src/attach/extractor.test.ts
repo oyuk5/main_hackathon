@@ -462,6 +462,58 @@ test("a withdrawn rule over the status text counts without a regex", async () =>
   assert.equal(res.tenders[1]!.withdrawn, true);
 });
 
+test("jsonApi: cursor pagination sends the next cursor in the POST body until the API has none", async () => {
+  const all = Array.from({ length: 13 }, (_, i) => ({ codice: `B-${i + 1}`, oggetto: `Bando ${i + 1}`, dettaglio: `/bandi/B-${i + 1}` }));
+  const bodies: unknown[] = [];
+  const ctx = makeCtx();
+  ctx.http = {
+    async fetch(url, init) {
+      const body = JSON.parse(String(init?.body ?? "{}")) as { dimensione: number; cursore: string | null };
+      bodies.push(body.cursore);
+      const start = body.cursore === null ? 0 : Number(Buffer.from(body.cursore, "base64url").toString());
+      const end = start + body.dimensione;
+      const next = end < all.length ? Buffer.from(String(end)).toString("base64url") : null;
+      return new Response(JSON.stringify({ elementi: all.slice(start, end), next }), { headers: { "content-type": "application/json" } });
+    },
+  };
+  const r = recipe({
+    tier: "jsonApi",
+    timeZone: "Europe/Rome",
+    countryCode: "IT",
+    list: {
+      request: { url: "/api/cerca", method: "POST", headers: { "content-type": "application/json" }, body: '{"dimensione":5,"cursore":"{cursor}"}' },
+      pagination: { type: "cursor", next: { jsonPath: "$.next" }, maxPages: 10 },
+      item: "$.elementi[*]",
+      emptyText: [],
+    },
+    listFields: { id: { jsonPath: "$.codice" }, url: { jsonPath: "$.dettaglio" }, title: { jsonPath: "$.oggetto" } },
+  });
+  const res = ok(await extractor.read(r, ctx));
+  assert.equal(res.tenders.length, 13);
+  assert.equal(res.diagnostics.listPages, 3);
+  assert.deepEqual(bodies, [null, Buffer.from("5").toString("base64url"), Buffer.from("10").toString("base64url")]);
+});
+
+test("cursor pagination stops when the API repeats a cursor", async () => {
+  let calls = 0;
+  const ctx = makeCtx();
+  ctx.http = {
+    async fetch(url) {
+      calls += 1;
+      const page = new URL(url).searchParams.get("c") || "0";
+      return new Response(JSON.stringify({ items: [{ id: `X-${page}-${calls}`, href: `/x/${calls}` }], next: "same" }), { headers: { "content-type": "application/json" } });
+    },
+  };
+  const r = recipe({
+    tier: "jsonApi",
+    list: { request: { url: "/api/x?c={cursor}", method: "GET" }, pagination: { type: "cursor", next: { jsonPath: "$.next" }, maxPages: 10 }, item: "$.items[*]", emptyText: [] },
+    listFields: { id: { jsonPath: "$.id" }, url: { jsonPath: "$.href" } },
+  });
+  const res = ok(await extractor.read(r, ctx));
+  assert.equal(calls, 2);
+  assert.equal(res.tenders.length, 2);
+});
+
 test("dedupes tenders by id, first wins", async () => {
   routes.set("/dup", () => ({ body: table(row("S-1", "/s/1", "Erst", "01.03.2026") + row("S-1", "/s/1b", "Zweit", "01.03.2026")) }));
   const res = ok(await extractor.read(simple("/dup", { listFields: { id: { css: "td.ref" }, url: { css: "a", attr: "href" }, title: { css: "a" } } }), makeCtx()));
