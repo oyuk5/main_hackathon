@@ -20,7 +20,7 @@ import * as cheerio from "cheerio";
 import type { Cheerio, CheerioAPI } from "cheerio";
 import type { AnyNode, Element } from "domhandler";
 import { JSONPath } from "jsonpath-plus";
-import type { BrowserStep, Recipe, Selector, FieldRule } from "../shared/recipe.js";
+import { MAX_LIST_PAGES, type BrowserStep, type Recipe, type Selector, type FieldRule } from "../shared/recipe.js";
 import type { DocumentRef, ExtractedTender, Extractor, FieldFill, PortalContext, ReadOutcome } from "../shared/modules.js";
 import {
   absoluteUrl,
@@ -1031,7 +1031,7 @@ async function run(st: ReadState, started: number): Promise<ReadOutcome> {
   const pg = recipe.list.pagination;
   // Clicking "next" needs the browser: other tiers read the first page only.
   const clicks = pg.type === "clickNext" && st.pages !== undefined;
-  const recipeMaxPages = pg.type === "none" ? 1 : pg.type === "clickNext" && !clicks ? 1 : Math.max(1, pg.maxPages ?? 50);
+  const recipeMaxPages = pg.type === "none" ? 1 : pg.type === "clickNext" && !clicks ? 1 : Math.min(MAX_LIST_PAGES, Math.max(1, pg.maxPages ?? MAX_LIST_PAGES));
   const maxPages = Math.min(recipeMaxPages, st.limits?.maxPages ?? recipeMaxPages);
   if (pg.type === "clickNext" && !clicks) ctx.log("This recipe pages by clicking, which needs the browser; reading the first page only.", "warn");
   const itemsKey = (html: string) =>

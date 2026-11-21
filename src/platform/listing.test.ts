@@ -32,3 +32,8 @@ test("a missing tender older than everything a full read saw stays open: the lis
   assert.equal(mayClose({ ...base, publicationDate: null }), true);
   assert.equal(mayClose({ ...base, publicationDate: "2026-11-06", submissionDeadline: "2026-11-19T12:00:00+01:00" }), true, "a passed deadline still closes it");
 });
+
+test("a recipe asking for more than 200 pages is capped at 200: a read that reached 200 did not see the whole list", () => {
+  assert.equal(sawWholeList({ type: "pageParam", start: 1, maxPages: 500 }, 200, false), false);
+  assert.equal(sawWholeList({ type: "pageParam", start: 1, maxPages: 500 }, 199, false), true);
+});

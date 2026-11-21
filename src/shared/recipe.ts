@@ -46,19 +46,25 @@ export const RequestSpec = z.object({
   body: z.string().optional(),
 });
 
+/**
+ * Hard ceiling on list pages per read. A list page is one request, so 200 pages take about 3.7 minutes
+ * at the polite pace. A recipe may ask for fewer; asking for more is read as 200.
+ */
+export const MAX_LIST_PAGES = 200;
+
 export const Pagination = z.discriminatedUnion("type", [
   z.object({ type: z.literal("none") }),
-  z.object({ type: z.literal("pageParam"), start: z.number().int().default(1), maxPages: z.number().int().default(50) }),
-  z.object({ type: z.literal("offsetParam"), pageSize: z.number().int(), maxPages: z.number().int().default(50) }),
-  z.object({ type: z.literal("nextLink"), selector: Selector, maxPages: z.number().int().default(50) }),
+  z.object({ type: z.literal("pageParam"), start: z.number().int().default(1), maxPages: z.number().int().default(MAX_LIST_PAGES) }),
+  z.object({ type: z.literal("offsetParam"), pageSize: z.number().int(), maxPages: z.number().int().default(MAX_LIST_PAGES) }),
+  z.object({ type: z.literal("nextLink"), selector: Selector, maxPages: z.number().int().default(MAX_LIST_PAGES) }),
   /**
    * An API that answers each page with an opaque cursor for the next one. `next` reads it from the
    * response (usually JSONPath, e.g. "$.next"); the next request sends it through {cursor} in the url,
    * headers or body. In a JSON body write "{cursor}" in quotes: the first request sends null there,
    * later ones the cursor as a JSON string. The list ends when the response has no cursor.
    */
-  z.object({ type: z.literal("cursor"), next: Selector, maxPages: z.number().int().default(50) }),
-  z.object({ type: z.literal("clickNext"), selector: z.string(), maxPages: z.number().int().default(50) }),
+  z.object({ type: z.literal("cursor"), next: Selector, maxPages: z.number().int().default(MAX_LIST_PAGES) }),
+  z.object({ type: z.literal("clickNext"), selector: z.string(), maxPages: z.number().int().default(MAX_LIST_PAGES) }),
 ]);
 
 /**

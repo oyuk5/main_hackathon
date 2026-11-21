@@ -27,7 +27,7 @@ POST /portals → Cartographer (model at attach) → JSON recipe
 - **Golden tenders** are previously verified records used to check new reads and candidate repairs. Missing evidence never becomes an invented value.
 - **Files** stream to disk, ZIPs are unpacked, and each file is served by its SHA-256. Repair promotion checks fresh downloads of previously delivered files, even when their URLs did not change.
 - **States** distinguish `integrating`, `serving`, `healing`, and `failed`. A portal-wide login, captcha or robots.txt block gets a named failure; isolated document walls hold affected updates back and are named in the reason.
-- **Rate limits** apply to HTTP and browser requests through a shared per-host gate: at most one request per second, respecting robots.txt. Reads on different hosts run in parallel.
+- **Rate limits** apply to HTTP and browser requests through a shared per-host gate: at most one request per second, respecting robots.txt. With the default 1.1 s gap we stay at about 0.9 requests per second per portal. Reads on different hosts run in parallel.
 - **Many portals at once** run side by side with no queue. A model 429 (rate limit) waits for `Retry-After`, or backs off 2 s, 4 s, 8 s and so on, for up to 5 retries before the portal fails; an exhausted quota fails at once with the provider's reason. All portals share one Chromium: if it crashes, the next page launches a new one and every page that died with it is retried once.
 - **Spend limits** reserve estimated headroom before each model request. A failed repair cools down before another model attempt; regular checks continue without a model call.
 

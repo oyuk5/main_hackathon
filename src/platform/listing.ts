@@ -10,12 +10,13 @@
  * that only lists the last weeks. A missing tender published before the oldest tender this read saw
  * may simply be outside that window, so it is not closed on absence alone either.
  */
-import type { Recipe } from "../shared/recipe.js";
+import { MAX_LIST_PAGES, type Recipe } from "../shared/recipe.js";
 
 export function sawWholeList(pagination: Recipe["list"]["pagination"] | undefined, listPages: number, aborted: boolean): boolean {
   if (aborted) return false;
   if (!pagination || pagination.type === "none") return true;
-  return listPages < pagination.maxPages;
+  // The Extractor never reads past MAX_LIST_PAGES, whatever the recipe asks: a read that reached it is capped.
+  return listPages < Math.min(pagination.maxPages, MAX_LIST_PAGES);
 }
 
 export function mayClose(opts: {
