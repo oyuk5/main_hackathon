@@ -127,7 +127,6 @@ function Dashboard() {
             <Tabs
               tab={tab}
               rows={rows}
-              now={now}
               picker={<Picker all={all} picked={picked} setPicked={setPicked} />}
             />
           )}
@@ -311,8 +310,9 @@ function Header({ onAdded }: { onAdded: () => void }) {
   );
 }
 
-function Tabs({ tab, rows, now, picker }: { tab: Tab; rows: PortalRow[]; now: number; picker: React.ReactNode }) {
-  const open = openIssues(rows, now);
+function Tabs({ tab, rows, picker }: { tab: Tab; rows: PortalRow[]; picker: React.ReactNode }) {
+  const open = openIssues(rows);
+  const issueCountLabel = t("tabs.openIssues", { n: open });
   const tabs: { id: Tab; href: string; label: string; count?: number; alert?: boolean }[] = [
     { id: "portals", href: "#/", label: t("tabs.portals"), count: rows.length },
     { id: "issues", href: "#/issues", label: t("tabs.issues"), count: open, alert: rows.some((r) => r.state === "failed") },
@@ -336,6 +336,7 @@ function Tabs({ tab, rows, now, picker }: { tab: Tab; rows: PortalRow[]; now: nu
             {t.label}
             {t.count !== undefined && (
               <span
+                title={t.id === "issues" ? issueCountLabel : undefined}
                 className={`num rounded-[4px] px-2 py-0.5 text-[12px] leading-[18px] font-medium ${
                   t.alert ? "bg-failed-wash text-failed" : "bg-mist text-slate"
                 }`}

@@ -1,14 +1,13 @@
 /**
- * The issues board: every problem as a ticket in one of three lanes, read left to right in order
- * of urgency. Needs a person, Fixing itself, Fixed by itself (last 24 h). The Serving filter
- * also shows healthy portals that do not have a recent repair.
+ * Current problems, recent recoveries, and a separate lane for first attaches.
+ * A status filter shows only its matching lane; Serving lists portals, not past repair runs.
  * Tickets are built from the overview only; a ticket opens the portal's side panel.
  */
 import { StatusIcon, stateToIconKind } from "./StatusIcon";
 import { CHARACTER, clock, duration, host, int, when, type PortalRow, type RecentRun, type State } from "./lib";
-import { t, type Key } from "./i18n";
+import { t } from "./i18n";
 
-type Lane = "person" | "fixing" | "fixed" | "clear";
+type Lane = "person" | "fixing" | "fixed" | "attaching" | "clear";
 
 interface Ticket {
   key: string;
@@ -25,9 +24,11 @@ const LANES: { id: Lane; tone: string }[] = [
   { id: "person", tone: "bg-failed" },
   { id: "fixing", tone: "bg-healing" },
   { id: "fixed", tone: "bg-serving" },
+  { id: "attaching", tone: "bg-integrating" },
   { id: "clear", tone: "bg-serving" },
 ];
-const laneText = (id: string, part: "title" | "note" | "empty") => t(`lane.${id}.${part}` as Key);
+const laneText = (id: Lane, part: "title" | "note" | "empty") => t(`lane.${id}.${part}`);
+const STATUS_LANE: Record<State, Lane> = { failed: "person", healing: "fixing", integrating: "attaching", serving: "clear" };
 
 /** What a person can do about a portal Watchtower cannot fix itself. Null when the reason gives no clue. */
 export function nextStep(reason: string): string | null {
@@ -84,7 +85,7 @@ function served(p: PortalRow) {
 }
 
 function tickets(rows: PortalRow[], now: number): Record<Lane, Ticket[]> {
-  const out: Record<Lane, Ticket[]> = { person: [], fixing: [], fixed: [], clear: [] };
+  const out: Record<Lane, Ticket[]> = { person: [], fixing: [], fixed: [], attaching: [], clear: [] };
   for (const p of rows) {
     const runs = newestFirst(p.recent);
     const since = troubleSince(p);
@@ -102,14 +103,14 @@ function tickets(rows: PortalRow[], now: number): Record<Lane, Ticket[]> {
         meta: [repair ? t("board.repairStarted", { when: when(repair.startedAt, now) }) : since ? t("board.broke", { when: when(since, now) }) : t("board.queued"), served(p)],
       });
     } else if (p.state === "integrating") {
-      out.fixing.push({ key: p.id, p, title: t("board.learning"), body: p.reason, working: true, meta: [t("board.firstTenders")] });
+      out.attaching.push({ key: p.id, p, title: t("board.learning"), body: p.reason, working: true, meta: [t("board.firstTenders")] });
     } else {
       out.clear.push({ key: p.id, p, title: host(p.url), body: p.reason, meta: [] });
     }
 
     // Every repair that worked in the last 24 hours is a closed ticket, whatever the state is now.
     runs.forEach((r, i) => {
-      if (r.kind !== "repair" || r.result !== "ok") return;
+      if (r.kind !== "repair" || r.result !== "ok" || Date.parse(r.startedAt) < now - 24 * 3_600_000) return;
       const broke = runs.slice(i + 1).find((x) => x.result === "failed");
       out.fixed.push({
         key: `${p.id}-${r.startedAt}`, p,
@@ -126,35 +127,33 @@ function tickets(rows: PortalRow[], now: number): Record<Lane, Ticket[]> {
   return out;
 }
 
-/** Issues still open: what needs a person plus what is fixing itself. */
-export function openIssues(rows: PortalRow[], now: number): number {
-  const lanes = tickets(rows, now);
-  return lanes.person.length + lanes.fixing.length;
+/** Count current problems, not first attaches or historical repair runs. */
+export function openIssues(rows: PortalRow[]): number {
+  return rows.filter((p) => p.state === "failed" || p.state === "healing").length;
 }
 
 export function Board({ rows, state, now, hover, setHover }: { rows: PortalRow[]; state: State | "all"; now: number; hover: string | null; setHover: (id: string | null) => void }) {
   const lanes = tickets(rows, now);
-  const visibleLanes = LANES.filter(({ id }) => {
-    if (state === "all") return id !== "clear";
-    if (state === "serving") return id === "clear" || id === "fixed";
-    return id === (state === "failed" ? "person" : "fixing");
-  });
+  const visibleLanes = LANES.filter(({ id }) => state === "all"
+    ? id !== "clear" && (id !== "attaching" || lanes.attaching.length > 0)
+    : id === STATUS_LANE[state]);
+  const columns = state !== "all" ? "" : visibleLanes.length === 4 ? "md:grid-cols-2 xl:grid-cols-4" : "lg:grid-cols-3";
   return (
-    <section aria-label={t("board.label")} className={`grid gap-5 ${state === "all" ? "lg:grid-cols-3" : state === "serving" ? "lg:grid-cols-2" : ""}`}>
+    <section aria-label={t("board.label")} className={`grid gap-5 ${columns}`}>
       {visibleLanes.map((lane) => (
         <div key={lane.id} className="flex min-w-0 flex-col rounded-[6px] border border-hairline bg-paper/60 px-3 pt-3 pb-2">
           <header className="pb-3">
             <div className="flex items-baseline justify-between gap-3">
               <h2 className="flex items-center gap-2 text-[15px] font-semibold text-ink">
                 <span aria-hidden="true" className={`size-2 shrink-0 rounded-full ${lane.tone}`} />
-                {lane.id === "fixing" && state !== "all" ? CHARACTER[state].words : laneText(lane.id, "title")}
+                {laneText(lane.id, "title")}
               </h2>
               <span className="num text-[15px] font-semibold text-slate">{lanes[lane.id].length}</span>
             </div>
             <p className="mt-0.5 text-[12.5px] leading-snug text-slate">{laneText(lane.id, "note")}</p>
           </header>
           {lanes[lane.id].length === 0 ? (
-            <p className="rounded-[4px] border border-dashed border-hairline px-4 py-6 text-center text-[13px] text-faint">{lane.id === "fixing" && state === "integrating" ? t("lane.fixing.attachEmpty") : laneText(lane.id, "empty")}</p>
+            <p className="rounded-[4px] border border-dashed border-hairline px-4 py-6 text-center text-[13px] text-faint">{laneText(lane.id, "empty")}</p>
           ) : lane.id === "clear" ? (
             <ul className="rounded-[4px] border border-hairline bg-sea/40">
               {lanes.clear.map((k) => <ClearRow key={k.key} k={k} now={now} hover={hover} setHover={setHover} />)}

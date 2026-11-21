@@ -71,11 +71,11 @@ function dayLabel(iso: string, now: number): string {
 }
 
 /** "Today 10:42" in a column, or "today at 10:42" inside a sentence. */
-function shortWhen(iso: string, now: number, inSentence = false): string {
+function shortWhen(iso: string, now: number): string {
   const date = new Date(iso);
   const d = date.toDateString();
-  if (d === new Date(now).toDateString()) return t(inSentence ? "log.sinceToday" : "log.todayAt", { t: clock(iso) });
-  if (d === new Date(now - 86_400_000).toDateString()) return t(inSentence ? "log.sinceYest" : "log.yestAt", { t: clock(iso) });
+  if (d === new Date(now).toDateString()) return t("log.todayAt", { t: clock(iso) });
+  if (d === new Date(now - 86_400_000).toDateString()) return t("log.yestAt", { t: clock(iso) });
   return `${shortDateFmt().format(date)} ${clock(iso)}`;
 }
 
@@ -147,8 +147,8 @@ export function Log({ portals, now }: { portals: PortalRow[]; now: number }) {
     return matching.filter(currentFilter.keep)
       .sort((a, b) => {
         if (sortKey === "portal") {
-          const cmp = host(a.url).localeCompare(host(b.url)) * dir;
-          return cmp !== 0 ? cmp : ts(b.started_at) - ts(a.started_at);
+          const cmp = host(a.url).localeCompare(host(b.url), locale()) || a.portal_id.localeCompare(b.portal_id);
+          return cmp !== 0 ? cmp * dir : ts(b.started_at) - ts(a.started_at);
         }
         if (sortKey === "outcome") {
           const cmp = (OUTCOME[outcome(a)].order - OUTCOME[outcome(b)].order) * dir;
@@ -164,34 +164,13 @@ export function Log({ portals, now }: { portals: PortalRow[]; now: number }) {
         }
         return (ts(a.started_at) - ts(b.started_at)) * dir;
       });
-  }, [matching, currentFilter, sortKey, sortDir]);
-
-  // A portal that fails the same way read after read gets one row ("5 times since …"), not five.
-  // Only in time order, and only while that portal's own entries keep repeating; anything else breaks the run.
-  const folded = useMemo(() => {
-    if (sortKey !== "time" || sortDir !== "desc") return rows.map((r) => ({ ...r, times: 1, since: r.started_at }));
-    const same = (s: string) => s.toLowerCase().replace(/\bstill\s+/g, "").replace(/[.\s]+$/, "");
-    const out: Folded[] = [];
-    const last = new Map<string, Folded>();
-    for (const r of rows) {
-      const prev = last.get(r.portal_id);
-      if (prev && r.result !== null && prev.kind === r.kind && outcome(prev) === outcome(r) && same(prev.summary) === same(r.summary)) {
-        prev.times += 1;
-        prev.since = r.started_at;
-        continue;
-      }
-      const f = { ...r, times: 1, since: r.started_at };
-      out.push(f);
-      last.set(r.portal_id, f);
-    }
-    return out;
-  }, [rows, sortKey, sortDir]);
+  }, [matching, currentFilter, sortKey, sortDir, lang]);
 
   // Unique groups so Today / Yesterday never repeat, and Portal sort groups neatly by hostname.
   const sections = useMemo(() => {
     if (sortKey === "time") {
-      const map = new Map<string, { key: string; label: string; rows: Folded[] }>();
-      for (const r of folded) {
+      const map = new Map<string, { key: string; label: string; rows: LogRow[] }>();
+      for (const r of rows) {
         const key = new Date(r.started_at).toDateString();
         let bucket = map.get(key);
         if (!bucket) {
@@ -203,27 +182,27 @@ export function Log({ portals, now }: { portals: PortalRow[]; now: number }) {
       return [...map.values()];
     }
     if (sortKey === "portal") {
-      const map = new Map<string, { key: string; label: string; rows: Folded[] }>();
-      for (const r of folded) {
-        const key = host(r.url);
+      const map = new Map<string, { key: string; label: string; rows: LogRow[] }>();
+      for (const r of rows) {
+        const key = r.portal_id;
         let bucket = map.get(key);
         if (!bucket) {
-          bucket = { key, label: key, rows: [] };
+          bucket = { key, label: host(r.url), rows: [] };
           map.set(key, bucket);
         }
         bucket.rows.push(r);
       }
       return [...map.values()].map((b) => ({ ...b, label: `${b.label}, ${t("log.entries", { n: b.rows.length })}` }));
     }
-    return [{ key: "flat", label: null as string | null, rows: folded }];
+    return [{ key: "flat", label: null as string | null, rows }];
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [folded, now, sortKey, lang]);
+  }, [rows, now, sortKey, lang]);
 
   return (
-    <section aria-labelledby="log" className="overflow-hidden rounded-[6px] border border-hairline bg-paper">
+    <section aria-labelledby="log" className="min-w-0 rounded-[6px] border border-hairline bg-paper">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2.5 border-b border-hairline px-4 py-3">
         <h2 id="log" className="text-[13.5px] font-semibold text-ink">
-          {data ? t("log.entries", { n: folded.length }) : t("log.title")}
+          {data ? t("log.entries", { n: rows.length }) : t("log.title")}
         </h2>
 
         <div className="relative w-full sm:w-[220px]">
@@ -257,6 +236,7 @@ export function Log({ portals, now }: { portals: PortalRow[]; now: number }) {
               key={f.id}
               type="button"
               aria-pressed={filter === f.id}
+              title={f.id === "problems" ? t("log.failedRunsHint") : undefined}
               onClick={() => setFilter(f.id)}
               className={`h-7 rounded-[4px] border px-2.5 text-[12.5px] font-medium cursor-pointer ${
                 filter === f.id
@@ -389,8 +369,6 @@ export function Log({ portals, now }: { portals: PortalRow[]; now: number }) {
   );
 }
 
-type Folded = LogRow & { times: number; since: string };
-
 function Entry({
   r,
   now,
@@ -398,7 +376,7 @@ function Entry({
   open,
   toggle,
 }: {
-  r: Folded;
+  r: LogRow;
   now: number;
   compactDate: boolean;
   open: boolean;
@@ -423,13 +401,8 @@ function Entry({
           <span className="block truncate text-[13.5px] font-semibold text-ink">{host(r.url)}</span>
           <span className="block text-[12px] text-slate">{step}</span>
         </span>
-        <span className="px-3 py-2.5 text-[13.5px] leading-snug text-slate">
+        <span className="min-w-0 px-3 py-2.5 text-[13.5px] leading-snug text-slate [overflow-wrap:anywhere]">
           {text}
-          {r.times > 1 && (
-            <span className="mt-1 block text-[12.5px] text-faint">
-              {t("log.times", { n: r.times })} <time dateTime={r.since}>{shortWhen(r.since, now, true)}</time>
-            </span>
-          )}
           {r.events.length > 0 && (
             <span className="ml-1.5 text-[12px] whitespace-nowrap text-docker">
               {open ? t("log.hideSteps") : t("log.steps", { n: r.events.length })}
@@ -452,7 +425,7 @@ function Entry({
           {r.events.map((e, i) => (
             <li key={i} className="grid grid-cols-[56px_1fr] gap-x-3 py-1 pl-3 text-[13px]">
               <span className="num text-faint">{clock(e.at)}</span>
-              <span className={e.level === "error" ? "text-failed" : e.level === "warn" ? "text-healing-text" : "text-ink"}>
+              <span className={`min-w-0 [overflow-wrap:anywhere] ${e.level === "error" ? "text-failed" : e.level === "warn" ? "text-healing-text" : "text-ink"}`}>
                 {e.message}
               </span>
             </li>
