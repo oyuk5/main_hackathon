@@ -18,7 +18,7 @@ const { store } = await import("./store.js");
 const { filePath } = await import("./documents.js");
 const { normalizeUrl, portalIdFor } = await import("./orchestrator.js");
 
-const app = await buildServer({ authEnv: {} });
+const app = await buildServer();
 after(async () => {
   await app.close();
   removeTemp(process.env.DATA_DIR!);
@@ -27,46 +27,13 @@ after(async () => {
 const post = (url: string, payload: unknown) => app.inject({ method: "POST", url, payload: payload as object });
 const get = (url: string) => app.inject({ method: "GET", url });
 
-describe("operator sign-in", () => {
-  it("keeps the default internal API open and exposes no key", async () => {
-    assert.equal((await get("/internal/overview")).statusCode, 200);
-    assert.deepEqual((await get("/auth/config")).json(), { clerkPublishableKey: null });
-  });
-
-  it("protects only internal routes and restricts verified primary email and active organization", async () => {
-    const secured = await buildServer({
-      authEnv: { CLERK_PUBLISHABLE_KEY: "mock-public", CLERK_SECRET_KEY: "mock-secret", CLERK_ALLOWED_EMAILS: " Operator@Example.net ", CLERK_ALLOWED_ORG: "org_test" },
-      installOperatorAuth: async (scope) => {
-        scope.addHook("preHandler", async (req, reply) => {
-          if (req.headers.authorization === "redirect") return reply.redirect("https://example.net/");
-        });
-        return {
-          session: (req) => req.headers.authorization === "invalid" ? null : { userId: req.headers.authorization ?? "", orgId: req.headers.authorization === "wrong-org" ? null : "org_test" },
-          primaryEmail: async (_req, id) => ({ emailAddress: "operator@example.net", verified: id === "valid" }),
-        };
-      },
-    });
-    try {
-      assert.deepEqual((await secured.inject("/auth/config")).json(), { clerkPublishableKey: "mock-public" });
-      assert.equal((await secured.inject("/portals")).statusCode, 200);
-      for (const url of ["/internal/overview", "/internal/session", "/internal/log", "/internal/ledger", "/internal/portals/missing"]) {
-        const response = await secured.inject(url);
-        assert.equal(response.statusCode, 401);
-        assert.deepEqual(response.json(), { error: "sign in required" });
-      }
-      for (const [authorization, expected] of [["invalid", 401], ["redirect", 401], ["wrong-org", 403], ["unverified", 403], ["valid", 200]] as const) {
-        const response = await secured.inject({ url: "/internal/overview", headers: { authorization } });
-        assert.equal(response.statusCode, expected, authorization);
-        if (expected === 401) assert.deepEqual(response.json(), { error: "sign in required" });
-      }
-    } finally {
-      await secured.close();
-    }
-  });
+it("needs no authentication: the dashboard's internal routes answer without a login", async () => {
+  assert.equal((await get("/internal/overview")).statusCode, 200);
+  assert.equal((await get("/auth/config")).statusCode, 404);
 });
 
 it("does not attach portals added through the demo API", async () => {
-  const demo = await buildServer({ demo: true, authEnv: {} });
+  const demo = await buildServer({ demo: true });
   try {
     const url = "https://demo-must-not-attach.example/";
     assert.equal((await demo.inject({ method: "POST", url: "/portals", payload: { url } })).statusCode, 403);

@@ -20,8 +20,6 @@
     "eval": "tsx lab/eval.ts"
   },
   "dependencies": {
-    "@clerk/fastify": "3.1.106",
-    "@clerk/react": "6.19.4",
     "@fastify/static": "10.1.12",
     "@fontsource-variable/archivo": "5.3.0",
     "@fontsource/newsreader": "5.3.0",

@@ -391,10 +391,6 @@ const en = {
   "sea.norwegian": "Norwegian Sea",
 
   // sign-in
-  "auth.checking": "Checking operator access…",
-  "auth.denied": "This account could not access the dashboard.",
-  "auth.signIn": "Sign in to see your portals",
-  "auth.loadFailed": "Operator sign-in could not load. Reload the page to try again.",
 } satisfies Record<string, Msg>;
 
 export type Key = keyof typeof en;
@@ -735,10 +731,6 @@ const de: Record<Key, Msg> = {
   "sea.med": "Mittelmeer",
   "sea.norwegian": "Europäisches Nordmeer",
 
-  "auth.checking": "Betreiberzugang wird geprüft…",
-  "auth.denied": "Dieses Konto hat keinen Zugriff auf das Dashboard.",
-  "auth.signIn": "Melden Sie sich an, um Ihre Portale zu sehen",
-  "auth.loadFailed": "Die Betreiberanmeldung konnte nicht geladen werden. Laden Sie die Seite neu, um es erneut zu versuchen.",
 };
 
 const DICT: Record<Lang, Record<Key, Msg>> = { en, de };

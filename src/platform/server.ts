@@ -12,7 +12,6 @@ import { filePath } from "./documents.js";
 import { AddPortalBody, type PortalEntry, type Run } from "../shared/contract.js";
 import { toEpoch } from "../shared/time.js";
 import { dateTimeEpoch } from "./calendar.js";
-import { operatorConfig, protectInternalRoutes, type InstallOperatorAuth } from "./operatorAuth.js";
 
 function entry(p: PortalRow): PortalEntry {
   return {
@@ -25,13 +24,8 @@ function entry(p: PortalRow): PortalEntry {
   };
 }
 
-export async function buildServer(options: { demo?: boolean; authEnv?: NodeJS.ProcessEnv; installOperatorAuth?: InstallOperatorAuth } = {}) {
+export async function buildServer(options: { demo?: boolean } = {}) {
   const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? "warn" } });
-  const auth = operatorConfig(options.authEnv ?? process.env);
-  app.get("/auth/config", async (_request, reply) => {
-    reply.header("cache-control", "no-store");
-    return { clerkPublishableKey: auth?.publishableKey ?? null };
-  });
 
   // ---------------------------------------------------------------- public API (contract)
 
@@ -93,11 +87,8 @@ export async function buildServer(options: { demo?: boolean; authEnv?: NodeJS.Pr
     return reply.send(fs.createReadStream(p));
   });
 
-  // Clerk is encapsulated here: even when enabled, no public API route runs its hooks.
-  await app.register(async (internal) => {
-    if (auth) await protectInternalRoutes(internal, auth, options.installOperatorAuth);
-    registerInternalRoutes(internal);
-  }, { prefix: "/internal" });
+  // No authentication, as the brief specifies (API and dashboard alike).
+  await app.register(async (internal) => registerInternalRoutes(internal), { prefix: "/internal" });
 
   const webRoot = path.resolve("dist/web");
   if (fs.existsSync(webRoot)) {
@@ -111,7 +102,6 @@ export async function buildServer(options: { demo?: boolean; authEnv?: NodeJS.Pr
 }
 
 function registerInternalRoutes(app: FastifyInstance) {
-  app.get("/session", async () => ({ ok: true }));
 
   app.get("/overview", async () =>
     store.listPortals().map((p) => {

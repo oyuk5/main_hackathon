@@ -87,22 +87,15 @@ In company deployments, put the dashboard behind company single sign-on via a re
 | `TZ_DISPLAY` | no | `Europe/Berlin` | Time zone for times the system itself writes. |
 | `LOG_LEVEL` | no | `warn` | Server log level. |
 
-## Operator sign-in (optional)
+## Access
 
-Leave both Clerk keys unset for evaluation. The dashboard and internal routes then remain open, and the browser does not load Clerk. For an operator deployment, create an application in the Clerk Dashboard, enable your preferred sign-in methods, and configure its instance for the dashboard's origin. Copy the publishable and secret keys from the application's API Keys page into the server environment and restart Watchtower; no rebuild is needed.
-
-| Variable | Purpose |
-|---|---|
-| `CLERK_PUBLISHABLE_KEY` | Public key returned at runtime by `/auth/config`. |
-| `CLERK_SECRET_KEY` | Server-only key. Both keys are required to enable sign-in. |
-| `CLERK_ALLOWED_EMAILS` | Optional comma-separated list of verified primary email addresses. |
-| `CLERK_ALLOWED_ORG` | Optional Clerk organization ID (`org_…`); the operator must have it active in their session. |
-
-If both restrictions are set, both must match. Only `/internal/*` is protected; the public API, including its write routes and file downloads, stays open by design. Use a reverse proxy or a private network if your deployment also needs to restrict the public API.
+There is no authentication, as the brief specifies: the API and the dashboard answer without a login. In a production deployment, put the dashboard behind your own single sign-on (for example a reverse proxy) and keep the API on a private network.
 
 ## Approach: scale and model cost
 
 Reads run in parallel across portals and are rate-limited to at most one request per second per portal. Portals on the same software can reuse one learned family recipe if it passes a deterministic trial, without another model call for attach.
+
+The first read on a large portal does a bounded amount of detail and document work, but downloads are still limited to one request per second per portal: in our TenderNed run, 2,592 tenders were listed and the first 36 were served after about 14 minutes. Small portals in our lab served their first tenders in 1–3 minutes; once the initial backlog clears, later reads check the listing and fetch only new or changed details and attachments.
 
 Attach and repair reserve estimated worst-case request headroom before sending each model call. Set the input and output prices to match the provider for these local limits to reflect actual spend. Provider billing is authoritative; usage a provider does not report is not visible to the ledger.
 
@@ -115,6 +108,8 @@ Every model call is recorded with its purpose, tokens and cost: `GET /internal/l
 | Repair | **$0.021** average per scenario that started a repair |
 
 **Attach:** B’s [November 20, 2026, 23:12 CET attach-only eval](status/B.md) on three lab portals measured **100% attach accuracy**, **0 wrong values**, and **$0.033 per attach** on average.
+
+**Attach recheck:** November 21, 2026, approximately 00:59–01:04 CET, `lab/eval.ts --attach-only` on `29ec17a`: Gmina twice (13/13 each), Stadtwerke (14/14), and Ville (11/11) all scored **100%**. This was an attach-only recheck, not a new repair benchmark.
 
 **Repair:** D’s [November 20, 2026, 22:28 CET full lab eval](status/D.md) measured **$0.021** per scenario that started a repair, **85%** of breaking changes healed (**11 of 13**), and **16 s** median heal time. Watchtower started a repair on **3 of 6** harmless changes. These are separate lab runs, not real-portal averages.
 
