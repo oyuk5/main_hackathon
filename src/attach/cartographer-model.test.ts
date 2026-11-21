@@ -495,6 +495,18 @@ test("a recipe without documents can pass when no files are shown, but cannot dr
   assert.equal(stubborn.prompts.length, 4);
 });
 
+test("Platforma-style samples look past a tender with no attachments", async () => {
+  portal(6);
+  // Reduced from two saved public pages: empty Attachments table, then a Proceeding download.
+  routes.set("/m/t/100", () => ({ body: page('<table><caption>Attachments</caption><tr><td>There are no attachments in this proceeding</td></tr></table>') }));
+  routes.set("/m/t/101", () => ({ body: page('<table><caption>Attachments</caption><tr><td>Proceeding</td><td><a class="on-btn proceeding-file-download" href="/file/get_new/sample.pdf" aria-label="Download"></a></td></tr></table>') }));
+  const noDocs = { ...goodRecipe(), documents: null };
+  const ctx = scripted(`${base}/m/list`, Array.from({ length: 4 }, () => step("recipe", { recipe: noDocs })));
+  const outcome = await attachWithModel(ctx);
+  assert.equal(outcome.kind, "failed");
+  assert.match(ctx.prompts[1]!, /proceeding-file-download/);
+});
+
 test("a final draft pointing to HTML instead of files is not promoted", async () => {
   portal(6);
   for (let i = 100; i < 106; i++) {

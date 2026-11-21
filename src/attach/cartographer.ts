@@ -988,15 +988,25 @@ export async function labelHints(recipe: Recipe, page: { url: string; body: stri
 
 async function showTenderPage(deps: ModelAttachDeps, recipe: Recipe, read: ReadOutcome, ctx: PortalContext): Promise<TenderPageView | null> {
   if (read.kind !== "ok" || read.tenders.length === 0) return null;
-  const start = documentsStart(recipe, read.tenders[0]!);
-  if (!start) return null;
-  try {
-    const got = await (deps.page ?? fetchText)(ctx, start);
-    return { ...tenderPageView(got.text, got.url, got.status, got.contentType), page: { url: got.url, body: got.text } };
-  } catch (e) {
-    if (ctx.signal.aborted) throw e;
-    return { text: `Opening the first tender's page ${start} failed: ${(e as Error).message}.`, fileLinks: 0 };
+  const samples = read.tenders.slice(0, 3);
+  const seen = new Set<string>();
+  let first: TenderPageView | null = null;
+  for (const tender of samples) {
+    const start = documentsStart(recipe, tender);
+    if (!start || seen.has(start)) continue;
+    seen.add(start);
+    try {
+      const got = await (deps.page ?? fetchText)(ctx, start);
+      const view = tenderPageView(got.text, got.url, got.status, got.contentType);
+      const sample = { ...view, page: { url: got.url, body: got.text } };
+      if (view.fileLinks > 0) return sample;
+      first ??= sample;
+    } catch (error) {
+      if (ctx.signal.aborted) throw error;
+      first ??= { text: `Opening a sample tender's page ${start} failed: ${(error as Error).message}.`, fileLinks: 0 };
+    }
   }
+  return first;
 }
 
 /** Shows the model the item its rules ran against, compressed. Never throws. */

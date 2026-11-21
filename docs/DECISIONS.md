@@ -47,3 +47,4 @@ Sat 01:40 · A · Recognize an HTTP 429 list response carrying captcha markers b
 - Sat 02:03 · A · Failed-attach reasons keep only the first sentence of the last problem (B's cartographer.ts) · real platformazakupowa.pl showed the model's correction instructions and recipe keys to the operator
 Sat 02:16 · A · Normalize required date fields independently of a learned parser hint · eTenders listing timestamps must reach Watch as canonical dates or null
 Sat 02:20 · A · Fall back to browser evidence on an HTTP redirect loop and require a compatible recipe · public cookie negotiation may need a browser without signing in
+Sat 02:27 · A · Sample up to three distinct tender pages for attachment evidence · the first Platforma tender may have no files even when other rows expose a download table
