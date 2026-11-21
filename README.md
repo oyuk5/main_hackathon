@@ -115,6 +115,8 @@ Every model call is recorded with its purpose, tokens and cost: `GET /internal/l
 
 **At 1,000 portals:** using the lab average and assuming every portal needs its own model-assisted attach, budget about **1,000 × $0.033 = $33 once**, plus repair costs when portals change. Regular reads make no model calls and cost **$0 in model usage**. Family reuse can lower the initial cost.
 
+**What it saves:** at 300 portals, keeping scrapers working by hand costs an estimated €36,000–132,000 a year in engineering time; with Watchtower about €8,000–22,000, mostly the person who handles the breaks it cannot repair. Mid case: about **€47,500 saved a year (81%)**. Assumptions and sources: [docs/SAVINGS.md](docs/SAVINGS.md).
+
 ## API
 
 | Call | Answer |
