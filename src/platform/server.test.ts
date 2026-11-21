@@ -186,6 +186,34 @@ describe("DELETE and refresh", () => {
     assert.equal((await app.inject({ method: "DELETE", url: "/portals/gone" })).statusCode, 404);
   });
 
+  it("DELETE removes the portal's own document files, but keeps a file another portal's tenders still list", async () => {
+    const file = (text: string) => {
+      const bytes = Buffer.from(text);
+      const sha = crypto.createHash("sha256").update(bytes).digest("hex");
+      fs.mkdirSync(path.dirname(filePath(sha)), { recursive: true });
+      fs.writeFileSync(filePath(sha), bytes);
+      return { fileName: `${sha.slice(0, 6)}.pdf`, sizeBytes: bytes.length, sha256: sha, path: `/files/${sha}` };
+    };
+    const unique = file("%PDF only portal A");
+    const shared = file("%PDF on both portals");
+    const withDocs = (id: string, documents: ReturnType<typeof file>[]) => {
+      seeded(id, ["2026-11-20T09:00:00+01:00"]);
+      const [t] = store.listTenders(id);
+      store.upsertTender(id, { ...t!, documents }, "docs", "", "2026-11-20T09:00:00+01:00");
+    };
+    withDocs("files-a", [unique, shared]);
+    withDocs("files-b", [shared]);
+    assert.equal((await get(unique.path)).statusCode, 200);
+
+    assert.equal((await app.inject({ method: "DELETE", url: "/portals/files-a" })).statusCode, 204);
+    assert.equal((await get(unique.path)).statusCode, 404, "a file only the deleted portal had is gone");
+    assert.equal(fs.existsSync(filePath(unique.sha256)), false);
+    assert.equal((await get(shared.path)).statusCode, 200, "a file portal B still lists stays");
+
+    assert.equal((await app.inject({ method: "DELETE", url: "/portals/files-b" })).statusCode, 204);
+    assert.equal((await get(shared.path)).statusCode, 404, "once no portal lists it, the shared file goes too");
+  });
+
   it("two refreshes while a job runs give the same runId", async () => {
     const { id } = (await post("/portals", { url: "http://127.0.0.1:9/refresh-test" })).json();
     const a = (await post(`/portals/${id}/refresh`, {})).json().runId;

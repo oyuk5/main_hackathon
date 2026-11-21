@@ -18,7 +18,7 @@ const CAP = 1024 * 1024; // 1 MB cap for the tests
 process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "wt-docs-"));
 process.env.MAX_FILE_BYTES = String(CAP);
 
-const { documentFetcher } = await import("./documents.js");
+const { documentFetcher, filePath, removeOrphanFiles } = await import("./documents.js");
 const { politeBrowser, politeHttp, closeSharedBrowser } = await import("./polite.js");
 
 // ------------------------------------------------------------ fixtures
@@ -336,6 +336,34 @@ describe("document pipeline", { concurrency: true }, () => {
       assert.ok(fake.stats.closedAt !== null && fake.stats.closedAt - abortedAt < 2000, "transfer kept running after abort");
     } finally {
       await fake.close();
+    }
+  });
+});
+
+describe("orphan files after DELETE", () => {
+  it("keeps a file another portal stored in this process, before that portal's tender row is saved", async () => {
+    // The suite above removes DATA_DIR when it ends.
+    for (const dir of ["tmp", "files"]) fs.mkdirSync(path.join(process.env.DATA_DIR!, dir), { recursive: true });
+    const fake = await fakePortal();
+    try {
+      const a = context();
+      const b = context();
+      const asA = { ...a.ctx, portalId: "orphan-a" } as PortalContext;
+      const asB = { ...b.ctx, portalId: "orphan-b" } as PortalContext;
+      const gotA = await documentFetcher.fetchAll([{ url: `${fake.base}/tender.pdf`, via: "http" }], asA);
+      await documentFetcher.fetchAll([{ url: `${fake.base}/tender.pdf`, via: "http" }], asB);
+      const sha = gotA.documents[0]!.sha256;
+      // No tender row lists the file yet: only B's download in this process holds it.
+      const first = removeOrphanFiles("orphan-a", [sha], () => false);
+      assert.deepEqual(first, { removed: [], kept: [sha] });
+      assert.equal(fs.existsSync(filePath(sha)), true);
+      // B deleted too: nobody holds it any more.
+      const second = removeOrphanFiles("orphan-b", [sha], () => false);
+      assert.deepEqual(second, { removed: [sha], kept: [] });
+      assert.equal(fs.existsSync(filePath(sha)), false);
+    } finally {
+      await fake.close();
+      fs.rmSync(process.env.DATA_DIR!, { recursive: true, force: true });
     }
   });
 });

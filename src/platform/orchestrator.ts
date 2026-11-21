@@ -18,7 +18,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { config } from "./config.js";
 import { INTERRUPTED, store } from "./store.js";
 import { politeBrowser, politeHttp } from "./polite.js";
-import { documentFetcher } from "./documents.js";
+import { documentFetcher, removeOrphanFiles } from "./documents.js";
 import { count, join, labelled, sentence } from "./reason.js";
 import { mayClose, sawWholeList } from "./listing.js";
 import { ModelBudgetError, planDocuments, type Need } from "./budget.js";
@@ -109,7 +109,10 @@ export const orchestrator = {
   remove(portalId: string) {
     active.get(portalId)?.controller.abort();
     active.delete(portalId);
+    const files = store.documentShas(portalId);
     store.deletePortal(portalId);
+    // Its documents go too, unless another portal's tenders still list the same file.
+    removeOrphanFiles(portalId, files, (sha) => store.isShaReferenced(sha));
   },
 
   isBusy(portalId: string) {

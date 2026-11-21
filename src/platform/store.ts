@@ -102,6 +102,26 @@ export const store = {
   setBaseline(id: string, b: Baseline) {
     db.prepare("UPDATE portals SET baseline_json = ? WHERE id = ?").run(JSON.stringify(b), id);
   },
+  /** sha256 of every document this portal's tenders list. */
+  documentShas(portalId: string): string[] {
+    const shas = new Set<string>();
+    for (const row of db.prepare("SELECT json FROM tenders WHERE portal_id = ?").all(portalId) as { json: string }[]) {
+      try {
+        for (const d of (JSON.parse(row.json) as { documents?: { sha256?: unknown }[] }).documents ?? []) {
+          if (typeof d.sha256 === "string") shas.add(d.sha256);
+        }
+      } catch {
+        // A row we cannot parse lists no file.
+      }
+    }
+    return [...shas];
+  },
+
+  /** True when any tender row still names this file. */
+  isShaReferenced(sha256: string): boolean {
+    return db.prepare("SELECT 1 FROM tenders WHERE instr(json, ?) > 0 LIMIT 1").get(sha256) !== undefined;
+  },
+
   deletePortal(id: string) {
     for (const t of ["recipes", "runs", "events", "tenders"]) db.prepare(`DELETE FROM ${t} WHERE portal_id = ?`).run(id);
     db.prepare("DELETE FROM portals WHERE id = ?").run(id);

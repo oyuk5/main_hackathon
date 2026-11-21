@@ -15,6 +15,7 @@ import fs from "node:fs";
 import fsp from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { Readable } from "node:stream";
 import yauzl from "yauzl";
 import type { Download, Page } from "playwright";
@@ -37,6 +38,52 @@ export function filePath(sha256: string): string {
 }
 
 const capMb = () => Math.round(config.maxFileBytes / 1048576);
+
+// ------------------------------------------------------------ who holds a stored file
+
+/** The portal whose documents are being fetched, so commit() knows who holds each file it stores. */
+const fetchingFor = new AsyncLocalStorage<string>();
+/**
+ * Portals that stored each file in this process. A file is content-addressed and can be shared, and a
+ * portal stores a file before its tender row is saved: this covers that gap when another portal is
+ * deleted. Kept until restart; after a restart, a job that still needs a file downloads it again.
+ */
+const holders = new Map<string, Set<string>>();
+
+function noteHolder(sha256: string, portalId: string | undefined): void {
+  if (!portalId) return;
+  const set = holders.get(sha256) ?? new Set<string>();
+  set.add(portalId);
+  holders.set(sha256, set);
+}
+
+/**
+ * After a portal is deleted: removes each of its files from disk unless another portal's tenders still
+ * reference it (`isReferenced`) or another portal stored it in this process, so `/files/{sha256}` answers
+ * 404 for what only that portal had. Synchronous, so no download can interleave between check and delete.
+ */
+export function removeOrphanFiles(portalId: string, sha256s: Iterable<string>, isReferenced: (sha256: string) => boolean): { removed: string[]; kept: string[] } {
+  const removed: string[] = [];
+  const kept: string[] = [];
+  for (const sha of new Set(sha256s)) {
+    if (!/^[0-9a-f]{64}$/.test(sha)) continue;
+    const set = holders.get(sha);
+    set?.delete(portalId);
+    if (set && set.size === 0) holders.delete(sha);
+    if (isReferenced(sha) || (holders.get(sha)?.size ?? 0) > 0) {
+      kept.push(sha);
+      continue;
+    }
+    fs.rmSync(filePath(sha), { force: true });
+    removed.push(sha);
+  }
+  return { removed, kept };
+}
+
+/** For tests: forget who stored which file. */
+export function resetFileHoldersForTests(): void {
+  holders.clear();
+}
 
 // ------------------------------------------------------------ naming
 
@@ -104,6 +151,8 @@ class OverCap extends Error {}
 /** Moves a temp file into content-addressed storage and returns its document entry. */
 async function commit(t: Temp, fileName: string): Promise<TenderDocument> {
   const dest = filePath(t.sha256);
+  // Before the file is in place: a portal deleted meanwhile sees this one holds it and keeps it.
+  noteHolder(t.sha256, fetchingFor.getStore());
   if (fs.existsSync(dest)) await fsp.rm(t.tmp, { force: true });
   else await fsp.rename(t.tmp, dest);
   return { fileName, sizeBytes: t.size, sha256: t.sha256, path: `/files/${t.sha256}` };
@@ -428,7 +477,7 @@ export const documentFetcher: DocumentFetcher = {
     for (const ref of refs) {
       if (ctx.signal.aborted) break;
       try {
-        const got = ref.via === "browser" ? await viaBrowser(ref, ctx) : await viaHttp(ref, ctx);
+        const got = await fetchingFor.run(ctx.portalId, () => (ref.via === "browser" ? viaBrowser(ref, ctx) : viaHttp(ref, ctx)));
         documents.push(...got.documents);
         problems.push(...got.problems);
       } catch (e) {
