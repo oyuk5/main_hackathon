@@ -109,7 +109,7 @@ The skeleton already runs end to end. The stubs in `src/attach/index.ts` and `sr
 3. **Mutator** (by 21:00): switches a demo portal to a changed version, such as renamed classes, a moved list URL, new pagination, renamed JSON keys, a date format change, a cookie banner, or an empty day.
 4. **Eval** (by 23:00): `npm run eval` attaches every test portal through the real API, compares against ground truth (lab portals) or spot checks (real portals), applies mutations, and reports: attach accuracy, notice accuracy (state vs reality), heal rate, time to heal, model cost per portal, false repairs. Save results to `lab/results/`.
 5. **Dashboard** in `web/` (by Sat 03:00). Use the `frontend-design` skill. One calm screen: a portal grid with state lights, the reason, tender count and last success. Click a portal for its run history with every read and repair, the repair summary and recipe diff, the event log, and model cost. Add a ledger total. It must make sense to an operator at 8 a.m. in five seconds.
-6. **Video** (backup at Sat 01:00, final at 09:30): 3 minutes maximum. Attach an unseen portal, a mutation and its automatic repair, the dashboard, the eval numbers and the cost per portal.
+6. **Video** (backup at Sat 01:00, final at 09:30): 2 minutes 30 seconds maximum (see BRIEF answers). Attach an unseen portal, a mutation and its automatic repair, the dashboard, the eval numbers and the cost per portal.
 
 **Done when:** the eval runs in one command and prints the scoreboard, and the dashboard shows every state and every repair clearly.
 

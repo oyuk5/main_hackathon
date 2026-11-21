@@ -1,32 +1,62 @@
-# Video script: Watchtower in 3 minutes
+# Pitch video: Watchtower in 2:30
 
-For whoever records. The viewers are Patterno's judges: they care about attach, notice, repair, the dashboard, and cost per portal.
+For the team recording it. The viewers are Patterno's judges. **Hard limit 2:30.** The script runs about 2:25, roughly 340 spoken words. One video serves as both the pitch and the demo (BuilderBase has a single "Pitch Video" field).
 
-## Before you record (10 minutes)
+## Why it is built this way
+- **It opens with Patterno's own sentence.** Their brief says: "Today we connect every new portal by hand. When a portal changes, its tenders can stop arriving without anyone noticing." We read it back to them word for word. People trust a solution to the problem in their own words.
+- **It follows their scoring sheet in their order:** Attach, Notice, Repair, Dashboard, Approach. Each scene names its criterion out loud, so the judges can tick the boxes while they watch.
+- **Show, don't claim.** Every claim happens live on screen at the same moment. No adjectives like "revolutionary".
+- **The live repair is the peak,** right in the middle: the moment they will remember.
+- **It ends on the strongest number** (money saved). People remember the peak and the end best.
+- **It admits a limit on purpose:** the honestly failed portal. It quotes their own rule ("a wrong value is worse than a missing one") and makes every other claim more believable.
+- **Their world, their language:** 4,500 portals, Hamburg, one line in German (Patterno is a German company and the dashboard speaks German).
+- **Faces for 2 seconds each.** Judges back people they have seen, and the winning team gets job offers.
+- **Only true claims.** They run our container themselves, so anything overstated would show up immediately.
 
-1. Running: the API on :8080, the dashboard (http://localhost:5173, or http://localhost:8080 from the container), and the **video lab on :4300** (`LAB_PORT=4300 npx tsx lab/serve.ts`). Don't use :4100 while an eval runs on it.
-2. Already added, so they have time to settle: `http://localhost:4300/gmina/` (should be **serving**) and `http://localhost:4300/obec/` (should be **failed**, documents need a login).
-3. Browser: one clean window, dark theme, zoom 110%, bookmarks bar hidden, other tabs closed. Windows notifications off (Focus).
-4. A terminal next to the browser, font large, in the repo folder, with this command typed but not run:
+## Before you record (15 minutes)
+1. The eval must be finished. Then run `npx tsx lab/demo/prepare-video.ts` until it prints "Ready to record". It removes the eval's portals, resets the video lab, and checks that gmina is serving and obec is failed.
+2. Running: the API on :8080 and the video lab (`LAB_PORT=4300 npx tsx lab/serve.ts`). **Record http://localhost:8080**, the container's own dashboard: that proves "one container".
+3. Browser: one clean window, **dark theme**, zoom 110%, bookmarks bar hidden, no other tabs. Windows notifications off (Focus).
+4. Terminal next to the browser, large font, in the repo folder, this command typed but not run:
    `LAB=http://localhost:4300 npx tsx lab/mutate.ts gmina renamed-classes --refresh`
-5. Recorder: Win+Alt+R (Xbox Game Bar) or OBS, 1080p. Record the scenes separately and cut the waits.
+5. Have `lab/demo/video-import.xlsx` ready in a file window for the import shot.
+6. Record the screen first, without sound, one scene at a time (Win+Alt+R or OBS, 1080p). Cut out all waiting. Then record the voices over the finished cut.
 
-## The script (about 2:50)
+## The script
 
-| Time | Screen | Say |
-|---|---|---|
-| 0:00–0:15 | Dashboard, "Nothing needs a person" | "Patterno gathers tenders from 4,500 portals, connected by hand. When a portal changes, its tenders quietly stop. Watchtower connects portals on its own, notices when one breaks, and repairs it." |
-| 0:15–0:35 | Point at the four state cards, the table, the map, "Model usage so far" | "Every portal is in one of four states: being attached, serving, being repaired, or needs a person. An operator sees at 8 a.m. what delivers and what doesn't." |
-| 0:35–1:05 | Paste `http://localhost:4300/kommune/` into the address field → **Watch portal**. Cut to it **serving**. Open it: tenders, then one tender's documents (a ZIP is unpacked into its files). | "We give it only an address it has never seen. A model learns how to read the portal once, about three cents. After that, every read is plain code: no model, zero cost. It delivers every open tender with its documents, ZIPs unpacked, deadlines in local time." |
-| 1:05–1:50 | Terminal: run the mutator command. Dashboard: gmina turns **Being repaired**, then back to **Serving**. Open gmina: run history (read failed → repair ok), the repair summary, the cost of the repair. | "Now the portal changes, like a redesign: every class name is different. Watchtower notices on the next read, keeps serving the last correct tenders, and repairs itself: the model patches the recipe, and code checks it against tenders it already knows before anything goes live. About one cent, under a minute, nobody touched it." |
-| 1:50–2:10 | **obec**: failed, reason "documents need a login". Optional: Platforma Zakupowa failed because robots.txt blocks downloads. | "When it can't deliver, it says so. This portal hides documents behind a login; we don't log in, so it's failed, with the reason in plain words. A wrong value is worse than a missing one." |
-| 2:10–2:25 | Optional: **Import list**, drop `lab/demo/portals.xlsx`, show the preview. Flip **EN/DE**. | "Operators can add hundreds of portals from a spreadsheet, in English or German." |
-| 2:25–2:50 | `lab/results/latest.md` (or the README cost table) | "Our eval breaks portals in many ways and checks the result against exact ground truth. [Heal rate]% of breaking changes repaired by themselves, median [N] seconds. Attach about three cents per portal, a repair about two cents, regular reads free. At 300 portals that saves about 47,000 euros a year." |
-| 2:50–3:00 | Dashboard | "One container, API and dashboard on port 8080. Watchtower." |
+| Time | Who | Screen | Say |
+|---|---|---|---|
+| 0:00–0:10 | Narrator | Black, then the quote on screen in white | "'Today we connect every new portal by hand. When a portal changes, its tenders can stop arriving without anyone noticing.' That's Patterno's own brief." |
+| 0:10–0:22 | Narrator | Dashboard: "1 portal needs a person", the state cards, the map | "This is Watchtower at eight in the morning. Every portal is serving, repairing, or needs a person, and it tells you which one, and why." |
+| 0:22–0:50 | **B** (face 2 s) | Paste `http://localhost:4300/kommune/` → **Watch portal** → cut to **Serving** → open a tender: documents, the ZIP unpacked into files | "**Attach.** One address it has never seen. A model studies the portal once, for about three cents. From then on every read is plain code: no model, zero cost. Every open tender, every document, ZIPs unpacked, deadlines in local time." |
+| 0:50–1:25 | **C** (face 2 s) | Run the mutator in the terminal → gmina turns **Being repaired** → **Serving** → open gmina: run history (read failed, repair ok), repair summary, cost | "**Repair.** Now we break it: a full redesign, every class name changed. Watchtower notices on the next read and keeps serving the last correct tenders. Then it repairs itself, and before the fix goes live, code checks it against tenders it already knows. Under a minute. About a cent. Nobody touched it." |
+| 1:25–1:42 | **A** (face 2 s) | obec: **failed**, reason "Documents need a login"; Issues tab | "**Notice.** Some portals hide their documents behind a login. We never log in. So Watchtower says failed, and says why. Your rule: a wrong value is worse than a missing one." |
+| 1:42–1:58 | **D** (face 2 s) | Fast cuts, about 3 s each: **Import list** with `video-import.xlsx` (preview, "already watched", duplicates merged) → **EN/DE** switch → `curl localhost:8080/portals` JSON in the terminal | "**Dashboard.** Add a whole spreadsheet of portals at once. Auch auf Deutsch. And every call your systems need, exactly as specified." |
+| 1:58–2:17 | **D** | `lab/results/latest.md` scoreboard, then `docs/SAVINGS.md` table | "**Approach.** We tested it the way you will: eight portals we built, broken in [N] different ways, checked against exact ground truth. [X]% repaired themselves, median [S] seconds. At 300 portals, that's about forty-seven thousand euros a year back in engineering time. At your 4,500, over half a million." |
+| 2:17–2:27 | Narrator | Dashboard, then the four faces with names, then "Watchtower" | "One container. Port 8080. Built to go into production. We're [names]. This is Watchtower." |
 
-Fill in the bracketed numbers from the latest eval before recording the final video.
+Fill in **[N]**, **[X]** and **[S]** from `lab/results/latest.md` after the eval. Say only the numbers it shows.
+
+**If you are over 2:30, cut in this order:** the curl shot, the EN/DE shot, the ZIP close-up, the map. Never cut the repair scene or the opening quote.
+
+## Recording the voices
+Each person records their own lines over their own scene: phone voice memo, quiet room, phone about 20 cm away, same for everyone. Two takes each, keep the better one. Speak a little slower than feels natural. If one person sounds much quieter, one narrator reads every line instead. Clear sound beats more voices.
+
+## Every feature, and where it is shown
+| Feature | Scene |
+|---|---|
+| Attach an unseen portal (state integrating → serving) | B |
+| Tenders with documents, ZIP unpacked, local deadlines | B |
+| Notice a change, keep serving while healing, repair itself, verified | C |
+| Run history, repair summary, model cost per portal | C |
+| Honest failure with a plain-words reason (login wall) | A |
+| Issues tab: what needs a person | A |
+| Bulk import (Excel/CSV/JSON), duplicates merged, already-watched marked | D |
+| German / English | D |
+| The public API (JSON) | D |
+| Eval scoreboard, cost per attach and repair, savings | D |
 
 ## If something goes wrong
-- A portal stays **Being attached** for long: cut, wait, record that scene again. Small lab portals serve in 1–3 minutes.
+- A portal stays **Being attached**: cut, wait, record that scene again. Lab portals serve in 1–3 minutes.
 - The repair doesn't start: press **Read now** on gmina, or run the mutator command again.
-- To start over: `LAB=http://localhost:4300 npx tsx lab/mutate.ts reset`.
+- To start over: `LAB=http://localhost:4300 npx tsx lab/mutate.ts reset`, then `npx tsx lab/demo/prepare-video.ts`.
