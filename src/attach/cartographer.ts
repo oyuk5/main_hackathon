@@ -1203,12 +1203,18 @@ export async function attachWithModel(ctx: PortalContext, deps: ModelAttachDeps 
   }
 
   if (hint && !everRead) return { kind: "blocked", reason: `${capital(hint)}, and no tender list could be read without it.` };
-  return { kind: "failed", reason: `Could not learn this portal in ${MAX_RECIPE_ROUNDS} drafts: ${lower(lastProblem)}` };
+  return { kind: "failed", reason: `Could not learn this portal in ${MAX_RECIPE_ROUNDS} drafts: ${lower(firstSentence(lastProblem))}` };
 }
 
 function capital(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
+/** The operator reads the problem, not the fix we asked the model for: keep its first sentence. */
+export function firstSentence(s: string): string {
+  const m = /^.*?[.!?](?=\s+[A-Z(]|$)/s.exec(s.trim());
+  return m ? m[0] : s.trim();
+}
+
 function lower(s: string): string {
   const t = s.trim().replace(/\.$/, "");
   return (t.charAt(0).toLowerCase() + t.slice(1)) + ".";

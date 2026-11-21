@@ -528,3 +528,13 @@ test("a step that leaves out the fields its action does not use is still valid",
   assert.equal(out.kind, "ok", JSON.stringify(out));
   assert.equal(ctx.prompts.length, 1);
 });
+
+test("a failed attach reason keeps only the problem, not the instructions for the model", async () => {
+  const { firstSentence } = await import("./cartographer.js");
+  assert.equal(
+    firstSentence("There is no documents rule, so every tender would be served without its files. Find where the tender's own page lists its documents (links to PDF/ZIP) and add documents.hops/files."),
+    "There is no documents rule, so every tender would be served without its files.",
+  );
+  assert.equal(firstSentence("title found on only 2 of 9 tenders."), "title found on only 2 of 9 tenders.");
+  assert.equal(firstSentence("The list moved to example.org/a.b and stopped"), "The list moved to example.org/a.b and stopped");
+});
